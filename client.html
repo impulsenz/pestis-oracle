@@ -450,6 +450,7 @@
             </button>
             <div class="relative">
                 <button type="button" onclick="toggleAccountMenu()" id="accountBtn" class="flex items-center gap-2 rounded-xl pl-1 pr-3 h-10 cursor-pointer" style="background: var(--surface3); border: 1px solid var(--border);" aria-haspopup="menu">
+                    <img id="accountAvatar" src="" alt="" class="w-8 h-8 rounded-lg object-cover hidden" referrerpolicy="no-referrer">
                     <span id="accountInitial" class="w-8 h-8 rounded-lg bg-brand-500 text-white font-black text-xs flex items-center justify-center">?</span>
                     <span id="accountName" class="text-xs font-bold t-strong hidden sm:block max-w-[10rem] truncate"></span>
                 </button>
@@ -457,7 +458,6 @@
                     <div id="accountDetail" class="t-muted break-words"></div>
                     <button type="button" onclick="$('accountMenu').classList.add('hidden'); openSettings()" class="btn btn-secondary w-full">⚙ Settings</button>
                     <button type="button" onclick="$('accountMenu').classList.add('hidden'); openWhatsNew()" class="btn btn-secondary w-full">✨ What's new<span data-wn-badge class="wn-badge" style="display:none"></span></button>
-                    <button type="button" id="accountUpdateBtn" onclick="$('accountMenu').classList.add('hidden'); checkForUpdates()" class="btn btn-secondary w-full">⟳ Check for updates</button>
                     <div class="text-[10px] t-faint text-center">Version <span class="portal-version-inline"></span></div>
                     <div class="border-t divider pt-2 space-y-1.5"><div class="app-here text-center">Pestis apps · you're in the Client Portal</div><nav class="app-switch" aria-label="Pestis apps"><a href="index.html">🛠 Service App</a><a href="admin.html">🛡 Admin</a><span class="on" aria-current="page">🏢 Client Portal</span></nav></div>
                     <button type="button" onclick="signOut()" class="btn btn-secondary w-full">Sign out</button>
@@ -655,7 +655,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (pestis_client_portal.sql); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.29-p34-oci';
+const PORTAL_VERSION = '2026.10.30-p35-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -913,8 +913,7 @@ function openSettings() {
             <button type="button" class="btn btn-secondary" onclick="markAllBellSeen(); toast('All notifications marked as seen.')">Mark all notifications as seen</button>`)}
         ${sec('Photos', `<div class="inset p-3 space-y-2"><label class="lbl" for="setPhoto">Photo size when uploading</label><select id="setPhoto" class="field" onchange="savePrefs({ photo: this.value }); toast('Saved.')">${PHOTO_SIZES.map(([k, l]) => `<option value="${k}" ${photoSize()[0] === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
             <p class="text-[11px] t-faint">Your phone makes photos smaller before they're sent, so uploads are quicker and use less data. Videos and documents upload as they are.</p></div>`)}
-        ${sec('App', `<div class="inset p-3 space-y-2"><p class="text-xs t-muted">Not seeing the latest changes? <b class="t-strong">Check for updates</b> clears what this portal has saved on this device, signs you out and loads the newest version. Your settings are kept.</p>
-            <div class="flex flex-wrap gap-2"><button type="button" id="settingsUpdateBtn" class="btn btn-primary" onclick="checkForUpdates()">⟳ Check for updates</button><button type="button" class="btn btn-secondary" onclick="signOut()">Sign out</button></div></div>`)}`;
+        ${sec('App', `<div class="inset p-3 space-y-2"><div class="flex flex-wrap gap-2"><button type="button" class="btn btn-secondary" onclick="signOut()">Sign out</button></div></div>`)}`;
     openModal();
 }
 function setThemeMode(dark) { if (document.documentElement.classList.contains('dark') !== dark) toggleTheme(); if (!$('modal').classList.contains('hidden') && $('modalTitle').textContent === 'Settings') openSettings(); }
@@ -1069,6 +1068,12 @@ async function afterSignIn(session) {
     const name = me.name || (me.staff ? 'Pesties staff' : '') || state.me.email;
     $('accountInitial').textContent = initials(name);
     $('accountName').textContent = name;
+    // the Google account's picture, like the Service App (an emailed sign-in has none: the initials stay)
+    const pic = (session.user.user_metadata || {}).avatar_url || (session.user.user_metadata || {}).picture || '';
+    const av = $('accountAvatar');
+    av.onload = () => { av.classList.remove('hidden'); $('accountInitial').classList.add('hidden'); };
+    av.onerror = () => { av.classList.add('hidden'); $('accountInitial').classList.remove('hidden'); };
+    if (pic) av.src = pic; else { av.classList.add('hidden'); $('accountInitial').classList.remove('hidden'); }
     $('accountDetail').innerHTML = `<div class="font-bold t-strong">${esc(name)}</div>${me.company ? `<div>${esc(me.company)}</div>` : ''}<div class="mono text-[11px]">${esc(state.me.email)}</div>`;
     // tidy the sign-in details out of the address
     if (/access_token|code=|error_description/.test(location.href)) history.replaceState(null, '', portalUrl());
@@ -4548,6 +4553,19 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r75', date: '2026-10-30', v: { svc: '2026.10.30-r75', adm: '2026.10.30-a19', cli: '2026.10.30-p35' },
+            svc: ['Station types renamed: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring (on every station and past record too). Snap Trap is no longer in the list',
+                  'Rodents at a toxic station: None, Low, Medium or High (how much bait was taken). At a non-toxic station: Caught, with the number caught',
+                  'Floor plan: in a station\'s box, "1 open recommendation" opens it (several: tap the one you want)',
+                  'The Check for updates button is gone: a new version shows a banner to tap',
+                  'What\'s new only lists changes to the Service App'],
+            adm: ['The account button shows the picture of the Google account you\'re signed in with',
+                  'Station types renamed: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring. Snap Trap is no longer in the list',
+                  'What\'s new only lists changes to Admin'],
+            cli: ['The account button shows the picture of the Google account you\'re signed in with',
+                  'Station type names: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring',
+                  'The Check for updates button is gone: the portal always opens on the newest version',
+                  'What\'s new only lists changes to the Client Portal'] },
         { rev: 'r74', date: '2026-10-29', v: { cli: '2026.10.29-p34' },
             cli: ['While your technician is on site, that visit\'s station checks, recommendations and findings appear here once the visit is finished - all together, straight away',
                   'The site page says when your technician is on site now'] },
@@ -4560,8 +4578,7 @@ const WN = (() => {
                   'Sync Data shows how much data this device has uploaded on the current visit (it starts again at 0 with each visit)',
                   'Floor plans: no more choosing a size - zoom out and draw wherever you need; when you save, the plan is sized to fit everything on it (and the station pins), and it grows again if you add something further out later'],
             adm: ['Pests: the same categories as the Service App, with Moths as its own category; one "Rat" and "Mouse"',
-                  'Pests added to the list with their guide and photos: Gisborne cockroach, the five common ants, ten common flies, ten common moths and fifteen stored product pests (open Lists once and the photos and guides fill in)'],
-            cli: ['Pest lists: moths are grouped in their own category'] },
+                  'Pests added to the list with their guide and photos: Gisborne cockroach, the five common ants, ten common flies, ten common moths and fifteen stored product pests (open Lists once and the photos and guides fill in)'] },
         { rev: 'r72', date: '2026-10-23', v: { svc: '2026.10.23-r72' },
             svc: ['Site page: the site contact box is only as wide as it needs to be, and tapping anywhere on it opens all the contacts',
                   'Floor plan editor: dragging a wall moves the whole room (or the whole fence line) it belongs to',
@@ -4577,8 +4594,7 @@ const WN = (() => {
                   'Station names can\'t be used twice on a site: naming or renaming a station to a name that\'s taken shows a warning and won\'t save'],
             adm: ['One sign-in for all three apps: switch to the Service App or the Client Portal from your menu without signing in again',
                   'Signed in with an account that isn\'t an admin: Admin says so and points to the right app, without signing you out of the others'],
-            cli: ['Pesties staff: one sign-in for the Service App, Admin and the Client Portal',
-                  'Your menu only shows the apps your account can use'] },
+            cli: ['Your menu only shows the apps your account can use'] },
         { rev: 'r69', date: '2026-10-23', v: { svc: '2026.10.23-r69', adm: '2026.10.23-a14', cli: '2026.10.23-p29' },
             adm: ['Reports › One station: a line for each pest caught (or the activity level for external toxic stations), over the years',
                   'Reports: "Year on year" shows each year as its own line, January to December, to compare',
@@ -4615,8 +4631,7 @@ const WN = (() => {
                   'Links between the Service App, Admin and the Client Portal, and each says which app it is'],
             adm: ['Site contacts tab: add, change and remove each site\'s contacts, and choose the main contact',
                   'Links between the Service App, Admin and the Client Portal'],
-            cli: ['Site contacts: keep the list of people at your site up to date (Overview › Site contacts)',
-                  'Links to the other Pestis apps for Pesties staff'] },
+            cli: ['Site contacts: keep the list of people at your site up to date (Overview › Site contacts)'] },
         { rev: 'r66', date: '2026-10-22', v: { svc: '2026.10.22-r66' },
             svc: ['Opens with weak or no signal in a few seconds, using the copy saved on the phone',
                   '"Repair app" won\'t run without signal (it could have left the app unable to open)'] },

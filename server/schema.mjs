@@ -212,7 +212,7 @@ export const SEED = {
     'Norway Rat', 'Ship Rat', 'House Mouse', 'German Cockroach', 'American Cockroach', 'House Fly', 'Ants',
   ].map((label, i) => ({ id: 'seed-species-' + (i + 1), label, sort: i + 1 })),
   station_types: [
-    'External Rodent Station', 'Internal Rodent Station', 'Flying Insect Station (ILT)', 'Crawling Insect Station', 'Snap Trap',
+    'External Non-Toxic Rodent Station', 'Internal Non-Toxic Rodent Station', 'Flying Insect Monitoring', 'Crawling Insect Monitoring',
     'External Toxic Rodent Station', 'Internal Toxic Rodent Station', 'Pest Sighting Register', 'Inspection Point',
   ].map((label, i) => ({ id: 'seed-station-' + (i + 1), label, sort: i + 1 })),
 };

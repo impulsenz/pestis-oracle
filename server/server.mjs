@@ -897,6 +897,37 @@ function updatePestList() {
 }
 transaction(updatePestList);
 
+// Station types renamed (once), everywhere: the list, every station, and past records. Snap Trap leaves the list
+// (stations that are snap traps keep their type).
+const STATION_TYPES_V = 1;
+const STATION_TYPE_RENAMES = [
+  ['Internal Rodent Station', 'Internal Non-Toxic Rodent Station'],
+  ['External Rodent Station', 'External Non-Toxic Rodent Station'],
+  ['Crawling Insect Station', 'Crawling Insect Monitoring'],
+  ['Flying Insect Station (ILT)', 'Flying Insect Monitoring'],
+  ['Flying Insect Station', 'Flying Insect Monitoring'],
+];
+function updateStationTypes() {
+  const done = sys.one('app_settings', [['key', 'eq', 'station_types_version']]);
+  if (done && Number(done.value) >= STATION_TYPES_V) return;
+  const same = (a, b) => String(a || '').trim().toLowerCase() === b.toLowerCase();
+  for (const [from, to] of STATION_TYPE_RENAMES) {
+    for (const o of sys.all('station_types', [])) {
+      if (!same(o.label, from)) continue;
+      if (sys.all('station_types', []).some(x => same(x.label, to))) sys.delete('station_types', [['id', 'eq', o.id]]);
+      else sys.update('station_types', [['id', 'eq', o.id]], { label: to });
+    }
+    for (const r of sys.all('stations', [])) if (same(r.type, from)) sys.update('stations', [['id', 'eq', r.id]], { type: to });
+    for (const r of sys.all('recommendations', [])) if (same(r.station_type, from)) sys.update('recommendations', [['id', 'eq', r.id]], { station_type: to });
+    // past station checks: the type is inside each record
+    db.prepare(`UPDATE service_logs SET payload = json_set(payload, '$.deviceType', ?) WHERE lower(trim(json_extract(payload, '$.deviceType'))) = lower(?)`).run(to, from);
+  }
+  for (const o of sys.all('station_types', [])) if (same(o.label, 'Snap Trap')) sys.delete('station_types', [['id', 'eq', o.id]]);
+  if (done) sys.update('app_settings', [['key', 'eq', 'station_types_version']], { value: STATION_TYPES_V, updated_by: 'Server' });
+  else sys.insert('app_settings', { key: 'station_types_version', value: STATION_TYPES_V, updated_by: 'Server' });
+}
+transaction(updateStationTypes);
+
 /* =====================================================================================
    Sign-in
    ===================================================================================== */

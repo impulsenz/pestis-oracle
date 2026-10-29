@@ -144,7 +144,7 @@ try {
   r = await boss.from('species').insert({ id: 'sp-x', label: 'Wasp', sort: 99 }).select();
   ok(!r.error && r.data[0].label === 'Wasp', 'admin can', r.error);
   r = await tech.from('station_types').select('*').order('sort', { ascending: true });
-  ok(r.data.length === 9 && r.data[0].label === 'External Rodent Station', 'starting station types', r.data && r.data.length);
+  ok(r.data.length === 8 && r.data[0].label === 'External Non-Toxic Rodent Station' && r.data.some(x => x.label === 'Flying Insect Monitoring') && !r.data.some(x => /snap trap/i.test(x.label)), 'starting station types (renamed, no Snap Trap)', r.data && r.data.map(x => x.label));
   // unknown column on save is added
   r = await tech.from('clients').update({ safety_notes: 'Hard hats' }).eq('id', 1).select('safety_notes');
   ok(!r.error && r.data[0].safety_notes === 'Hard hats', 'new column added automatically', r);

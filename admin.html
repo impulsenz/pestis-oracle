@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.29-a18-oci
+    Version 2026.10.30-a19-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -1029,6 +1029,7 @@
                 <button type="button" onclick="toggleTheme()" class="icon-btn" title="Day / night mode" aria-label="Day / night mode">◐</button>
                 <div class="relative">
                     <button type="button" id="adminMeBtn" onclick="document.getElementById('adminMeMenu').classList.toggle('hidden')" class="flex items-center gap-2 rounded-xl pl-1 pr-3 h-10" style="background: var(--surface3); border: 1px solid var(--border);" aria-haspopup="menu">
+                        <img id="adminMeAvatar" src="" alt="" class="w-8 h-8 rounded-lg object-cover hidden" referrerpolicy="no-referrer">
                         <span id="adminMeInitial" class="w-8 h-8 rounded-lg bg-brand-500 text-white font-black text-xs flex items-center justify-center">?</span>
                         <span id="adminMeName" class="text-xs font-bold t-strong hidden sm:block max-w-[9rem] truncate"></span>
                     </button>
@@ -1618,6 +1619,12 @@
             const name = profile.full_name || currentUser.email;
             document.getElementById('adminMeInitial').textContent = name.trim().charAt(0).toUpperCase();
             document.getElementById('adminMeName').textContent = name;
+            // the Google account's picture, like the Service App
+            const pic = profile.avatar_url || (currentUser.user_metadata || {}).avatar_url || '';
+            const av = document.getElementById('adminMeAvatar'), ini = document.getElementById('adminMeInitial');
+            av.onload = () => { av.classList.remove('hidden'); ini.classList.add('hidden'); };
+            av.onerror = () => { av.classList.add('hidden'); ini.classList.remove('hidden'); };
+            if (pic) av.src = pic;
             document.getElementById('adminMeDetail').innerHTML = `<b class="t-strong">${esc(name)}</b><br>${esc(currentUser.email)}`;
             document.getElementById('loginScreen').classList.add('hidden');
             document.getElementById('adminPage').classList.remove('hidden');
@@ -2334,7 +2341,7 @@
         const DEFAULT_OPTIONS = {
             prep: ['Brodifacoum Rodent Blocks', 'Alpha-Cypermethrin Spray', 'Cockroach Gel Bait'],
             species: ['Norway Rat', 'Ship Rat', 'House Mouse', 'German Cockroach', 'American Cockroach', 'House Fly', 'Ants'],
-            station_type: ['External Rodent Station', 'Internal Rodent Station', 'External Toxic Rodent Station', 'Internal Toxic Rodent Station', 'Flying Insect Station (ILT)', 'Crawling Insect Station', 'Pest Sighting Register', 'Inspection Point', 'Snap Trap']
+            station_type: ['External Non-Toxic Rodent Station', 'Internal Non-Toxic Rodent Station', 'External Toxic Rodent Station', 'Internal Toxic Rodent Station', 'Flying Insect Monitoring', 'Crawling Insect Monitoring', 'Pest Sighting Register', 'Inspection Point']
         };
 
         const OPTION_KIND_LABEL = { prep: 'preparation', species: 'species', station_type: 'station type' };
@@ -3049,6 +3056,19 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r75', date: '2026-10-30', v: { svc: '2026.10.30-r75', adm: '2026.10.30-a19', cli: '2026.10.30-p35' },
+            svc: ['Station types renamed: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring (on every station and past record too). Snap Trap is no longer in the list',
+                  'Rodents at a toxic station: None, Low, Medium or High (how much bait was taken). At a non-toxic station: Caught, with the number caught',
+                  'Floor plan: in a station\'s box, "1 open recommendation" opens it (several: tap the one you want)',
+                  'The Check for updates button is gone: a new version shows a banner to tap',
+                  'What\'s new only lists changes to the Service App'],
+            adm: ['The account button shows the picture of the Google account you\'re signed in with',
+                  'Station types renamed: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring. Snap Trap is no longer in the list',
+                  'What\'s new only lists changes to Admin'],
+            cli: ['The account button shows the picture of the Google account you\'re signed in with',
+                  'Station type names: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring',
+                  'The Check for updates button is gone: the portal always opens on the newest version',
+                  'What\'s new only lists changes to the Client Portal'] },
         { rev: 'r74', date: '2026-10-29', v: { cli: '2026.10.29-p34' },
             cli: ['While your technician is on site, that visit\'s station checks, recommendations and findings appear here once the visit is finished - all together, straight away',
                   'The site page says when your technician is on site now'] },
@@ -3061,8 +3081,7 @@ const WN = (() => {
                   'Sync Data shows how much data this device has uploaded on the current visit (it starts again at 0 with each visit)',
                   'Floor plans: no more choosing a size - zoom out and draw wherever you need; when you save, the plan is sized to fit everything on it (and the station pins), and it grows again if you add something further out later'],
             adm: ['Pests: the same categories as the Service App, with Moths as its own category; one "Rat" and "Mouse"',
-                  'Pests added to the list with their guide and photos: Gisborne cockroach, the five common ants, ten common flies, ten common moths and fifteen stored product pests (open Lists once and the photos and guides fill in)'],
-            cli: ['Pest lists: moths are grouped in their own category'] },
+                  'Pests added to the list with their guide and photos: Gisborne cockroach, the five common ants, ten common flies, ten common moths and fifteen stored product pests (open Lists once and the photos and guides fill in)'] },
         { rev: 'r72', date: '2026-10-23', v: { svc: '2026.10.23-r72' },
             svc: ['Site page: the site contact box is only as wide as it needs to be, and tapping anywhere on it opens all the contacts',
                   'Floor plan editor: dragging a wall moves the whole room (or the whole fence line) it belongs to',
@@ -3078,8 +3097,7 @@ const WN = (() => {
                   'Station names can\'t be used twice on a site: naming or renaming a station to a name that\'s taken shows a warning and won\'t save'],
             adm: ['One sign-in for all three apps: switch to the Service App or the Client Portal from your menu without signing in again',
                   'Signed in with an account that isn\'t an admin: Admin says so and points to the right app, without signing you out of the others'],
-            cli: ['Pesties staff: one sign-in for the Service App, Admin and the Client Portal',
-                  'Your menu only shows the apps your account can use'] },
+            cli: ['Your menu only shows the apps your account can use'] },
         { rev: 'r69', date: '2026-10-23', v: { svc: '2026.10.23-r69', adm: '2026.10.23-a14', cli: '2026.10.23-p29' },
             adm: ['Reports › One station: a line for each pest caught (or the activity level for external toxic stations), over the years',
                   'Reports: "Year on year" shows each year as its own line, January to December, to compare',
@@ -3116,8 +3134,7 @@ const WN = (() => {
                   'Links between the Service App, Admin and the Client Portal, and each says which app it is'],
             adm: ['Site contacts tab: add, change and remove each site\'s contacts, and choose the main contact',
                   'Links between the Service App, Admin and the Client Portal'],
-            cli: ['Site contacts: keep the list of people at your site up to date (Overview › Site contacts)',
-                  'Links to the other Pestis apps for Pesties staff'] },
+            cli: ['Site contacts: keep the list of people at your site up to date (Overview › Site contacts)'] },
         { rev: 'r66', date: '2026-10-22', v: { svc: '2026.10.22-r66' },
             svc: ['Opens with weak or no signal in a few seconds, using the copy saved on the phone',
                   '"Repair app" won\'t run without signal (it could have left the app unable to open)'] },
@@ -3682,7 +3699,7 @@ const PR = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.29-a18-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a19-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');

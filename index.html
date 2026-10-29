@@ -1639,7 +1639,6 @@
             <div class="flex flex-wrap items-center gap-2">
                 <span class="text-[11px] t-faint mr-auto">App version <span class="app-version font-mono"></span></span>
                 <button type="button" onclick="openWhatsNew()" class="btn btn-secondary !py-2 !px-3 !text-xs">✨ What's new<span data-wn-badge class="wn-badge" style="display:none"></span></button>
-                <button type="button" id="checkUpdatesBtn" onclick="checkForUpdates()" class="btn btn-secondary !py-2 !px-3 !text-xs">⟳ Check for updates</button>
                 <button type="button" onclick="toggleTheme()" class="btn btn-secondary !py-2 !px-3 !text-xs">◐ Day / night mode</button>
             </div>
             <div class="space-y-3">
@@ -2251,7 +2250,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.29-r73-oci';
+        const APP_VERSION = '2026.10.30-r75-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -2259,7 +2258,7 @@
         // New Zealand date style everywhere: day/month/year
         const LOCALE = 'en-NZ';
         const NZ_DATE = { day: '2-digit', month: '2-digit', year: 'numeric' };
-        const REQUIRED_IDS = ["loginScreen", "pestGuideBtn", "profileMonth", "headerSite", "siteSightingsList", "siteSightingsCount", "sightFilters", "sightPhotoToggle", "siteContactBox", "siteMonogram", "siteHeroBand", "statNextService", "authLoading", "loginPanel", "loginMessage", "appHeader", "notifBtn", "notifCount", "syncStatusBadge", "syncDot", "syncText", "queueCountBadge", "headerAvatarFallback", "headerName", "updateBanner", "offlineBanner", "appRoot", "siteSelectorSection", "siteFilterSelect", "dueRangeSelect", "siteSearchInput", "siteSortSelect", "cardSizeLabel", "renewalNotice", "siteCardsGrid", "siteLandingDashboard", "siteLandingImageWrap", "siteLandingImage", "siteLandingTitle", "siteLandingAddress", "visitStatusLine", "startServiceLabel", "siteLocation", "siteMapsLink", "adminBtn", "profileAdminLink", "settingsAdminNote", "siteDocsList", "siteDocForm", "sitePortalAccess", "recType", "recTitle", "closeTabJob", "closePaneJob", "closePaneSign", "signBox", "reasonBox", "activityRow", "pestCountRow", "saveNextBtn", "stationDetailsTop", "stationDetailsBottom", "qtyRequired", "infoModal", "infoTitle", "infoBody", "infoFoot", "siteServicesManageBtn", "stationPhotoPreview", "stationPhotoToggle", "recPhotoToggle", "signOffReview", "signPad", "signName", "signReason", "signOffStatus", "signOffBtn", "actionsModal", "actionsBtn", "actionsCount", "actionsList", "newClientServicesBtn", "siteDocsFolderBtn", "docFolder", "stationLimitRow", "stationLimit", "recModalSeen", "recModalNoteReq", "statStations", "statLastVisitPct", "statIssues", "statLastVisitNote", "stationTypeList", "siteServicesList", "siteMapsList", "siteLandingContact", "siteLandingEmail", "siteContractChip", "siteContractDates", "siteContractNotes", "siteAssignedTech", "siteLandingNotes", "recFilterTabs", "recAgeChart", "siteLandingRecsList", "siteStationSearch", "stationTypeTabs", "siteStationList", "visitTypeChart", "siteLandingVisitsList", "activityLogTabs", "siteActivityLog", "visitWorkspace", "stationSearchInput", "scanTypeTabs", "unscannedCount", "unscannedList", "scannedCount", "scannedList", "scanFab", "stationFormContainer", "formTypeDot", "formTitle", "scannedBarcodeBadge", "changeBarcodeBtn", "baitLastChanged", "stationSheetBody", "visitEditNote", "newStationFields", "stationDetailsHeading", "newLocName", "newDeviceType", "stationMapSelect", "activityLevel", "speciesCaught", "pestCount", "repeatPrepBtn", "autoRepeatPrep", "prepUsed", "batchRequired", "batchNumber", "qtyCount", "qtyUnit", "serviceNotes", "loadPastHistoryBtn", "recEditor", "recEditorHead", "recEditorCancel", "recommendationNote", "photoPreviewGrid", "addRecBtn", "recSaveHint", "pastRecommendationsList", "stationHistorySection", "deleteStationBtn", "saveServiceBtn", "settingsModal", "notifDueSelect", "diagSummary", "diagList", "addClientModal", "newClientName", "newClientAddress", "newClientContact", "newClientEmail", "newClientNotes", "newContractNotes", "newAssignedTo", "newClientServicesList", "newClientImageInput", "newClientImagePreview", "newClientImagePlaceholder", "saveNewClientBtn", "editSiteModal", "editName", "editAddress", "editContact", "editEmail", "editNotes", "editContractStart", "editContractEnd", "editContractNotes", "editAssignedTo", "editImageInput", "editImageRemoveBtn", "editImagePreview", "editImagePlaceholder", "servicesModal", "svcQuickAdd", "svcEditorList", "svcTypeOptions", "checkUpdatesBtn", "visitActions", "queueModal", "queueStatusLine", "exportUnsentBtn", "syncTabs", "queueList", "profileModal", "profileAvatarLargeFallback", "profileNameLarge", "profileEmailLarge", "profileRoleBadge", "fullscreenScannerModal", "scannerTitle", "flashToggleBtn", "scannerHelp", "manualScanModal", "manualBarcodeEntryInput", "completeVisitModal", "completeUnscannedNote", "closingVisitType", "completeServicesSection", "completeServicesList", "closingSiteNotes", "recModal", "recModalNumber", "recModalStatusChip", "recModalAge", "recModalStation", "recModalTitle", "recModalMeta", "recModalPhotos", "recModalPhotoNote", "recModalHistory", "recModalStatus", "recModalNote", "recPhotoPreview", "recModalSaveBtn", "visitTypeModal", "visitTypeSite", "visitTypeOptions", "notifModal", "notifScope", "notifList", "choiceModal", "choiceTitle", "choiceMessage", "confirmModal", "confirmTitle", "confirmMessage", "confirmCancelBtn", "confirmOkBtn", "mapModal", "mapSelect", "mapMenu", "mapSearch", "mapShowLabels", "mapEditPins", "mapViewport", "mapStage", "mapImage", "mapPins", "mapHint", "mapEmpty", "mapPopover", "mapSidebar", "mapEditDialog", "mapEditTitle", "mapEditNameRow", "mapEditName", "mapEditImageRow", "mapEditFile", "mapEditPreview", "mapEditPlaceholder", "mapEditSaveBtn", "stationOverviewModal", "ovTypeDot", "ovTitle", "ovSub", "ovFacts", "ovRecs", "ovHistory", "visitModal", "visitModalTitle", "visitModalSub", "visitModalBody", "visitSaveBtn", "barcodeModal", "barcodeModalInfo", "barcodeNewInput", "recNav", "videoRecModal", "videoRecLive", "videoRecReview", "imageModal", "viewerPrev", "zoomStage", "fullImageDisplay", "fullVideoDisplay", "viewerNext", "viewerThumbs", "modalTitleDisplay", "modalTextDisplay", "modalPhotoNote"];
+        const REQUIRED_IDS = ["loginScreen", "pestGuideBtn", "profileMonth", "headerSite", "siteSightingsList", "siteSightingsCount", "sightFilters", "sightPhotoToggle", "siteContactBox", "siteMonogram", "siteHeroBand", "statNextService", "authLoading", "loginPanel", "loginMessage", "appHeader", "notifBtn", "notifCount", "syncStatusBadge", "syncDot", "syncText", "queueCountBadge", "headerAvatarFallback", "headerName", "updateBanner", "offlineBanner", "appRoot", "siteSelectorSection", "siteFilterSelect", "dueRangeSelect", "siteSearchInput", "siteSortSelect", "cardSizeLabel", "renewalNotice", "siteCardsGrid", "siteLandingDashboard", "siteLandingImageWrap", "siteLandingImage", "siteLandingTitle", "siteLandingAddress", "visitStatusLine", "startServiceLabel", "siteLocation", "siteMapsLink", "adminBtn", "profileAdminLink", "settingsAdminNote", "siteDocsList", "siteDocForm", "sitePortalAccess", "recType", "recTitle", "closeTabJob", "closePaneJob", "closePaneSign", "signBox", "reasonBox", "activityRow", "pestCountRow", "saveNextBtn", "stationDetailsTop", "stationDetailsBottom", "qtyRequired", "infoModal", "infoTitle", "infoBody", "infoFoot", "siteServicesManageBtn", "stationPhotoPreview", "stationPhotoToggle", "recPhotoToggle", "signOffReview", "signPad", "signName", "signReason", "signOffStatus", "signOffBtn", "actionsModal", "actionsBtn", "actionsCount", "actionsList", "newClientServicesBtn", "siteDocsFolderBtn", "docFolder", "stationLimitRow", "stationLimit", "recModalSeen", "recModalNoteReq", "statStations", "statLastVisitPct", "statIssues", "statLastVisitNote", "stationTypeList", "siteServicesList", "siteMapsList", "siteLandingContact", "siteLandingEmail", "siteContractChip", "siteContractDates", "siteContractNotes", "siteAssignedTech", "siteLandingNotes", "recFilterTabs", "recAgeChart", "siteLandingRecsList", "siteStationSearch", "stationTypeTabs", "siteStationList", "visitTypeChart", "siteLandingVisitsList", "activityLogTabs", "siteActivityLog", "visitWorkspace", "stationSearchInput", "scanTypeTabs", "unscannedCount", "unscannedList", "scannedCount", "scannedList", "scanFab", "stationFormContainer", "formTypeDot", "formTitle", "scannedBarcodeBadge", "changeBarcodeBtn", "baitLastChanged", "stationSheetBody", "visitEditNote", "newStationFields", "stationDetailsHeading", "newLocName", "newDeviceType", "stationMapSelect", "activityLevel", "speciesCaught", "pestCount", "repeatPrepBtn", "autoRepeatPrep", "prepUsed", "batchRequired", "batchNumber", "qtyCount", "qtyUnit", "serviceNotes", "loadPastHistoryBtn", "recEditor", "recEditorHead", "recEditorCancel", "recommendationNote", "photoPreviewGrid", "addRecBtn", "recSaveHint", "pastRecommendationsList", "stationHistorySection", "deleteStationBtn", "saveServiceBtn", "settingsModal", "notifDueSelect", "diagSummary", "diagList", "addClientModal", "newClientName", "newClientAddress", "newClientContact", "newClientEmail", "newClientNotes", "newContractNotes", "newAssignedTo", "newClientServicesList", "newClientImageInput", "newClientImagePreview", "newClientImagePlaceholder", "saveNewClientBtn", "editSiteModal", "editName", "editAddress", "editContact", "editEmail", "editNotes", "editContractStart", "editContractEnd", "editContractNotes", "editAssignedTo", "editImageInput", "editImageRemoveBtn", "editImagePreview", "editImagePlaceholder", "servicesModal", "svcQuickAdd", "svcEditorList", "svcTypeOptions", "visitActions", "queueModal", "queueStatusLine", "exportUnsentBtn", "syncTabs", "queueList", "profileModal", "profileAvatarLargeFallback", "profileNameLarge", "profileEmailLarge", "profileRoleBadge", "fullscreenScannerModal", "scannerTitle", "flashToggleBtn", "scannerHelp", "manualScanModal", "manualBarcodeEntryInput", "completeVisitModal", "completeUnscannedNote", "closingVisitType", "completeServicesSection", "completeServicesList", "closingSiteNotes", "recModal", "recModalNumber", "recModalStatusChip", "recModalAge", "recModalStation", "recModalTitle", "recModalMeta", "recModalPhotos", "recModalPhotoNote", "recModalHistory", "recModalStatus", "recModalNote", "recPhotoPreview", "recModalSaveBtn", "visitTypeModal", "visitTypeSite", "visitTypeOptions", "notifModal", "notifScope", "notifList", "choiceModal", "choiceTitle", "choiceMessage", "confirmModal", "confirmTitle", "confirmMessage", "confirmCancelBtn", "confirmOkBtn", "mapModal", "mapSelect", "mapMenu", "mapSearch", "mapShowLabels", "mapEditPins", "mapViewport", "mapStage", "mapImage", "mapPins", "mapHint", "mapEmpty", "mapPopover", "mapSidebar", "mapEditDialog", "mapEditTitle", "mapEditNameRow", "mapEditName", "mapEditImageRow", "mapEditFile", "mapEditPreview", "mapEditPlaceholder", "mapEditSaveBtn", "stationOverviewModal", "ovTypeDot", "ovTitle", "ovSub", "ovFacts", "ovRecs", "ovHistory", "visitModal", "visitModalTitle", "visitModalSub", "visitModalBody", "visitSaveBtn", "barcodeModal", "barcodeModalInfo", "barcodeNewInput", "recNav", "videoRecModal", "videoRecLive", "videoRecReview", "imageModal", "viewerPrev", "zoomStage", "fullImageDisplay", "fullVideoDisplay", "viewerNext", "viewerThumbs", "modalTitleDisplay", "modalTextDisplay", "modalPhotoNote"];
 
         const SERVICE_TYPES = [
             'Internal Rodent Control',
@@ -6440,9 +6439,20 @@
             if (!e) return null;
             if (Array.isArray(e.data)) { // older saved format
                 const t = new Date(e.at).getTime() || 0;
-                return { rows: e.data, lastSyncAt: t, lastFullAt: t };
+                return renameOldStationTypes({ rows: e.data, lastSyncAt: t, lastFullAt: t });
             }
-            return e.data;
+            return renameOldStationTypes(e.data);
+        }
+        // station types that were renamed: a copy saved on this device before then shows the new names too
+        const OLD_STATION_TYPES = { 'internal rodent station': 'Internal Non-Toxic Rodent Station', 'external rodent station': 'External Non-Toxic Rodent Station',
+            'crawling insect station': 'Crawling Insect Monitoring', 'flying insect station (ilt)': 'Flying Insect Monitoring', 'flying insect station': 'Flying Insect Monitoring' };
+        const newStationType = t => (t && OLD_STATION_TYPES[String(t).trim().toLowerCase()]) || t;
+        function renameOldStationTypes(c) {
+            if (!c) return c;
+            (c.rows || []).forEach(r => { if (r.payload && r.payload.deviceType) r.payload.deviceType = newStationType(r.payload.deviceType); });
+            (c.recs || []).forEach(r => { if (r.station_type) r.station_type = newStationType(r.station_type); });
+            if (c.tables && Array.isArray(c.tables.stations)) c.tables.stations.forEach(r => { if (r.type) r.type = newStationType(r.type); });
+            return c;
         }
         async function saveSiteCache(clientId, cache) { await cacheSet('site_' + clientId, cache); }
 
@@ -9903,6 +9913,17 @@
             } else startPlacing(barcode);
         }
 
+        // a station's open recommendations from its pin: one opens straight away, several are listed to choose from
+        function mapOpenStationRecs(barcode) {
+            const d = siteDevices.find(x => x.barcode_id === barcode);
+            const open = d ? d.recommendationsHistory.filter(r => r.status !== 'complete').map(r => findRec(r.id) || r) : [];
+            if (!open.length) return;
+            hideMapPopover();
+            if (open.length === 1) { openRecModal(open[0].id, null, { list: [open[0].id] }); return; }
+            openInfoModal(`${d.locationName} · ${open.length} open`, `<p class="text-[11px] t-faint mb-2">Tap one to open it.</p><div id="pinRecList" class="space-y-2 text-xs">${open.map(r => recRowHtml(r)).join('')}</div>`, '', { wide: true });
+            const box = document.getElementById('pinRecList');
+            if (box) box.addEventListener('click', e => { if (e.target.closest('[data-rec]')) closeInfoModal(); }, true);
+        }
         // ---------- Pin popover ----------
         function showMapPopover(barcode) {
             const st = mapStations().find(x => x.barcode === barcode);
@@ -9917,7 +9938,7 @@
                     <div class="min-w-0"><div class="font-black t-strong text-sm flex items-center gap-1.5">${typeDot(st.type, '.6rem')}<span class="truncate">${esc(st.name)}</span></div><div class="t-muted">${esc(st.type)} · <span class="font-mono">${esc(barcode)}</span></div></div>
                     <button type="button" onclick="hideMapPopover()" class="t-faint font-bold">✕</button>
                 </div>
-                <div class="t-muted mt-1.5">${last ? `Last serviced ${esc(fmtDateTimeLong(last.at).date)} · ${esc(last.activity === "Caught" ? "insects caught" : last.activity + " activity")}` : 'Not serviced yet'}${d && openRecCount(d) ? ` · <span class="t-accent font-bold">${openRecCount(d)} open</span>` : ''}</div>
+                <div class="t-muted mt-1.5">${last ? `Last serviced ${esc(fmtDateTimeLong(last.at).date)} · ${esc(last.activity === "Caught" ? "insects caught" : last.activity + " activity")}` : 'Not serviced yet'}${d && openRecCount(d) ? ` · <button type="button" class="link-btn !text-[inherit] font-bold" data-b="${esc(barcode)}" onclick="mapOpenStationRecs(this.dataset.b)" title="Open the recommendation${openRecCount(d) === 1 ? '' : 's'}">${openRecCount(d)} open recommendation${openRecCount(d) === 1 ? '' : 's'}</button>` : ''}</div>
                 ${d && isToxicRodent(st.type) ? `<div class="t-muted mt-0.5">🧪 Bait: ${esc(baitLastChangedText(d))}</div>` : ''}
                 ${(siteStations.get(barcode) || {}).photo_path ? '<div id="mapPopPhoto" class="map-pop-photo mt-2"><span class="station-photo-empty">Loading photo...</span></div>' : ''}
                 <div class="grid grid-cols-2 gap-1.5 mt-2.5">
@@ -12655,17 +12676,21 @@
         const isRodentSpecies = sp => /\b(rat|rats|mouse|mice|rodent|rodents|possum|stoat|ferret|weasel)\b/i.test(String(sp || ''));
         const RODENT_LEVELS = [['None', 'None - 0% of bait taken'], ['Low', 'Low - 25% or less of bait taken'], ['Medium', 'Medium - 25% to 75% of bait taken'], ['High', 'High - 75% to 100% of bait taken'], ['Caught', 'Caught']];
         const INSECT_LEVELS = [['Low', 'Low'], ['Medium', 'Medium'], ['High', 'High'], ['Caught', 'Caught']];
+        // a rodent at a toxic (bait) station is how much bait was taken; at a non-toxic station (a trap) it was caught
+        const TOXIC_LEVELS = RODENT_LEVELS.filter(x => x[0] !== 'Caught'), TRAP_LEVELS = [['Caught', 'Caught']];
+        const formStationType = () => (document.getElementById('newDeviceType') || {}).value || currentDeviceType || '';
         function updatePestCountField(speciesChanged) {
             const sp = document.getElementById('speciesCaught').value;
             const act = document.getElementById('activityLevel');
             const count = document.getElementById('pestCount');
             const none = !sp || sp === NONE_SPECIES;
             const rodent = !none && isRodentSpecies(sp);
-            const levels = none ? [['None', 'None']] : rodent ? RODENT_LEVELS : INSECT_LEVELS;
+            const st = stationColorBase(formStationType()).key;   // what the station is (not its colour)
+            const kind = none ? 'none' : !rodent ? 'insect' : st === 'toxic' ? 'toxic' : st === 'rodent' ? 'trap' : 'rodent';
+            const levels = { none: [['None', 'None']], insect: INSECT_LEVELS, toxic: TOXIC_LEVELS, trap: TRAP_LEVELS, rodent: RODENT_LEVELS }[kind];
             const keep = act.value;
-            const kind = none ? 'none' : rodent ? 'rodent' : 'insect';
             if (act.dataset.kind !== kind) { act.innerHTML = levels.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join(''); act.dataset.kind = kind; }
-            act.value = levels.some(x => x[0] === keep) ? keep : (rodent ? 'None' : levels[0][0]);
+            act.value = levels.some(x => x[0] === keep) ? keep : (kind === 'toxic' || kind === 'rodent' ? 'None' : levels[0][0]);
             document.getElementById('activityRow').classList.toggle('hidden', none);
             document.getElementById('activityLabel').textContent = 'Activity';
             // the number: only when Caught (rodents and insects alike)
@@ -12836,6 +12861,7 @@
             dot.style.background = c.color;
             dot.title = c.label;
             toggleLimitRow();
+            updatePestCountField();   // toxic and non-toxic stations record rodents differently
         }
         // Zones are for insect stations (flying and crawling); a station that already has one keeps showing it
         const isInsectType = t => /insect|fly|flies|flying|crawl|ilt|moth|beetle|cockroach|midge|monitor|glue|uv/i.test(String(t || ''));
@@ -13852,7 +13878,7 @@
         const DEFAULT_OPTIONS = {
             prep: ['Brodifacoum Rodent Blocks', 'Alpha-Cypermethrin Spray', 'Cockroach Gel Bait'],
             species: ['Norway Rat', 'Ship Rat', 'House Mouse', 'German Cockroach', 'American Cockroach', 'House Fly', 'Ants'],
-            station_type: ['External Rodent Station', 'Internal Rodent Station', 'External Toxic Rodent Station', 'Internal Toxic Rodent Station', 'Flying Insect Station (ILT)', 'Crawling Insect Station', 'Pest Sighting Register', 'Inspection Point', 'Snap Trap']
+            station_type: ['External Non-Toxic Rodent Station', 'Internal Non-Toxic Rodent Station', 'External Toxic Rodent Station', 'Internal Toxic Rodent Station', 'Flying Insect Monitoring', 'Crawling Insect Monitoring', 'Pest Sighting Register', 'Inspection Point']
         };
         const OPTION_KIND_LABEL = { prep: 'preparation', species: 'species', station_type: 'station type' };
         const OPTION_INPUT = { prep: 'newPrepInput', species: 'newSpeciesInput', station_type: 'newStationTypeInput' };
@@ -14909,6 +14935,19 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r75', date: '2026-10-30', v: { svc: '2026.10.30-r75', adm: '2026.10.30-a19', cli: '2026.10.30-p35' },
+            svc: ['Station types renamed: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring (on every station and past record too). Snap Trap is no longer in the list',
+                  'Rodents at a toxic station: None, Low, Medium or High (how much bait was taken). At a non-toxic station: Caught, with the number caught',
+                  'Floor plan: in a station\'s box, "1 open recommendation" opens it (several: tap the one you want)',
+                  'The Check for updates button is gone: a new version shows a banner to tap',
+                  'What\'s new only lists changes to the Service App'],
+            adm: ['The account button shows the picture of the Google account you\'re signed in with',
+                  'Station types renamed: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring. Snap Trap is no longer in the list',
+                  'What\'s new only lists changes to Admin'],
+            cli: ['The account button shows the picture of the Google account you\'re signed in with',
+                  'Station type names: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring',
+                  'The Check for updates button is gone: the portal always opens on the newest version',
+                  'What\'s new only lists changes to the Client Portal'] },
         { rev: 'r74', date: '2026-10-29', v: { cli: '2026.10.29-p34' },
             cli: ['While your technician is on site, that visit\'s station checks, recommendations and findings appear here once the visit is finished - all together, straight away',
                   'The site page says when your technician is on site now'] },
@@ -14921,8 +14960,7 @@ const WN = (() => {
                   'Sync Data shows how much data this device has uploaded on the current visit (it starts again at 0 with each visit)',
                   'Floor plans: no more choosing a size - zoom out and draw wherever you need; when you save, the plan is sized to fit everything on it (and the station pins), and it grows again if you add something further out later'],
             adm: ['Pests: the same categories as the Service App, with Moths as its own category; one "Rat" and "Mouse"',
-                  'Pests added to the list with their guide and photos: Gisborne cockroach, the five common ants, ten common flies, ten common moths and fifteen stored product pests (open Lists once and the photos and guides fill in)'],
-            cli: ['Pest lists: moths are grouped in their own category'] },
+                  'Pests added to the list with their guide and photos: Gisborne cockroach, the five common ants, ten common flies, ten common moths and fifteen stored product pests (open Lists once and the photos and guides fill in)'] },
         { rev: 'r72', date: '2026-10-23', v: { svc: '2026.10.23-r72' },
             svc: ['Site page: the site contact box is only as wide as it needs to be, and tapping anywhere on it opens all the contacts',
                   'Floor plan editor: dragging a wall moves the whole room (or the whole fence line) it belongs to',
@@ -14938,8 +14976,7 @@ const WN = (() => {
                   'Station names can\'t be used twice on a site: naming or renaming a station to a name that\'s taken shows a warning and won\'t save'],
             adm: ['One sign-in for all three apps: switch to the Service App or the Client Portal from your menu without signing in again',
                   'Signed in with an account that isn\'t an admin: Admin says so and points to the right app, without signing you out of the others'],
-            cli: ['Pesties staff: one sign-in for the Service App, Admin and the Client Portal',
-                  'Your menu only shows the apps your account can use'] },
+            cli: ['Your menu only shows the apps your account can use'] },
         { rev: 'r69', date: '2026-10-23', v: { svc: '2026.10.23-r69', adm: '2026.10.23-a14', cli: '2026.10.23-p29' },
             adm: ['Reports › One station: a line for each pest caught (or the activity level for external toxic stations), over the years',
                   'Reports: "Year on year" shows each year as its own line, January to December, to compare',
@@ -14976,8 +15013,7 @@ const WN = (() => {
                   'Links between the Service App, Admin and the Client Portal, and each says which app it is'],
             adm: ['Site contacts tab: add, change and remove each site\'s contacts, and choose the main contact',
                   'Links between the Service App, Admin and the Client Portal'],
-            cli: ['Site contacts: keep the list of people at your site up to date (Overview › Site contacts)',
-                  'Links to the other Pestis apps for Pesties staff'] },
+            cli: ['Site contacts: keep the list of people at your site up to date (Overview › Site contacts)'] },
         { rev: 'r66', date: '2026-10-22', v: { svc: '2026.10.22-r66' },
             svc: ['Opens with weak or no signal in a few seconds, using the copy saved on the phone',
                   '"Repair app" won\'t run without signal (it could have left the app unable to open)'] },

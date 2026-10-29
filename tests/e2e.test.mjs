@@ -76,17 +76,22 @@ try {
   const groups = await sp.evaluate("Array.from(document.querySelectorAll('#speciesCaught optgroup')).map(g => g.label)");
   ok(groups.some(g => g === 'Rodents') && groups.some(g => g.startsWith('Moths')) && groups.some(g => g.startsWith('Stored product pests')), 'Pest found is grouped like the pest guide', groups);
   ok(await sp.evaluate("JSON.stringify(pestCategories(speciesItems())) === JSON.stringify(Array.from(new Set(Array.from(document.querySelectorAll('#speciesCaught optgroup')).map(g => g.label.split(' · ')[0]))))"), 'Pest found categories are the pest guide categories, in the same order');
-  // rodents: the number caught only shows for Caught
+  // rodents: a non-toxic station records Caught (with the number); a toxic station records None / Low / Medium / High
   const rodent = await sp.evaluate(`(() => {
-    const s = document.getElementById('speciesCaught'), a = document.getElementById('activityLevel'), row = document.getElementById('pestCountRow');
+    const s = document.getElementById('speciesCaught'), a = document.getElementById('activityLevel'), row = document.getElementById('pestCountRow'), ty = document.getElementById('newDeviceType');
+    const before = ty.value;
+    ty.value = 'External Non-Toxic Rodent Station'; updateFormTypeDot();
     s.value = 'Rat'; updatePestCountField(true);
-    const levels = Array.from(a.options).map(o => o.value), noneHidden = row.classList.contains('hidden');
-    a.value = 'Low'; updatePestCountField(); const lowHidden = row.classList.contains('hidden');
-    a.value = 'Caught'; updatePestCountField(); const caughtShown = !row.classList.contains('hidden');
-    s.selectedIndex = 0; updatePestCountField(true);
-    return { levels, noneHidden, lowHidden, caughtShown, pctLabel: a.options.length ? '' : '' };
+    const trap = { levels: Array.from(a.options).map(o => o.value).join(), countShown: !row.classList.contains('hidden') };
+    ty.value = 'Internal Toxic Rodent Station'; updateFormTypeDot();
+    const toxic = { levels: Array.from(a.options).map(o => o.value).join(), countHidden: row.classList.contains('hidden') };
+    a.value = 'High'; updatePestCountField(); toxic.highHidden = row.classList.contains('hidden');
+    s.selectedIndex = 0; ty.value = before; updateFormTypeDot(); updatePestCountField(true);
+    return { trap, toxic, types: Array.from(ty.options).map(o => o.value) };
   })()`);
-  ok(rodent.levels.join() === 'None,Low,Medium,High,Caught' && rodent.noneHidden && rodent.lowHidden && rodent.caughtShown, 'rodent: Number caught only for Caught', rodent);
+  ok(rodent.trap.levels === 'Caught' && rodent.trap.countShown, 'non-toxic rodent station: Caught only, with the number', rodent.trap);
+  ok(rodent.toxic.levels === 'None,Low,Medium,High' && rodent.toxic.countHidden && rodent.toxic.highHidden, 'toxic rodent station: None / Low / Medium / High only', rodent.toxic);
+  ok(rodent.types.includes('Crawling Insect Monitoring') && !rodent.types.some(t => /snap trap|^internal rodent station$/i.test(t)), 'station types renamed, no Snap Trap', rodent.types);
   ok(await sp.evaluate("!!document.getElementById('changeBarcodeBtn').closest('#newStationFields') && !!document.getElementById('scannedBarcodeBadge').parentElement.querySelector('#changeBarcodeBtn')"), 'Change barcode sits beside the barcode in the station details');
   await sp.fill('#newLocName', 'Loading Dock');
   if (await sp.isEnabled('#batchNumber').catch(() => false)) await sp.fill('#batchNumber', 'B-1');

@@ -3,7 +3,7 @@ import re, json, sys, tempfile
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
 SP = ROOT + 'src/'
-ADMIN_VERSION = '2026.10.29-a18-oci'   # bump the a-number when Admin changes
+ADMIN_VERSION = '2026.10.30-a19-oci'   # bump the a-number when Admin changes
 idx = open(ROOT + 'index.html').read()
 src = open(SP + 'admin_src.html').read()          # the add-on version of admin.html (template + addonScript)
 
@@ -108,6 +108,7 @@ markup = R(markup, '''                <button type="button" onclick="closeAdmin(
                 <button type="button" onclick="toggleTheme()" class="icon-btn" title="Day / night mode" aria-label="Day / night mode">◐</button>
                 <div class="relative">
                     <button type="button" id="adminMeBtn" onclick="document.getElementById('adminMeMenu').classList.toggle('hidden')" class="flex items-center gap-2 rounded-xl pl-1 pr-3 h-10" style="background: var(--surface3); border: 1px solid var(--border);" aria-haspopup="menu">
+                        <img id="adminMeAvatar" src="" alt="" class="w-8 h-8 rounded-lg object-cover hidden" referrerpolicy="no-referrer">
                         <span id="adminMeInitial" class="w-8 h-8 rounded-lg bg-brand-500 text-white font-black text-xs flex items-center justify-center">?</span>
                         <span id="adminMeName" class="text-xs font-bold t-strong hidden sm:block max-w-[9rem] truncate"></span>
                     </button>
@@ -407,6 +408,12 @@ SYSTEM = r'''
             const name = profile.full_name || currentUser.email;
             document.getElementById('adminMeInitial').textContent = name.trim().charAt(0).toUpperCase();
             document.getElementById('adminMeName').textContent = name;
+            // the Google account's picture, like the Service App
+            const pic = profile.avatar_url || (currentUser.user_metadata || {}).avatar_url || '';
+            const av = document.getElementById('adminMeAvatar'), ini = document.getElementById('adminMeInitial');
+            av.onload = () => { av.classList.remove('hidden'); ini.classList.add('hidden'); };
+            av.onerror = () => { av.classList.add('hidden'); ini.classList.remove('hidden'); };
+            if (pic) av.src = pic;
             document.getElementById('adminMeDetail').innerHTML = `<b class="t-strong">${esc(name)}</b><br>${esc(currentUser.email)}`;
             document.getElementById('loginScreen').classList.add('hidden');
             document.getElementById('adminPage').classList.remove('hidden');
