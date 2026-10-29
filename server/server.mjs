@@ -784,6 +784,83 @@ transaction(() => {
   }
 });
 
+// The pest list, brought in line with the pest guide (once): one "Rat" and one "Mouse", the Moths category, and the
+// common New Zealand ants, flies, moths and stored product pests. The Pest found list and the pest guide both read it.
+// Each existing pest goes to the first pattern it matches (the same order as the apps' PEST_LIBRARY); missing ones are added
+// with just their name and category, and Admin fills in their pictures and guide.
+const PEST_LIST_V = 1;
+const PEST_LIST = [
+  ['Rat', 'Rodents', null, /\brats?\b|norway|brown rat|sewer rat|ship rat|roof rat|black rat|rattus/i],
+  ['Mouse', 'Rodents', null, /house mouse|\bmice\b|\bmouse\b|mus musculus/i],
+  ['Gisborne cockroach', 'Crawling insects', 'Cockroaches', /gisborne|drymaplaneta/i],
+  ['Argentine ant', 'Crawling insects', 'Ants', /argentine ant|linepithema/i],
+  ['White-footed house ant', 'Crawling insects', 'Ants', /white.?footed|technomyrmex/i],
+  ['Black house ant', 'Crawling insects', 'Ants', /black house ant|ochetellus/i],
+  ['Coastal brown ant', 'Crawling insects', 'Ants', /coastal brown|big.?headed|pheidole/i],
+  ["Darwin's ant", 'Crawling insects', 'Ants', /darwin|doleromyrma/i],
+  ['Lesser house fly', 'Flying insects', 'Flies', /lesser house ?fly|fannia/i],
+  ['House fly', 'Flying insects', 'Flies', /house ?fly|musca/i],
+  ['Green blowfly', 'Flying insects', 'Flies', /green ?bottle|green blow ?fly|lucilia/i],
+  ['Blowfly', 'Flying insects', 'Flies', /blow ?fly|bluebottle|calliphor/i],
+  ['Flesh fly', 'Flying insects', 'Flies', /flesh fly|sarcophag/i],
+  ['Stable fly', 'Flying insects', 'Flies', /stable fly|stomoxys/i],
+  ['Fruit (vinegar) fly', 'Flying insects', 'Flies', /fruit fly|drosophila|vinegar fly/i],
+  ['Drain fly', 'Flying insects', 'Flies', /drain fly|moth fly|psychod/i],
+  ['Cluster fly', 'Flying insects', 'Flies', /cluster fly|pollenia/i],
+  ['Fungus gnat', 'Flying insects', 'Flies', /fungus gnat|sciarid/i],
+  ['Case-bearing clothes moth', 'Moths', 'Fabric moths', /case.?bearing|tinea pellionella/i],
+  ['Webbing clothes moth', 'Moths', 'Fabric moths', /clothes moth|tineola|tinea/i],
+  ['Brown house moth', 'Moths', 'Fabric moths', /brown house moth|hofmannophila/i],
+  ['White-shouldered house moth', 'Moths', 'Fabric moths', /white.?shouldered|endrosis/i],
+  ['Indian meal moth', 'Moths', 'Pantry moths', /indian ?meal ?moth|plodia/i],
+  ['Mediterranean flour moth', 'Moths', 'Pantry moths', /mediterranean flour moth|ephestia kuehniella|flour moth/i],
+  ['Warehouse (tobacco) moth', 'Moths', 'Pantry moths', /warehouse moth|tobacco moth|cocoa moth|ephestia elutella/i],
+  ['Angoumois grain moth', 'Moths', 'Pantry moths', /angoumois|sitotroga/i],
+  ['Codling moth', 'Moths', 'Garden & orchard moths', /codling|cydia/i],
+  ['Light brown apple moth', 'Moths', 'Garden & orchard moths', /light brown apple|epiphyas|lbam/i],
+  ['Rice weevil', 'Stored product pests', 'Beetles & weevils', /rice weevil|sitophilus oryzae/i],
+  ['Maize weevil', 'Stored product pests', 'Beetles & weevils', /maize weevil|sitophilus zeamais/i],
+  ['Granary weevil', 'Stored product pests', 'Beetles & weevils', /granary weevil|sitophilus granarius/i],
+  ['Confused flour beetle', 'Stored product pests', 'Beetles & weevils', /confused flour beetle|tribolium confusum/i],
+  ['Red flour beetle', 'Stored product pests', 'Beetles & weevils', /flour beetle|tribolium/i],
+  ['Merchant grain beetle', 'Stored product pests', 'Beetles & weevils', /merchant grain|oryzaephilus mercator/i],
+  ['Saw-toothed grain beetle', 'Stored product pests', 'Beetles & weevils', /saw.?toothed|oryzaephilus/i],
+  ['Cigarette beetle', 'Stored product pests', 'Beetles & weevils', /cigarette beetle|lasioderma/i],
+  ['Drugstore (biscuit) beetle', 'Stored product pests', 'Beetles & weevils', /drugstore beetle|stegobium|biscuit beetle/i],
+  ['Lesser grain borer', 'Stored product pests', 'Beetles & weevils', /lesser grain borer|rhyzopertha/i],
+  ['Flat grain beetle', 'Stored product pests', 'Beetles & weevils', /flat grain beetle|rusty grain|cryptolestes/i],
+  ['Warehouse beetle', 'Stored product pests', 'Beetles & weevils', /warehouse beetle|trogoderma|khapra/i],
+  ['Larder beetle', 'Stored product pests', 'Beetles & weevils', /larder beetle|dermestes|hide beetle|bacon beetle/i],
+  ['Flour mite', 'Stored product pests', 'Mites & booklice', /flour mite|acarus|grain mite|cheese mite/i],
+  ['Booklice (psocids)', 'Stored product pests', 'Mites & booklice', /book ?lice|booklouse|psocid/i],
+];
+function updatePestList() {
+  const done = sys.one('app_settings', [['key', 'eq', 'pest_list_version']]);
+  if (done && Number(done.value) >= PEST_LIST_V) return;
+  const rows = sys.all('species', []), found = new Map();
+  for (const r of rows) {
+    const p = PEST_LIST.find(x => x[3].test(String(r.label || '')));
+    if (p) found.set(p[0], (found.get(p[0]) || []).concat(r));
+  }
+  let sort = Math.max(0, ...rows.map(r => r.sort || 0));
+  for (const [label, category, subcategory] of PEST_LIST) {
+    const have = found.get(label) || [];
+    if (!have.length) { sys.insert('species', { id: crypto.randomUUID(), label, sort: ++sort, category, subcategory }); continue; }
+    if (label !== 'Rat' && label !== 'Mouse') { for (const r of have) sys.update('species', [['id', 'eq', r.id]], { category, subcategory }); continue; }
+    // one rat and one mouse: keep the Norway rat / house mouse (or the first), named plainly, and remove the others
+    have.sort((a, b) => /norway|house mouse/i.test(b.label) - /norway|house mouse/i.test(a.label) || (a.sort || 0) - (b.sort || 0));
+    const [keep, ...extra] = have, patch = { label, category, subcategory };
+    // the Rat's guide is rewritten for both rats (Admin fills it in again from the built-in guide)
+    if (label === 'Rat' && keep.label !== 'Rat') Object.assign(patch, { about: null, breeding: null, control: null, gallery: null },
+      /^https?:/i.test(String(keep.photo_path || '')) ? { photo_path: null, photo_source: null } : {});
+    sys.update('species', [['id', 'eq', keep.id]], patch);
+    for (const r of extra) sys.delete('species', [['id', 'eq', r.id]]);
+  }
+  if (done) sys.update('app_settings', [['key', 'eq', 'pest_list_version']], { value: PEST_LIST_V, updated_by: 'Server' });
+  else sys.insert('app_settings', { key: 'pest_list_version', value: PEST_LIST_V, updated_by: 'Server' });
+}
+transaction(updatePestList);
+
 /* =====================================================================================
    Sign-in
    ===================================================================================== */

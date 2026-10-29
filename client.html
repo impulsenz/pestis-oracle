@@ -655,7 +655,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (pestis_client_portal.sql); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.23-p32-oci';
+const PORTAL_VERSION = '2026.10.29-p33-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -2656,8 +2656,8 @@ async function reloadSightings() {
 // ===================================================================
 //  PEST GUIDE: a picture of each pest, its breeding habits and how it's dealt with (written by Pesties)
 // ===================================================================
-const PEST_CATEGORIES = ['Rodents', 'Crawling insects', 'Flying insects', 'Stored product pests', 'Birds', 'Other pests'];
-const PEST_CAT_ICON = { 'Rodents': '🐀', 'Crawling insects': '🪳', 'Flying insects': '🪰', 'Stored product pests': '🐛', 'Birds': '🐦', 'Other pests': '🐞' };
+const PEST_CATEGORIES = ['Rodents', 'Crawling insects', 'Flying insects', 'Moths', 'Stored product pests', 'Birds', 'Other pests'];
+const PEST_CAT_ICON = { 'Rodents': '🐀', 'Crawling insects': '🪳', 'Flying insects': '🪰', 'Moths': '🦋', 'Stored product pests': '🐛', 'Birds': '🐦', 'Other pests': '🐞' };
 function pestCategoryGuess(name) {
     const n = String(name || '').toLowerCase();
     if (/\b(rat|rats|mouse|mice|rodent|possum|stoat)\b|rat\b/.test(n)) return 'Rodents';
@@ -4545,6 +4545,17 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r73', date: '2026-10-29', v: { svc: '2026.10.29-r73', adm: '2026.10.29-a18', cli: '2026.10.29-p33' },
+            svc: ['Pest guide and Pest found: the same pests in the same categories - Rodents, Crawling insects, Flying insects, Moths, Stored product pests, Birds and Other pests',
+                  'Pests: one "Rat" (covering Norway and ship rats) and "Mouse"',
+                  'Pests added, each with its guide and photos: Gisborne cockroach; the five common ants (Argentine, Darwin\'s, white-footed house, black house and coastal brown); ten common flies; a new Moths category with ten common moths; and fifteen common stored product pests',
+                  'Station check: for rodents, "Number caught" only shows when you choose Caught - like insects. None / Low / Medium / High with the % of bait taken are unchanged',
+                  'Station details: the Change barcode button is now beside the barcode',
+                  'Sync Data shows how much data this device has uploaded on the current visit (it starts again at 0 with each visit)',
+                  'Floor plans: no more choosing a size - zoom out and draw wherever you need; when you save, the plan is sized to fit everything on it (and the station pins), and it grows again if you add something further out later'],
+            adm: ['Pests: the same categories as the Service App, with Moths as its own category; one "Rat" and "Mouse"',
+                  'Pests added to the list with their guide and photos: Gisborne cockroach, the five common ants, ten common flies, ten common moths and fifteen stored product pests (open Lists once and the photos and guides fill in)'],
+            cli: ['Pest lists: moths are grouped in their own category'] },
         { rev: 'r72', date: '2026-10-23', v: { svc: '2026.10.23-r72' },
             svc: ['Site page: the site contact box is only as wide as it needs to be, and tapping anywhere on it opens all the contacts',
                   'Floor plan editor: dragging a wall moves the whole room (or the whole fence line) it belongs to',

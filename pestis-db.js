@@ -32,6 +32,9 @@
       init.headers = headers;
       init.cache = 'no-store';
       const res = await fetch(this.url + path, init);
+      // how much was sent (the Service App shows the data uploaded on each visit)
+      const sent = typeof init.body === 'string' ? new Blob([init.body]).size : (init.body && init.body.size) || 0;
+      if (sent && this.onSent) { try { this.onSent(sent); } catch (e) {} }
       if (res.status === 401 && tok) {
         const j = await res.clone().json().catch(() => ({}));
         if (j && j.code === 'session_not_found') this.auth._ended();

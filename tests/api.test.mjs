@@ -125,6 +125,19 @@ try {
   await tech.from('site_maps').delete().eq('id', 'm1');
   r = await tech.from('stations').select('map_id, pin_x').eq('id', 's1').single();
   ok(r.data.map_id === null && r.data.pin_x === 0.5, 'deleting a plan unpins its stations', r.data);
+  // the pest list matches the pest guide: one Rat and Mouse, and the common NZ pests in their categories
+  r = await tech.from('species').select('*');
+  const sp = r.data || [], spIn = c => sp.filter(x => x.category === c).map(x => x.label);
+  ok(sp.some(x => x.label === 'Rat') && sp.some(x => x.label === 'Mouse') && !sp.some(x => /norway|ship rat|house mouse/i.test(x.label)), 'one Rat and Mouse; the Norway/ship rats and house mouse merged', sp.map(x => x.label));
+  ok(sp.filter(x => x.label === 'Rat').length === 1 && sp.find(x => x.label === 'Rat').category === 'Rodents', 'Rat is a rodent');
+  ok(sp.some(x => x.label === 'Gisborne cockroach' && x.subcategory === 'Cockroaches'), 'Gisborne cockroach added');
+  ok(['Argentine ant', "Darwin's ant", 'White-footed house ant', 'Black house ant', 'Coastal brown ant'].every(l => sp.some(x => x.label === l && x.subcategory === 'Ants')), 'the five common ants', sp.filter(x => x.subcategory === 'Ants').map(x => x.label));
+  ok(sp.filter(x => x.subcategory === 'Flies').length === 10, 'ten flies', sp.filter(x => x.subcategory === 'Flies').map(x => x.label));
+  ok(spIn('Moths').length === 10, 'Moths category with ten moths', spIn('Moths'));
+  ok(spIn('Stored product pests').length === 15, 'fifteen stored product pests', spIn('Stored product pests'));
+  ok(new Set(sp.map(x => x.label.toLowerCase())).size === sp.length, 'no pest twice');
+  r = await tech.from('app_settings').select('*').eq('key', 'pest_list_version').maybeSingle();
+  ok(r.data && Number(r.data.value) === 1, 'the pest list update is recorded (so it only runs once)', r);
   // lists: admin only
   r = await tech.from('species').insert({ id: 'sp-x', label: 'Wasp' });
   ok(r.error && r.error.code === '42501', 'technician cannot change lists', r.error);
@@ -179,7 +192,7 @@ try {
   r = await cl.from('recommendations').update({ text: 'hacked' }).eq('id', 'rec-a').select('id');
   ok(!r.error && r.data.length === 0, 'client update changes nothing', r);
   r = await cl.from('species').select('id');
-  ok(r.data.length === 8, 'client reads lists', r.data && r.data.length);
+  ok(r.data.length === sp.length + 1, 'client reads lists', r.data && r.data.length);   // the pest list, and the Wasp added above
   r = await cl.from('site_contacts').insert([{ client_id: '1', name: 'Client added' }]).select('*');
   ok(!r.error && r.data[0].updated_by === 'Cara · Acme (client)', 'client adds contact to own site', r);
   r = await cl.from('site_contacts').insert([{ client_id: '2', name: 'Nope' }]);

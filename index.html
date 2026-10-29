@@ -1302,8 +1302,7 @@
                 <div class="min-w-0">
                     <button type="button" onclick="requestCloseStation()" class="sf-back link-btn !no-underline inline-flex items-center gap-1 mb-1.5">← Back to stations</button>
                     <h4 class="font-black text-lg t-strong break-words flex items-center gap-2"><span id="formTypeDot" class="type-dot shrink-0"></span><span id="formTitle">Servicing Device</span>
-                        <button type="button" id="stationMapBtn" onclick="showCurrentStationOnMap()" class="chip chip-blue cursor-pointer shrink-0 !text-[11px]" title="Show this station on the floor plan" aria-label="Show on map">📍 Map</button>
-                        <button type="button" id="changeBarcodeBtn" onclick="openBarcodeChange(currentBarcode)" class="chip chip-purple cursor-pointer shrink-0 !text-[11px]" title="Change this station's barcode">▣ Change barcode</button></h4>
+                        <button type="button" id="stationMapBtn" onclick="showCurrentStationOnMap()" class="chip chip-blue cursor-pointer shrink-0 !text-[11px]" title="Show this station on the floor plan" aria-label="Show on map">📍 Map</button></h4>
                     <div id="baitLastChanged" class="hidden text-[11px] font-semibold mt-1.5"></div>
                 </div>
                 <button type="button" onclick="requestCloseStation()" class="icon-btn shrink-0" title="Close">✕</button>
@@ -1328,7 +1327,10 @@
                         </div>
                         <div>
                             <label class="lbl">Barcode</label>
-                            <div id="scannedBarcodeBadge" class="field font-mono !cursor-default" style="background:var(--surface2);"></div>
+                            <div class="flex items-stretch gap-2">
+                                <div id="scannedBarcodeBadge" class="field font-mono !cursor-default min-w-0 break-all" style="background:var(--surface2);"></div>
+                                <button type="button" id="changeBarcodeBtn" onclick="openBarcodeChange(currentBarcode)" class="btn btn-secondary !py-2 !px-3 !text-xs shrink-0" title="Change this station's barcode">▣ Change</button>
+                            </div>
                         </div>
                         <div class="sm:col-span-2">
                             <label class="lbl">Floor plan location</label>
@@ -1576,6 +1578,7 @@
                 <div>
                     <h3 class="font-black text-lg t-accent">Sync Data</h3>
                     <p id="queueStatusLine" class="text-xs t-muted mt-1"></p>
+                    <p id="visitDataLine" class="text-xs t-muted mt-1"></p>
                     <button type="button" id="syncSitesBtn" onclick="closeQueueModal(); openStartDay(true, true)" class="btn btn-primary !py-2 !px-3 !text-xs mt-2" title="Download your sites to this device so they open straight away and work offline">⬇ Sync sites to this device</button>
                 </div>
                 <button type="button" onclick="closeQueueModal()" class="t-faint hover:opacity-70 text-xs font-semibold cursor-pointer shrink-0">✕ Close</button>
@@ -2123,16 +2126,6 @@
                     <button type="button" class="map-how" data-how="map" onclick="setMapHow('map')"><span class="text-2xl">🛰️</span><b>Satellite map</b><span>The site from above, at real scale</span></button>
                 </div>
             </div>
-            <div id="mapEditSizeRow" class="space-y-1.5">
-                <label class="lbl" for="mapEditSize">About how big is the area?</label>
-                <select id="mapEditSize" class="field">
-                    <option value="small">Small - up to 40 × 25 m (a shop, office or house)</option>
-                    <option value="medium" selected>Medium - up to 60 × 40 m (a café, small factory)</option>
-                    <option value="large">Large - up to 100 × 60 m (a warehouse)</option>
-                    <option value="xl">Very large - up to 160 × 100 m (a whole site)</option>
-                </select>
-                <p class="text-[11px] t-faint">This is just the page size; you don't have to fill it.</p>
-            </div>
             <div id="mapEditImageRow" class="space-y-2">
                 <label class="lbl">Plan image (photo, screenshot or scan)</label>
                 <input type="file" id="mapEditFile" accept="image/*" class="field !p-2 text-xs file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-brand-500 file:text-white cursor-pointer">
@@ -2258,7 +2251,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.23-r72-oci';
+        const APP_VERSION = '2026.10.29-r73-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -2317,6 +2310,7 @@
                 lock: async (name, acquireTimeout, fn) => await fn()
             }
         });
+        _supabase.onSent = n => countVisitUpload(n);
 
         let clientsData = [];
         let selectedClient = null;
@@ -4461,8 +4455,30 @@
             const hours = (Date.now() - t) / 3600000;
             return { at: c.visit_started_at, by: c.visit_started_by || null, hours: hours, stale: hours >= VISIT_STALE_HOURS };
         }
+        // ---------- Data uploaded on this visit (shown in Sync Data; starts again at 0 with each visit) ----------
+        const VISIT_DATA_KEY = 'pestis-visit-data';
+        let visitData = loadJSON(VISIT_DATA_KEY, null), visitDataSaved = 0;
+        function resetVisitData(c) {
+            visitData = { site: c ? String(c.id) : null, name: (c && c.Name) || '', bytes: 0, since: new Date().toISOString() };
+            saveJSON(VISIT_DATA_KEY, visitData);
+            drawVisitData();
+        }
+        function countVisitUpload(n) {
+            if (!visitData) visitData = { site: selectedClient ? String(selectedClient.id) : null, name: (selectedClient && selectedClient.Name) || '', bytes: 0, since: new Date().toISOString() };
+            visitData.bytes += n;
+            if (Date.now() - visitDataSaved > 2000) { visitDataSaved = Date.now(); saveJSON(VISIT_DATA_KEY, visitData); }
+            drawVisitData();
+        }
+        function drawVisitData() {
+            const el = document.getElementById('visitDataLine');
+            if (!el) return;
+            const v = visitData;
+            el.innerHTML = `📶 Data uploaded this visit: <b class="t-strong">${fmtBytes(v ? v.bytes : 0)}</b>` +
+                (v && v.since ? `<span class="t-faint"> · ${v.name ? esc(v.name) + ', ' : ''}since ${esc(new Date(v.since).toLocaleString(LOCALE, { weekday: 'short', hour: 'numeric', minute: '2-digit' }))}</span>` : '');
+        }
         async function markVisitStarted(c, type) {
             if (!c || c.visit_started_at) return;
+            resetVisitData(c);
             if (c === selectedClient) await queueSiteChange({ action: 'visit_started', visitType: type || 'Routine Service', title: 'Visit started' }, `Visit started (${type || 'Routine Service'}) · log`);
             await queueClientUpdate(c, { visit_started_at: new Date().toISOString(), visit_started_by: currentUser ? currentUser.id : null, visit_type: type || 'Routine Service' }, `Visit started (${type || 'Routine Service'})`, null, 'visit');
             renderSiteCards();
@@ -4542,6 +4558,8 @@
             const sent = queueItems.length - unsent.length;
             const conn = isOnline ? '<span style="color:#10b981;" class="font-bold">Online</span>' : '<span style="color:#ef4444;" class="font-bold">Offline</span> - items upload automatically when the connection returns';
             document.getElementById('queueStatusLine').innerHTML = `${conn} · ${unsent.length} waiting to upload${failed ? ` (${failed} with issues)` : ''} · ${sent} sent recently`;
+            if (visitData) saveJSON(VISIT_DATA_KEY, visitData);
+            drawVisitData();
             document.getElementById('exportUnsentBtn').disabled = unsent.length === 0;
 
             const downs = syncLog.map(d => Object.assign({ _t: Date.parse(d.at) || 0, _failed: d.status === 'failed' }, d));
@@ -7421,6 +7439,8 @@
             const client = clientsData.find(c => String(c.id) === String(clientId));
             if (!client) { alert('Site not found. Please refresh the page.'); return; }
             selectedClient = client;
+            // a visit already under way here (e.g. started on another device): count this device's uploads from now
+            if (visitInfo(client) && (!visitData || visitData.site !== String(client.id))) resetVisitData(client);
             setHeaderSite();
             isLoadingSite = true;
             const mySeq = ++siteSyncSeq;
@@ -10044,7 +10064,6 @@
         //  plan is also saved as a picture, so pins, reports and the Client Portal work as before.
         //  Plan coordinates are pixels on a fixed page (doc.w x doc.h); pins stay where they are.
         // ===================================================================
-        const PE_SIZES = { small: [40, 25], medium: [60, 40], large: [100, 60], xl: [160, 100] };
         const PE_WALLS = { wall: 'Wall', thin: 'Thin wall', fence: 'Fence', line: 'Line' };
         const PE_ROOM_COLORS = ['#fde68a', '#bfdbfe', '#bbf7d0', '#fecaca', '#e9d5ff', '#fed7aa', '#e2e8f0'];
         const PE_OBJECTS = [
@@ -10078,10 +10097,52 @@
         const peNode = id => pe.doc.nodes.find(n => n.id === id);
         const peM = px => px / pe.doc.ppm;   // pixels -> metres
         const peFmtM = m => (Math.round(m * 10) / 10).toLocaleString(LOCALE, { maximumFractionDigits: 1 }) + ' m';
-        function peNewDoc(sizeKey) {
-            const [mw, mh] = PE_SIZES[sizeKey] || PE_SIZES.medium;
-            const ppm = Math.min(40, Math.floor(4000 / Math.max(mw, mh)));
-            return { v: 1, w: mw * ppm, h: mh * ppm, ppm, sizes: true, nodes: [], walls: [], rooms: [], items: [], bg: null };
+        // The page sizes itself: a new plan is a big empty space to zoom around in, an opened plan gets room around it to add
+        // more, and when it's saved the page is trimmed to fit the drawing, the photo under it and the station pins.
+        const PE_WORK_M = 200;     // a new plan's working space, in metres each way
+        const PE_ROOM_M = 60;      // space added on every side of a plan that's opened again
+        const PE_MARGIN_M = 3;     // space kept around everything when it's saved
+        function peNewDoc() {
+            const ppm = 40, s = PE_WORK_M * ppm;
+            return { v: 1, w: s, h: s, ppm, sizes: true, nodes: [], walls: [], rooms: [], items: [], bg: null };
+        }
+        // moves everything on the page (the pins follow when it's saved)
+        function peShiftAll(d, dx, dy) {
+            if (!dx && !dy) return;
+            if (d.bg && !d.bg.rect) d.bg.rect = { x: 0, y: 0, w: d.w, h: d.h };   // the photo or map keeps its place
+            d.nodes.forEach(n => { n.x += dx; n.y += dy; });
+            d.items.forEach(it => { it.x += dx; it.y += dy; });
+            if (d.bg && d.bg.rect) { d.bg.rect.x += dx; d.bg.rect.y += dy; }
+            d._ox = (d._ox || 0) + dx; d._oy = (d._oy || 0) + dy;
+        }
+        function peAddRoom(d) {
+            const px = Math.max(0, Math.min(Math.round(PE_ROOM_M * d.ppm), Math.floor((PE_MAX_PX - d.w) / 2), Math.floor((PE_MAX_PX - d.h) / 2)));
+            if (!px) return;
+            peShiftAll(d, px, px);
+            d.w += 2 * px; d.h += 2 * px;
+        }
+        // the area everything on the plan covers (null for an empty plan)
+        function peContentBounds(d) {
+            let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+            const add = (x, y, r) => { r = r || 0; x0 = Math.min(x0, x - r); y0 = Math.min(y0, y - r); x1 = Math.max(x1, x + r); y1 = Math.max(y1, y + r); };
+            const used = new Set();
+            d.walls.forEach(w => { used.add(w.a); used.add(w.b); });
+            d.rooms.forEach(r => r.nodes.forEach(id => used.add(id)));
+            d.nodes.forEach(n => { if (used.has(n.id)) add(n.x, n.y, d.ppm * 0.3); });
+            d.items.forEach(it => { const b = peItemBox(it, d.ppm); add(it.x, it.y, Math.hypot(b.w, b.h) / 2 + Math.abs(b.y || 0)); });
+            if (d.bg && d.bg.include) { const r = peBgRect(d); add(r.x, r.y); add(r.x + r.w, r.y + r.h); }
+            if (pe && pe.mapId && pe.doc === d) pinsOn(pe.mapId).forEach(([, p]) => { if (p.x != null) add(p.x * pe.w0 + (d._ox || 0), p.y * pe.h0 + (d._oy || 0), d.ppm); });
+            return x0 === Infinity ? null : { x0, y0, x1, y1 };
+        }
+        // trims (or grows) the page to fit everything, with a margin
+        function peFitPage(d) {
+            const b = peContentBounds(d);
+            if (!b) return;
+            const m = PE_MARGIN_M * d.ppm;
+            const x0 = Math.floor(b.x0 - m), y0 = Math.floor(b.y0 - m);
+            peShiftAll(d, -x0, -y0);
+            d.w = Math.min(PE_MAX_PX, Math.ceil(b.x1 + m) - x0);
+            d.h = Math.min(PE_MAX_PX, Math.ceil(b.y1 + m) - y0);
         }
         const peDraftKey = mapId => `pestis-plan-draft-${selectedClient ? selectedClient.id : 'x'}-${mapId || 'new'}`;
 
@@ -10094,15 +10155,16 @@
                 // drawing on top of an uploaded picture: the page is the picture
                 const w = (currentMapId === m.id && mapView.w) || m.w || 2400, h = (currentMapId === m.id && mapView.h) || m.h || 1600;
                 doc = { v: 1, w, h, ppm: Math.max(8, Math.round(Math.max(w, h) / 60)), sizes: false, nodes: [], walls: [], rooms: [], items: [], bg: { path: m.path, include: true, opacity: 1 } };
-            } else doc = peNewDoc(opts.size);
+            } else doc = peNewDoc();
             ['nodes', 'walls', 'rooms', 'items'].forEach(k => { if (!Array.isArray(doc[k])) doc[k] = []; });
             pe = {
                 doc, mapId: m ? m.id : null, name: opts.name || (m ? m.name : ''), tool: 'select', wallKind: 'wall', straight: true, stampKind: 'door', shapeKind: 'rect', shapeFill: '#bfdbfe',
                 sel: null, chain: null, view: { z: 1, x: 0, y: 0 }, op: null, hover: null, pointers: new Map(), undo: [], redo: [], last: '',
-                dirty: false, bgUrl: null, bgBlob: null, show: { grid: true, snap: true, pins: true }, panel: 'tool', space: false, sizeKey: opts.size || null
+                dirty: false, bgUrl: null, bgBlob: null, show: { grid: true, snap: true, pins: true }, panel: 'tool', space: false
             };
-            pe.last = peDocJson();
             pe.w0 = doc.w - (doc._ox || 0); pe.h0 = doc.h - (doc._oy || 0);   // the page size the station pins were placed on
+            if (m) peAddRoom(doc);   // space around it to add more (trimmed off again when it's saved)
+            pe.last = peDocJson();
             document.getElementById('peName').value = pe.name;
             document.getElementById('planEditor').classList.remove('hidden');
             document.body.style.overflow = 'hidden';
@@ -10253,17 +10315,21 @@
         // ---------- view ----------
         function peStageSize() { const s = document.getElementById('peStage'); return { w: s.clientWidth || 800, h: s.clientHeight || 600 }; }
         function peFitZ() { const s = peStageSize(); return Math.min(s.w / pe.doc.w, s.h / pe.doc.h) * 0.92; }
+        // shows everything on the plan (or, on an empty plan, about 40 × 25 m in the middle of the space)
         function peFit() {
             if (!pe) return;
-            const s = peStageSize(), z = peFitZ();
-            pe.view = { z, x: (s.w - pe.doc.w * z) / 2, y: (s.h - pe.doc.h * z) / 2 };
+            const d = pe.doc, s = peStageSize(), b = peContentBounds(d), m = 2 * d.ppm;
+            const r = b ? { x: b.x0 - m, y: b.y0 - m, w: b.x1 - b.x0 + 2 * m, h: b.y1 - b.y0 + 2 * m }
+                : { x: d.w / 2 - 20 * d.ppm, y: d.h / 2 - 12.5 * d.ppm, w: 40 * d.ppm, h: 25 * d.ppm };
+            const z = Math.min(s.w / r.w, s.h / r.h) * 0.92;
+            pe.view = { z, x: (s.w - r.w * z) / 2 - r.x * z, y: (s.h - r.h * z) / 2 - r.y * z };
             peApplyView();
         }
         function peZoom(f, cx, cy) {
             if (!pe) return;
             const s = peStageSize();
             if (cx == null) { cx = s.w / 2; cy = s.h / 2; }
-            const fz = peFitZ(), nz = Math.min(Math.max(pe.view.z * f, fz * 0.3), fz * 25);
+            const fz = peFitZ(), nz = Math.min(Math.max(pe.view.z * f, fz * 0.3), Math.max(fz * 25, 400 / pe.doc.ppm));   // in as far as 1 m = 400 px
             pe.view.x = cx - (cx - pe.view.x) * (nz / pe.view.z);
             pe.view.y = cy - (cy - pe.view.y) * (nz / pe.view.z);
             pe.view.z = nz;
@@ -11100,21 +11166,11 @@
                         ${bg ? `<label class="lbl !mb-0">Photo strength</label><input type="range" min="10" max="100" value="${Math.round((bg.opacity == null ? 1 : bg.opacity) * 100)}" oninput="peBgOpacity(this.value)" class="w-full accent-orange-500">
                         <label class="pe-check"><input type="checkbox" ${bg.include ? 'checked' : ''} onchange="peBgInclude(this.checked)"> Keep the photo in the saved plan</label>` : ''}
                     </div>
-                    <div class="space-y-2 border-t divider pt-3"><div class="lbl !mb-0">Make the page bigger</div>
-                        <p class="text-[11px] t-faint">Now ${peFmtM(d.w / d.ppm)} × ${peFmtM(d.h / d.ppm)}. Adds empty space on that side - everything already drawn, and the station pins, stay where they are.</p>
-                        <div class="flex items-center gap-2 text-xs"><span>Add</span><select id="peGrowBy" class="field !w-auto !py-1 !text-xs">${[2, 5, 10, 20, 50].map(m => `<option value="${m}" ${m === (pe.growBy || 5) ? 'selected' : ''}>${m} m</option>`).join('')}</select><span>on the</span></div>
-                        <div class="pe-grow">
-                            <button type="button" class="pe-chip justify-center" style="grid-area:t;" onclick="peGrow('top')">↑ Top</button>
-                            <button type="button" class="pe-chip justify-center" style="grid-area:l;" onclick="peGrow('left')">← Left</button>
-                            <span class="pe-grow-page" style="grid-area:c;"></span>
-                            <button type="button" class="pe-chip justify-center" style="grid-area:r;" onclick="peGrow('right')">Right →</button>
-                            <button type="button" class="pe-chip justify-center" style="grid-area:b;" onclick="peGrow('bottom')">↓ Bottom</button>
-                        </div>
-                        <button type="button" class="pe-chip w-full justify-center" onclick="peGrow('all')">⤢ All four sides</button>
-                    </div>
+                    <div class="space-y-1.5 border-t divider pt-3"><div class="lbl !mb-0">Page size</div>
+                        <p class="text-[11px] t-faint">Automatic: zoom out and draw wherever you need to. When you save, the plan is sized to fit everything on it and the station pins.</p></div>
                     <div class="space-y-1.5 border-t divider pt-3"><div class="lbl !mb-0">Scale</div>
                         <div class="flex items-center gap-2 text-xs"><span>1 grid square = 1 m =</span><input type="number" min="4" max="200" step="1" value="${d.ppm}" onchange="peSetScale(this.value)" class="field !w-20 !py-1 !text-xs"><span>px</span></div>
-                        <p class="text-[11px] t-faint">Page: ${peFmtM(d.w / d.ppm)} × ${peFmtM(d.h / d.ppm)}. Change the scale if measurements on a photo look wrong.</p></div>
+                        <p class="text-[11px] t-faint">Change the scale if measurements on a photo look wrong.</p></div>
                     <div class="space-y-1.5 border-t divider pt-3"><div class="lbl !mb-0">Show</div>
                         <label class="pe-check"><input type="checkbox" ${pe.show.grid ? 'checked' : ''} onchange="peSet('grid', this.checked)"> Grid</label>
                         <label class="pe-check"><input type="checkbox" ${pe.show.snap ? 'checked' : ''} onchange="peSet('snap', this.checked)"> Snap to grid and corners</label>
@@ -11255,28 +11311,7 @@
         }
         function peFlipDoor() { const it = pe.doc.items.find(x => x.id === pe.sel.id); if (it) { it.rot = ((it.rot || 0) + 180) % 360; peCommit(); peRender(); } }
         const PE_MAX_PX = 12000;   // the biggest page a phone can still turn into a picture
-        function peGrow(side) {
-            if (!pe) return;
-            const sel = document.getElementById('peGrowBy');
-            const m = parseFloat(sel ? sel.value : 5) || 5;
-            pe.growBy = m;
-            const d = pe.doc, px = Math.round(m * d.ppm);
-            const sides = side === 'all' ? ['left', 'right', 'top', 'bottom'] : [side];
-            const addW = px * sides.filter(x => x === 'left' || x === 'right').length, addH = px * sides.filter(x => x === 'top' || x === 'bottom').length;
-            if (d.w + addW > PE_MAX_PX || d.h + addH > PE_MAX_PX) { peToast(`That would make the page too big for a picture - try a smaller amount, or lower the scale (px per metre) first`); return; }
-            if (d.bg && !d.bg.rect) d.bg.rect = { x: 0, y: 0, w: d.w, h: d.h };   // the photo or map keeps its place
-            const dx = sides.includes('left') ? px : 0, dy = sides.includes('top') ? px : 0;
-            if (dx || dy) {
-                d.nodes.forEach(n => { n.x += dx; n.y += dy; });
-                d.items.forEach(it => { it.x += dx; it.y += dy; });
-                if (d.bg && d.bg.rect) { d.bg.rect.x += dx; d.bg.rect.y += dy; }
-                d._ox = (d._ox || 0) + dx; d._oy = (d._oy || 0) + dy;   // how far the pins have to move when it's saved
-            }
-            d.w += addW; d.h += addH;
-            peCommit(); peFit(); peRender(); peRenderPanel();
-            peToast(`Page is now ${peFmtM(d.w / d.ppm)} × ${peFmtM(d.h / d.ppm)}`);
-        }
-        // pins are kept as a share of the page, so a bigger page moves them back over the same spot
+        // pins are kept as a share of the page, so a page that grew or was trimmed moves them back over the same spot
         async function peShiftPins(mapId, d, w0, h0) {
             const ox = d._ox || 0, oy = d._oy || 0;
             if (!mapId || (d.w === w0 && d.h === h0 && !ox && !oy)) return;
@@ -11644,6 +11679,7 @@
             const btn = document.getElementById('peSaveBtn');
             pe.saving = true; btn.disabled = true; btn.textContent = 'Saving...';
             try {
+                peFitPage(d);   // the saved plan is just big enough for what's on it
                 const png = await peRenderPng();
                 const drawing = peClone(d);
                 delete drawing._ox; delete drawing._oy;
@@ -11684,7 +11720,6 @@
             document.querySelectorAll('#mapEditHowRow .map-how').forEach(b => b.classList.toggle('on', b.dataset.how === h));
             const isNew = mapEditMode === 'new';
             document.getElementById('mapEditHowRow').classList.toggle('hidden', !isNew);
-            document.getElementById('mapEditSizeRow').classList.toggle('hidden', !isNew || h !== 'draw');
             document.getElementById('mapEditImageRow').classList.toggle('hidden', mapEditMode === 'rename' || (isNew && h !== 'upload'));
             document.getElementById('mapEditSaveBtn').textContent = isNew && h === 'draw' ? 'Start drawing' : isNew && h === 'map' ? 'Find the site' : 'Save';
         }
@@ -11726,16 +11761,15 @@
             if (mode !== 'image' && !name) { alert('Give the plan a location name, e.g. Site External.'); return; }
             if (mode === 'new' && mapHow === 'draw' && !mapEditBlob) {
                 if (siteMaps.some(x => x.name.toLowerCase() === name.toLowerCase())) { alert(`There's already a plan called "${name}".`); return; }
-                const size = document.getElementById('mapEditSize').value;
                 closeMapEdit();
-                peOpen({ name, size });
+                peOpen({ name });
                 return;
             }
             if (mode === 'new' && mapHow === 'map') {
                 if (siteMaps.some(x => x.name.toLowerCase() === name.toLowerCase())) { alert(`There's already a plan called "${name}".`); return; }
                 if (!isOnline) { alert("The satellite map needs a connection - try again when you're back online."); return; }
                 closeMapEdit();
-                await peOpen({ name, size: 'medium' });
+                await peOpen({ name });
                 document.getElementById('peWelcome').classList.add('hidden');
                 pe.panel = 'tool'; peSetTool('select', true);
                 pmOpen();
@@ -12201,6 +12235,7 @@
             renderDeviceLists();
             window.scrollTo({ top: 0, behavior: 'smooth' });
             if (!continuing) markVisitStarted(selectedClient, type).catch(e => logAppError('Marking visit started', e));
+            else if (!visitData || visitData.site !== String(selectedClient.id)) resetVisitData(selectedClient);   // carrying on a visit here: count from now
             setRoute({ site: String(selectedClient.id), view: 'workspace' });
             return true;
         }
@@ -12633,10 +12668,10 @@
             act.value = levels.some(x => x[0] === keep) ? keep : (rodent ? 'None' : levels[0][0]);
             document.getElementById('activityRow').classList.toggle('hidden', none);
             document.getElementById('activityLabel').textContent = 'Activity';
-            // the number: insects only when Caught; rodents optional (e.g. a snap trap)
-            const showCount = rodent || act.value === 'Caught';
+            // the number: only when Caught (rodents and insects alike)
+            const showCount = act.value === 'Caught';
             document.getElementById('pestCountRow').classList.toggle('hidden', !showCount);
-            document.getElementById('pestCountLabel').innerHTML = rodent && act.value !== 'Caught' ? 'Number caught <span class="t-faint normal-case tracking-normal font-normal">(if any)</span>' : 'Number caught <span style="color:#ef4444;">*</span>';
+            document.getElementById('pestCountLabel').innerHTML = 'Number caught <span style="color:#ef4444;">*</span>';
             count.disabled = !showCount;
             if (!showCount) count.value = '';
         }
@@ -13920,13 +13955,14 @@
         //  PEST GUIDE: each pest with a picture, its category, breeding habits and how to deal with it.
         //  Admins write it (Admin -> Lists); everyone can read it (here and in the Client Portal).
         // ===================================================================
-        const PEST_CATEGORIES = ['Rodents', 'Crawling insects', 'Flying insects', 'Stored product pests', 'Birds', 'Other pests'];
-        const PEST_CAT_ICON = { 'Rodents': '🐀', 'Crawling insects': '🪳', 'Flying insects': '🪰', 'Stored product pests': '🐛', 'Birds': '🐦', 'Other pests': '🐞' };
+        const PEST_CATEGORIES = ['Rodents', 'Crawling insects', 'Flying insects', 'Moths', 'Stored product pests', 'Birds', 'Other pests'];
+        const PEST_CAT_ICON = { 'Rodents': '🐀', 'Crawling insects': '🪳', 'Flying insects': '🪰', 'Moths': '🦋', 'Stored product pests': '🐛', 'Birds': '🐦', 'Other pests': '🐞' };
         function pestCategoryGuess(name) {
             const n = String(name || '').toLowerCase();
             if (/\b(rat|rats|mouse|mice|rodent|possum|stoat)\b|rat\b/.test(n)) return 'Rodents';
-            if (/weevil|beetle|stored|grain|flour|meal moth|cigarette|warehouse moth|psocid/.test(n)) return 'Stored product pests';
-            if (/fly|flies|moth|mosquito|midge|wasp|bee\b|bees|gnat|hornet/.test(n)) return 'Flying insects';
+            if (/moth/.test(n)) return 'Moths';
+            if (/weevil|beetle|stored|grain|flour|cigarette|psocid|booklice|flour mite/.test(n)) return 'Stored product pests';
+            if (/fly|flies|mosquito|midge|wasp|bee\b|bees|gnat|hornet/.test(n)) return 'Flying insects';
             if (/cockroach|roach|\bant|ants\b|spider|silverfish|flea|bed ?bug|earwig|slater|centipede|millipede|tick|mite/.test(n)) return 'Crawling insects';
             if (/bird|pigeon|sparrow|starling|myna|gull|swallow/.test(n)) return 'Birds';
             return 'Other pests';
@@ -13947,13 +13983,13 @@
             if (/wasp|bee\b|bees|hornet/.test(n)) return 'Wasps & bees';
             return cat === 'Crawling insects' ? 'Other crawling insects' : '';
         }
-        const PEST_SUB_ORDER = ['Cockroaches', 'Ants', 'Spiders', 'Beetles & borers', 'Other crawling insects', 'Flies', 'Wasps & bees', 'Moths', 'Beetles & weevils', 'Other'];
+        const PEST_SUB_ORDER = ['Cockroaches', 'Ants', 'Spiders', 'Beetles & borers', 'Other crawling insects', 'Flies', 'Wasps & bees', 'Fabric moths', 'Pantry moths', 'Garden & orchard moths', 'Moths', 'Beetles & weevils', 'Mites & booklice', 'Other'];
         function pestSubs(items) {
             const used = new Set(items.map(pestSubOf));
             return PEST_SUB_ORDER.filter(x => used.has(x)).concat(Array.from(used).filter(x => !PEST_SUB_ORDER.includes(x)).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b)));
         }
         // a general name ("Rats", "Ants") rather than a specific pest: those are the categories now
-        const isGeneralPest = name => /^(rats?|mice|mouse|rodents?|ants?|cockroach(es)?|roach(es)?|spiders?|flies|fly|wasps?|bees?|birds?|beetles?|moths?|insects?|weevils?)$/i.test(String(name || '').trim());
+        const isGeneralPest = name => /^(rats|mice|rodents?|ants?|cockroach(es)?|roach(es)?|spiders?|flies|fly|wasps?|bees?|birds?|beetles?|moths?|insects?|weevils?)$/i.test(String(name || '').trim());
         const speciesItems = () => appOptions.filter(o => o.kind === 'species').sort(byLabel);
         function pestCategories(items) {
             const used = new Set((items || speciesItems()).map(pestCategoryOf));
@@ -13976,15 +14012,11 @@
         // category and sub-group, scientific name, photo searches (the pest, and signs of an infestation), about, breeding and strategy.
         // Matched on the pest's name; the first match wins, so the more specific names come first.
         const PEST_LIBRARY = [
-            { m: /norway|brown rat|sewer rat|rattus norvegicus/i, name: 'Norway rat', cat: 'Rodents', sub: '', sci: 'Rattus norvegicus', wiki: 'Brown_rat', signs: ["rat droppings", "rat burrow", "rat gnawing damage"],
-              about: 'The Norway (brown) rat is a large, heavy-bodied rat (up to 500 g) with a blunt nose, small ears and a tail shorter than its body. It burrows in soil, under slabs and along drains, and lives at ground level in sewers, gardens, warehouses and rubbish areas. It contaminates food with droppings and urine, gnaws cables and pipes, and spreads diseases such as leptospirosis and salmonella.',
-              breeding: 'Breeds all year when there is food and shelter. A female can have 4-6 litters a year of 6-12 young, and the young can breed at 2-3 months old, so a small colony grows into hundreds within a year. Nests are in burrows, wall cavities and under stored goods.',
-              control: 'Inspect for burrows, runways, rub marks and droppings to find where they live and travel. Use tamper-resistant bait stations (rodenticide or traps) along walls and runways, spaced 5-10 m apart outside and checked on every service. Proof the building: seal gaps over 12 mm, fit door sweeps, cover drains and vents with mesh. Remove food and harbourage: secure bins, clear vegetation and clutter from walls, store goods off the floor. Record activity at each station and re-bait or move stations where activity is high.' },
-            { m: /ship rat|roof rat|black rat|rattus rattus/i, name: 'Ship rat (roof rat)', cat: 'Rodents', sub: '', sci: 'Rattus rattus', wiki: 'Black_rat', signs: ["rat nest roof", "rat droppings", "rat gnawed cable"],
-              about: 'The ship (roof) rat is a slender, agile rat with a pointed nose, large ears and a tail longer than its body. It is an excellent climber and nests in ceilings, roof voids, trees and creepers, travelling along cables, fences and branches. It damages wiring and insulation and contaminates stored food.',
-              breeding: 'Breeds mainly from spring to autumn, with 3-5 litters a year of 5-8 young. Young mature at about 3-4 months. Nests are built high up - in roof spaces, wall cavities and dense trees.',
-              control: 'Look high: check roof voids, ceiling spaces and above false ceilings for droppings, gnawing and nesting. Place bait stations or traps in the roof space and along elevated runways as well as at ground level. Trim trees and creepers back at least 1 m from the roof, and fit rat guards on cables and pipes. Seal entry points at the roof line, eaves and service penetrations. Monitor and keep stations stocked until there is no more activity.' },
-            { m: /house mouse|\\bmice\\b|\\bmouse\\b|mus musculus/i, name: 'House mouse', cat: 'Rodents', sub: '', sci: 'Mus musculus', wiki: 'House_mouse', signs: ["mouse droppings", "mouse nest", "mouse damage food"],
+            { m: /\brats?\b|norway|brown rat|sewer rat|ship rat|roof rat|black rat|rattus/i, name: 'Rat', cat: 'Rodents', sub: '', sci: 'Rattus norvegicus, R. rattus', pics: '"Rattus norvegicus"', wiki: 'Brown_rat', signs: ["rat droppings", "rat burrow", "rat gnawing damage", "rat nest roof"],
+              about: 'Two rats are pests in New Zealand. The Norway (brown) rat is large and heavy (up to 500 g) with a blunt nose, small ears and a tail shorter than its body; it burrows in soil, under slabs and along drains and lives at ground level. The ship (roof) rat is slender and agile with a pointed nose, large ears and a tail longer than its body; it is an excellent climber and nests high up in ceilings, roof voids, trees and creepers, travelling along cables, fences and branches. Both contaminate food with droppings and urine, gnaw cables, pipes and insulation, and spread diseases such as leptospirosis and salmonella.',
+              breeding: 'Rats breed all year where there is food and shelter. A female can have 3-6 litters a year of 5-12 young, and the young can breed at 2-4 months old, so a small colony grows into hundreds within a year. Norway rats nest in burrows, wall cavities and under stored goods; ship rats nest high up in roof spaces, wall cavities and dense trees.',
+              control: 'Inspect low and high: burrows, runways, rub marks and droppings at ground level, and roof voids, ceiling spaces and elevated runways for ship rats. Use tamper-resistant bait stations (rodenticide or traps) along walls and runways, spaced 5-10 m apart outside, and in the roof space where there is activity, checked on every service. Proof the building: seal gaps over 12 mm, fit door sweeps, cover drains and vents with mesh, trim trees and creepers at least 1 m back from the roof and fit rat guards on cables and pipes. Remove food and harbourage: secure bins, clear vegetation and clutter from walls, store goods off the floor. Record activity at each station and re-bait or move stations where activity is high.' },
+            { m: /house mouse|\bmice\b|\bmouse\b|mus musculus/i, name: 'Mouse', cat: 'Rodents', sub: '', sci: 'Mus musculus', wiki: 'House_mouse', signs: ["mouse droppings", "mouse nest", "mouse damage food"],
               about: 'The house mouse is a small rodent (12-30 g) with large ears and a tail about as long as its body. It lives inside buildings, in wall cavities, cupboards, appliances and stored goods, and only needs a 6 mm gap to get in. Mice nibble small amounts from many food items and leave many small droppings, contaminating far more than they eat.',
               breeding: 'Breeds all year indoors. A female can have 6-10 litters a year of 5-8 young, and young breed from 6 weeks old. Nests are made from shredded paper, fabric and insulation close to food.',
               control: 'Mice range only 3-10 m from the nest, so place stations or traps close together (2-3 m apart) where activity is seen. Use tamper-resistant bait stations, snap traps or multi-catch traps along walls and behind appliances. Seal gaps over 6 mm with steel wool, mesh or sealant, and fit door sweeps. Keep food in sealed containers, clean up spills, and reduce clutter. Check frequently - mice are curious, so move stations if they are not visited.' },
@@ -14084,7 +14116,7 @@
               about: 'Bed bugs are small (4-5 mm), flat, reddish-brown insects that feed on human blood at night. They hide in mattress seams, bed frames, headboards, skirting boards and furniture, and spread in luggage and second-hand furniture. Signs are itchy bites in rows, dark spots of droppings and shed skins.',
               breeding: 'A female lays 1-5 eggs a day (200-500 in her life) in cracks near where people sleep. Nymphs need a blood meal before each of five moults and reach adulthood in 4-6 weeks in warm rooms. Adults can survive months without feeding.',
               control: 'Inspect beds, furniture and skirtings thoroughly to map the infestation. Heat-treat or hot-wash (60 °C) and tumble-dry bedding and clothing. Vacuum seams and cracks and dispose of the bag. Apply residual insecticide and dust to cracks, bed frames and skirtings, and fit mattress encasements. Re-inspect and re-treat after 2 weeks, as eggs survive the first treatment.' },
-            { m: /\\bfleas?\\b|ctenocephalides/i, name: 'Cat flea', cat: 'Crawling insects', sub: 'Other crawling insects', sci: 'Ctenocephalides felis', wiki: 'Cat_flea', signs: ["flea dirt", "flea larvae carpet", "flea bites"],
+            { m: /\bfleas?\b|ctenocephalides/i, name: 'Cat flea', cat: 'Crawling insects', sub: 'Other crawling insects', sci: 'Ctenocephalides felis', wiki: 'Cat_flea', signs: ["flea dirt", "flea larvae carpet", "flea bites"],
               about: 'Fleas are tiny (2-3 mm), wingless, jumping insects that feed on the blood of cats, dogs and people. Most infestations are cat fleas living on pets and in carpets, bedding and under floors.',
               breeding: 'Adults on the animal lay up to 50 eggs a day that fall into carpets and bedding. Larvae feed on debris and adult flea droppings, then pupate in a cocoon that can wait weeks or months until vibration or warmth signals a host.',
               control: 'Treat all pets with a vet-recommended flea product at the same time. Vacuum carpets, furniture and pet bedding thoroughly before treatment, and wash bedding hot. Apply an insecticide with an insect growth regulator to carpets, under furniture and pet areas. Keep vacuuming daily for 2 weeks to trigger emerging fleas, and re-treat if needed.' },
@@ -14108,7 +14140,7 @@
               about: 'Termites are pale, soft-bodied social insects that eat timber. In New Zealand they are mostly found in damp or decaying wood, but introduced species can cause serious structural damage.',
               breeding: 'A colony is headed by a king and queen; winged reproductives swarm in warm weather to start new colonies.',
               control: 'Confirm the species - suspected subterranean or drywood termites must be reported to MPI. Remove damp, decaying timber and fix moisture problems. Treat affected timber and soil, and inspect regularly.' },
-            { m: /house borer|anobium|furniture beetle|\\bborer\\b/i, name: 'Common house borer', cat: 'Crawling insects', sub: 'Beetles & borers', sci: 'Anobium punctatum', wiki: 'Anobium_punctatum', signs: ["woodworm holes", "woodworm damage furniture", "Anobium punctatum damage"],
+            { m: /house borer|anobium|furniture beetle|^\s*borers?\s*$/i, name: 'Common house borer', cat: 'Crawling insects', sub: 'Beetles & borers', sci: 'Anobium punctatum', wiki: 'Anobium_punctatum', signs: ["woodworm holes", "woodworm damage furniture", "Anobium punctatum damage"],
               about: 'The common house borer (furniture beetle) is a small brown beetle whose larvae tunnel through untreated timber, leaving 1-2 mm round flight holes and fine powdery frass. It attacks floorboards, framing and furniture, especially in older or damp buildings.',
               breeding: 'Adults emerge in spring and summer and lay eggs in cracks in timber. Larvae tunnel inside the wood for 2-4 years before pupating and emerging.',
               control: 'Look for fresh flight holes and frass to confirm activity. Apply a borer treatment to affected timber in the flight season (spring-summer), and improve ventilation to keep timber dry. Replace badly damaged timber with treated timber.' },
@@ -14116,14 +14148,30 @@
               about: 'Carpet beetles are small, rounded, mottled beetles. Their hairy larvae ("woolly bears") eat wool, silk, fur, feathers and dried animal products, damaging carpets, clothing and museum items.',
               breeding: 'Adults lay eggs in fabrics, carpet edges, nests and lint. Larvae feed for months to years depending on temperature before pupating.',
               control: 'Find and remove the source - old bird nests, lint, stored wool and fur. Vacuum carpet edges, under furniture and in cupboards thoroughly. Apply a residual treatment to carpet edges and cracks, and store fabrics clean in sealed containers.' },
+            { m: /lesser house ?fly|fannia/i, name: 'Lesser house fly', cat: 'Flying insects', sub: 'Flies', sci: 'Fannia canicularis', wiki: 'Fannia_canicularis', signs: ["Fannia canicularis larva", "flies circling light"],
+              about: 'The lesser house fly is slightly smaller and slimmer than the house fly (5-6 mm), grey with three faint dark stripes on its thorax. It is known for flying in slow, endless circles in the middle of a room, under lights and hanging fittings, and rarely lands on food. It is common in homes, poultry sheds and farm buildings.',
+              breeding: 'Females lay eggs in decaying organic matter, especially poultry and animal manure, compost and rotting vegetables. Larvae are flattened with spiny fringes, and the life cycle takes 2-4 weeks. It prefers cooler weather than the house fly, so it is often the first fly seen in spring.',
+              control: 'Find and remove breeding sites - manure, compost and rotting material near the building. Fit fly screens and keep doors closed. Use insect light traps and sticky ribbons near where they circle, and a residual spray on resting surfaces such as light fittings and ceilings in heavy infestations.' },
             { m: /house ?fly|musca/i, name: 'House fly', cat: 'Flying insects', sub: 'Flies', sci: 'Musca domestica', wiki: 'Housefly', signs: ["fly larvae maggots", "flies on rubbish", "fly specks"],
               about: 'The house fly is a grey fly (6-7 mm) with four dark stripes on its thorax. It feeds on rubbish, manure and food, and carries bacteria from waste onto food and surfaces, spreading food poisoning.',
               breeding: 'Females lay batches of 100-150 eggs in rotting organic matter - rubbish, food waste and manure. In warm weather the life cycle takes only 7-10 days, so numbers rise fast in summer.',
               control: 'Remove breeding sites: empty and clean bins often, keep lids closed and clean up food waste and spills. Fit fly screens, strip curtains and self-closing doors. Use UV insect light traps (ILTs) inside, away from doors and food prep, and service them regularly. Use fly baits outside around bins and waste areas.' },
-            { m: /blow ?fly|bluebottle|greenbottle|calliphor/i, name: 'Blowfly', cat: 'Flying insects', sub: 'Flies', sci: 'Calliphora vicina', wiki: 'Calliphoridae', signs: ["blowfly maggots", "Calliphoridae larvae"],
-              about: 'Blowflies are large, metallic blue or green flies attracted to meat, dead animals and rubbish. They contaminate food and are often a sign of a dead rodent or bird in a wall or roof space.',
+            { m: /green ?bottle|green blow ?fly|lucilia/i, name: 'Green blowfly', cat: 'Flying insects', sub: 'Flies', sci: 'Lucilia sericata', wiki: 'Lucilia_sericata', signs: ["Lucilia sericata maggots", "blowfly maggots"],
+              about: 'The green blowfly (greenbottle) is a bright metallic green fly (8-10 mm). It is attracted to meat, fish, dead animals, pet food and rubbish, and in New Zealand is the main cause of flystrike in sheep. Inside buildings it is usually a sign of a dead rodent or bird, or food waste left out.',
+              breeding: 'Females lay batches of up to 200 eggs on meat, carcasses and wet food waste. Maggots hatch within a day, feed for 3-5 days, then wander off to pupate in soil or dark corners. The life cycle takes 2-3 weeks in warm weather.',
+              control: 'Find and remove the source - a dead animal in a wall or roof void, meat scraps or bin waste. Keep bins clean, lined and sealed and empty them often. Use insect light traps and fly screens inside, and fly baits or traps around waste areas outside.' },
+            { m: /blow ?fly|bluebottle|calliphor/i, name: 'Blowfly', cat: 'Flying insects', sub: 'Flies', sci: 'Calliphora vicina', wiki: 'Calliphoridae', signs: ["blowfly maggots", "Calliphoridae larvae"],
+              about: 'Blowflies (bluebottles) are large (10-14 mm), noisy, metallic blue flies attracted to meat, dead animals and rubbish. In New Zealand the European blue blowfly and the native brown blowfly are the common ones. They contaminate food and are often a sign of a dead rodent or bird in a wall or roof space.',
               breeding: 'Females lay eggs on meat, carcasses and food waste; maggots feed for a few days, then move away to pupate. The life cycle takes 2-3 weeks.',
               control: 'Find and remove the source (dead animal, waste or meat scraps). Keep bins clean and sealed. Use insect light traps and fly screens inside, and baits around waste areas outside.' },
+            { m: /flesh fly|sarcophag/i, name: 'Flesh fly', cat: 'Flying insects', sub: 'Flies', sci: 'Sarcophaga', wiki: 'Sarcophagidae', signs: ["Sarcophagidae larvae", "flies on carcass"],
+              about: 'Flesh flies are large (10-15 mm) grey flies with three bold black stripes on the thorax, a chequered grey-and-black abdomen and red eyes. They are attracted to dead animals, meat, rotting food and dog faeces, and in buildings usually point to a dead rodent or bird nearby.',
+              breeding: 'Instead of laying eggs, the female deposits live young maggots straight onto carcasses, meat or waste, so they develop very quickly. Maggots feed for a few days and then pupate in soil or debris; the life cycle takes about 2-3 weeks.',
+              control: 'Find and remove the source - dead animals, meat waste or pet droppings. Keep bins sealed and clean, and remove dog droppings promptly. Use insect light traps and fly screens inside, and baits or traps around waste areas outside.' },
+            { m: /stable fly|stomoxys/i, name: 'Stable fly', cat: 'Flying insects', sub: 'Flies', sci: 'Stomoxys calcitrans', wiki: 'Stable_fly', signs: ["Stomoxys calcitrans", "flies on horse legs"],
+              about: 'The stable fly looks like a house fly (6-8 mm) with a chequered grey abdomen, but has a stiff, pointed mouthpart sticking out in front of its head. Both males and females bite and suck blood, usually around the ankles and legs of people, horses, cattle and dogs. It is common around stables, dairy sheds, lifestyle blocks and beaches with rotting seaweed.',
+              breeding: 'Females lay eggs in rotting straw, hay, manure mixed with bedding, silage, grass clippings and decaying seaweed. Larvae develop in 1-3 weeks, and numbers peak in late summer and autumn.',
+              control: 'Remove or spread out breeding material - wet straw, old hay, silage waste and piles of lawn clippings - at least weekly. Use residual sprays on walls and fences where flies rest in the sun, fly traps around stables and sheds, and fly screens on buildings. Protect animals with repellents recommended by a vet.' },
             { m: /fruit fly|drosophila|vinegar fly/i, name: 'Fruit (vinegar) fly', cat: 'Flying insects', sub: 'Flies', sci: 'Drosophila melanogaster', wiki: 'Drosophila_melanogaster', signs: ["fruit flies on fruit", "Drosophila larvae"],
               about: 'Fruit (vinegar) flies are tiny (2-3 mm) flies with red eyes that breed in fermenting fruit, spilled drinks, drains and damp mops. They are common in bars, kitchens and food stores.',
               breeding: 'Females lay up to 500 eggs on fermenting material; the life cycle takes only 8-10 days, so they build up very quickly.',
@@ -14168,48 +14216,108 @@
               about: 'Honey bees are valuable pollinators. Problems arise when a swarm settles on a building or a colony moves into a wall cavity or roof space, where honey and comb can attract other pests.',
               breeding: 'Colonies reproduce by swarming in spring and summer, when the old queen leaves with thousands of workers to find a new home.',
               control: 'Contact a local beekeeper to collect swarms. Colonies established in walls should be removed with the comb by a specialist, then the cavity sealed. Do not use insecticide on honey bees unless no alternative exists.' },
-            { m: /clothes moth|tineola|tinea/i, name: 'Clothes moth', cat: 'Flying insects', sub: 'Moths', sci: 'Tineola bisselliella', wiki: 'Tineola_bisselliella', signs: ["clothes moth damage wool", "clothes moth larvae"],
-              about: 'Clothes moths are small (6-8 mm), golden-buff moths that avoid light. Their larvae eat wool, silk, fur and feathers, leaving holes in clothing, carpets and upholstery.',
-              breeding: 'Females lay 40-50 eggs on fabrics; larvae feed for 1-3 months (longer in cool conditions) in dark, undisturbed places.',
-              control: 'Find and clean or discard infested items. Vacuum carpets, cupboards and under furniture thoroughly. Freeze or hot-wash affected fabrics. Apply a residual treatment to carpet edges and cupboards and use pheromone traps to monitor.' },
-            { m: /indian ?meal ?moth|plodia/i, name: 'Indian meal moth', cat: 'Stored product pests', sub: 'Moths', sci: 'Plodia interpunctella', wiki: 'Plodia_interpunctella', signs: ["pantry moth webbing", "Plodia interpunctella larva", "Indian meal moth infestation"],
-              about: 'The Indian meal moth is a small moth (8-10 mm) with two-tone wings - pale at the base and copper-coloured at the tips. Its larvae infest cereals, nuts, dried fruit, pet food and grain, leaving webbing in the food.',
-              breeding: 'Each female lays 100-300 eggs on or near food. Larvae feed for 2-6 weeks, then wander to pupate in cracks and ceilings. The cycle takes 4-8 weeks in warm conditions.',
-              control: 'Find and remove infested products - check packets, bins and bulk stores. Clean shelves, cracks and corners with a vacuum. Use pheromone traps to monitor and catch males. Store food in sealed containers and rotate stock (first in, first out).' },
-            { m: /mediterranean flour moth|ephestia/i, name: 'Mediterranean flour moth', cat: 'Stored product pests', sub: 'Moths', sci: 'Ephestia kuehniella', wiki: 'Mediterranean_flour_moth', signs: ["Ephestia kuehniella larva", "flour moth webbing"],
-              about: 'The Mediterranean flour moth is a grey moth whose larvae infest flour, cereals and grain products, spinning silk that clumps the product and clogs mill equipment.',
-              breeding: 'Females lay up to 350 eggs in flour and grain; the life cycle takes about 8-10 weeks.',
-              control: 'Remove and dispose of infested product, clean equipment and dead spots in machinery, and use pheromone monitoring. Seal food in containers and keep stock rotating.' },
-            { m: /flour beetle|tribolium/i, name: 'Flour beetle', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Tribolium castaneum', wiki: 'Red_flour_beetle', signs: ["flour beetle infestation", "Tribolium larvae flour"],
-              about: 'Flour beetles are small (3-4 mm), reddish-brown beetles that infest flour, cereals, cake mixes and processed grain products, giving them a grey colour and an unpleasant smell.',
-              breeding: 'Females lay 300-400 eggs in the food over their long life (up to 3 years). The life cycle takes 5-6 weeks in warm conditions.',
-              control: 'Remove and dispose of infested products. Vacuum and clean shelves, cracks and equipment. Store products in sealed containers, rotate stock, and use pheromone or food-lure traps to monitor. Residual crack and crevice treatments help in storage areas.' },
-            { m: /rice weevil|sitophilus oryzae|maize weevil/i, name: 'Rice weevil', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Sitophilus oryzae', wiki: 'Rice_weevil', signs: ["rice weevil damage grain", "weevils in rice"],
-              about: 'The rice weevil is a small (3 mm) brown beetle with a long snout. Larvae develop inside whole grains of rice, wheat and maize, hollowing them out.',
-              breeding: 'Each female lays 300-400 eggs, one inside each grain. The cycle takes about 4-6 weeks in warm conditions.',
-              control: 'Remove infested grain, clean storage areas, and store grain in sealed containers. Freezing small quantities for a week kills all stages. Use traps to monitor.' },
+            { m: /case.?bearing|tinea pellionella/i, name: 'Case-bearing clothes moth', cat: 'Moths', sub: 'Fabric moths', sci: 'Tinea pellionella', wiki: 'Tinea_pellionella', signs: ["Tinea pellionella larva case", "clothes moth damage wool"],
+              about: 'The case-bearing clothes moth is a small (6-9 mm) shiny, greyish-brown moth with a few faint dark spots on its wings. Its larvae carry a small silk tube (case) made from the fibres they are eating, so they are hard to spot on carpets and clothing. They eat wool, fur, feathers, felt and other animal fibres, leaving clean holes and small cases behind.',
+              breeding: 'Females lay 40-50 eggs on wool and other animal fibres in dark, undisturbed places. Larvae feed inside their case for 2-12 months depending on temperature, then crawl away, often up walls and into ceiling corners, to pupate in the case.',
+              control: 'Look for the small cases and holes in carpets under furniture, wardrobes, stored woollens and around skirtings. Clean, freeze (a week at -18 °C) or hot-wash infested items, or throw out badly damaged ones. Vacuum carpet edges, under furniture and cupboards thoroughly. Apply a residual insecticide to carpet edges, cracks and cupboards, and monitor with clothes moth pheromone traps.' },
+            { m: /clothes moth|tineola|tinea/i, name: 'Webbing clothes moth', cat: 'Moths', sub: 'Fabric moths', sci: 'Tineola bisselliella', wiki: 'Tineola_bisselliella', signs: ["clothes moth damage wool", "clothes moth larvae"],
+              about: 'The webbing clothes moth is a small (6-8 mm), plain golden-buff moth with a tuft of reddish hair on its head. Unlike most moths it avoids light and runs or flutters into dark corners when disturbed. Its larvae eat wool, silk, fur, feathers and felt, leaving irregular holes, silk webbing and droppings in clothing, carpets, upholstery and piano felts.',
+              breeding: 'Females lay 40-50 eggs on fabrics in dark, undisturbed places such as under furniture, in wardrobes and in stored clothing. Larvae feed for 1-3 months (much longer in cool conditions) under silk webbing, then pupate in a silk cocoon. There can be several generations a year in heated buildings.',
+              control: 'Find the source - stored woollens, rugs, carpet under furniture, old fur or feathers. Clean, freeze (a week at -18 °C) or hot-wash infested items, and throw out badly damaged ones. Vacuum carpets, cupboards and under furniture thoroughly. Apply a residual treatment to carpet edges and cupboards, use pheromone traps to monitor, and store clean fabrics in sealed bags or containers.' },
+            { m: /brown house moth|hofmannophila/i, name: 'Brown house moth', cat: 'Moths', sub: 'Fabric moths', sci: 'Hofmannophila pseudospretella', wiki: 'Brown_house_moth', signs: ["Hofmannophila pseudospretella", "moth larvae carpet"],
+              about: 'The brown house moth is a bronze-brown moth (8-14 mm) with three or four darker spots on its wings. It is one of the most common moths found indoors in New Zealand. Its larvae scavenge on a wide range of dry materials - wool, fur, feathers, carpet, leather, cork, dried food, seeds and the debris in old birds\' nests - and also damage stored goods and books.',
+              breeding: 'Females lay up to 600 eggs in dry debris, under floors, in wall cavities, roof spaces and birds\' nests. Larvae need some humidity and can take several months to a year to develop, then pupate in a silk cocoon. Adults are seen mostly from spring to autumn.',
+              control: 'Remove the sources - old birds\' nests in roof spaces, fluff and debris under floors and behind skirtings, and infested stored goods. Vacuum thoroughly and reduce damp. Apply a residual treatment to carpet edges, voids and cracks, and use pheromone traps to monitor. Keep stored food and fabrics in sealed containers.' },
+            { m: /white.?shouldered|endrosis/i, name: 'White-shouldered house moth', cat: 'Moths', sub: 'Fabric moths', sci: 'Endrosis sarcitrella', wiki: 'Endrosis_sarcitrella', signs: ["Endrosis sarcitrella", "moth larvae debris"],
+              about: 'The white-shouldered house moth is a small (6-10 mm) mottled grey-brown moth with a distinctive white head and "shoulders". It is common in homes, food stores and animal feed areas. Its larvae scavenge on crumbs, cereals, flour, dried fruit, seeds and animal fibres, and they spoil food with silk and droppings.',
+              breeding: 'Females lay eggs in debris and food residues in cracks, under appliances and in stored products. Larvae develop over a few months in damp, sheltered conditions and pupate in silk cocoons. There can be breeding all year in heated buildings.',
+              control: 'Clean out food residues and debris behind and under appliances, in cracks and on shelves. Remove infested food and animal feed and store products in sealed containers. Reduce damp. Apply a residual crack-and-crevice treatment where they hide, and monitor with pheromone traps.' },
+            { m: /indian ?meal ?moth|plodia/i, name: 'Indian meal moth', cat: 'Moths', sub: 'Pantry moths', sci: 'Plodia interpunctella', wiki: 'Plodia_interpunctella', signs: ["pantry moth webbing", "Plodia interpunctella larva", "Indian meal moth infestation"],
+              about: 'The Indian meal moth is the most common pantry moth: a small moth (8-10 mm) with two-tone wings - pale cream at the base and copper-coloured at the tips. Its larvae infest cereals, nuts, dried fruit, chocolate, pet food, bird seed and grain, leaving silk webbing, clumps and droppings in the food. Adults fly in zig-zags around kitchens and pantries.',
+              breeding: 'Each female lays 100-300 eggs on or near food. Larvae feed for 2-6 weeks, then wander, often up walls and onto ceilings, to pupate in cracks. The cycle takes 4-8 weeks in warm conditions, so there can be several generations a year.',
+              control: 'Find and remove infested products - check every packet, open container, pet food and bird seed. Vacuum and wipe shelves, cracks and corners, including where shelf meets wall. Use pheromone traps to monitor and catch males. Store food in sealed containers and rotate stock (first in, first out). A residual crack-and-crevice treatment helps in commercial stores.' },
+            { m: /mediterranean flour moth|ephestia kuehniella|flour moth/i, name: 'Mediterranean flour moth', cat: 'Moths', sub: 'Pantry moths', sci: 'Ephestia kuehniella', wiki: 'Mediterranean_flour_moth', signs: ["Ephestia kuehniella larva", "flour moth webbing"],
+              about: 'The Mediterranean flour moth is a pale grey moth (20-25 mm wingspan) with wavy black lines across its forewings. Its larvae infest flour, cereals, grain and bakery ingredients, spinning so much silk that the product clumps together and mill and bakery machinery becomes clogged.',
+              breeding: 'Females lay up to 350 eggs in flour and grain; larvae feed inside silk tubes and then pupate in cracks, sacks and machinery. The life cycle takes about 8-10 weeks, faster in warm bakeries and mills.',
+              control: 'Remove and dispose of infested product, and clean out equipment, conveyors and dead spots in machinery where flour builds up. Use pheromone traps to monitor, rotate stock and keep ingredients in sealed containers. Commercial sites may need fumigation or heat treatment of equipment.' },
+            { m: /warehouse moth|tobacco moth|cocoa moth|ephestia elutella/i, name: 'Warehouse (tobacco) moth', cat: 'Moths', sub: 'Pantry moths', sci: 'Ephestia elutella', wiki: 'Ephestia_elutella', signs: ["Ephestia elutella", "moth webbing cocoa"],
+              about: 'The warehouse (tobacco or cocoa) moth is a small grey-brown moth (14-20 mm wingspan) with faint pale bands across its wings. Its larvae infest stored cocoa, chocolate, nuts, dried fruit, cereals, spices, seeds and tobacco in warehouses, food factories and shops, leaving webbing and droppings.',
+              breeding: 'Females lay 100-200 eggs on stored products. Larvae feed for several weeks to months, then wander to pupate in cracks, on walls and in the roof structure. Usually one or two generations a year in unheated stores.',
+              control: 'Inspect stock and remove infested product. Clean spillages, cracks and roof beams where larvae pupate. Monitor with pheromone traps, rotate stock and keep the store cool. Residual crack-and-crevice and space treatments help in warehouses.' },
+            { m: /angoumois|sitotroga/i, name: 'Angoumois grain moth', cat: 'Moths', sub: 'Pantry moths', sci: 'Sitotroga cerealella', wiki: 'Angoumois_grain_moth', signs: ["Sitotroga cerealella damage", "grain moth exit holes"],
+              about: 'The Angoumois grain moth is a small (5-7 mm), pale yellow-brown moth with narrow, fringed wings. Its larvae live inside whole grains of wheat, barley, maize, rice and popcorn, hollowing them out. Infested grain has small round exit holes and a stale smell.',
+              breeding: 'Females lay up to 400 eggs on or near grain. Each larva bores into a single kernel, feeds and pupates inside, and the adult pushes out through a thin "window" it leaves in the seed coat. The cycle takes about 5 weeks in warm conditions.',
+              control: 'Remove and dispose of infested grain and clean out storage bins and spillages. Store grain dry and cool in sealed containers, and freeze small quantities for a week to kill all stages. Monitor with pheromone traps, and use fumigation or heat for bulk grain.' },
+            { m: /codling|cydia/i, name: 'Codling moth', cat: 'Moths', sub: 'Garden & orchard moths', sci: 'Cydia pomonella', wiki: 'Codling_moth', signs: ["codling moth damage apple", "Cydia pomonella larva"],
+              about: 'The codling moth is a grey-brown moth (15-20 mm wingspan) with a copper-coloured patch near the tip of each wing. It is the main pest of apples, pears, walnuts and quinces in New Zealand. Its larvae tunnel into the fruit to the core, leaving a hole plugged with brown, crumbly droppings, and the fruit often drops early.',
+              breeding: 'Adults fly at dusk from late spring. Females lay eggs on leaves and young fruit; larvae hatch in 1-2 weeks and bore into the fruit, feeding for 3-4 weeks before leaving to spin cocoons under loose bark or in the ground. There are one or two generations a year.',
+              control: 'Monitor with codling moth pheromone traps from spring to time any treatment. Pick up and destroy fallen and infested fruit, and remove loose bark where larvae shelter. Use cardboard bands around trunks in summer to trap larvae, and approved insecticide or mating-disruption programmes in orchards.' },
+            { m: /light brown apple|epiphyas|lbam/i, name: 'Light brown apple moth', cat: 'Moths', sub: 'Garden & orchard moths', sci: 'Epiphyas postvittana', wiki: 'Light_brown_apple_moth', signs: ["Epiphyas postvittana larva", "leafroller damage"],
+              about: 'The light brown apple moth is a small (15-25 mm wingspan) light brown leafroller moth; males have a darker patch on each wing. It is a very common garden and orchard pest in New Zealand. Its green caterpillars roll and web leaves together and graze the skin of apples, citrus, grapes, berries, kiwifruit and ornamental plants.',
+              breeding: 'Females lay flat clusters of 20-50 eggs on leaves. Caterpillars feed inside rolled leaves for several weeks and pupate there. There are two to four generations a year, with caterpillars present in most seasons.',
+              control: 'Check plants for rolled, webbed leaves and squash or remove the caterpillars. Monitor with pheromone traps. Use a biological insecticide (Bt) or another product approved for leafrollers when young caterpillars are active, and keep weeds that host them under control.' },
+            { m: /rice weevil|sitophilus oryzae/i, name: 'Rice weevil', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Sitophilus oryzae', wiki: 'Rice_weevil', signs: ["rice weevil damage grain", "weevils in rice"],
+              about: 'The rice weevil is a small (2.5-3.5 mm) dark brown weevil with a long snout and four faint reddish-orange spots on its wing covers. Larvae develop inside whole grains of rice, wheat, maize and pasta, hollowing them out. Adults can fly and are often found in pantries and grain stores.',
+              breeding: 'Each female lays 300-400 eggs, chewing a small hole and laying one egg inside each grain, then sealing it. The larva feeds and pupates inside the grain. The cycle takes about 4-6 weeks in warm conditions.',
+              control: 'Remove infested grain, clean storage areas and spillages, and store grain in sealed containers. Freezing small quantities for a week kills all stages. Rotate stock and use traps to monitor.' },
+            { m: /maize weevil|sitophilus zeamais/i, name: 'Maize weevil', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Sitophilus zeamais', wiki: 'Maize_weevil', signs: ["Sitophilus zeamais", "weevil damaged maize"],
+              about: 'The maize weevil is very like the rice weevil but slightly larger (3-4 mm), dark brown with four reddish spots on its wing covers and a long snout. It is a major pest of stored maize, wheat, rice, sorghum and processed cereal products, and adults fly readily between stores.',
+              breeding: 'Females lay one egg in each grain, up to about 150-300 in their life. The larva feeds hidden inside the kernel and pupates there; the cycle takes about 5-6 weeks in warm weather.',
+              control: 'Remove infested product, clean out bins and spillages, and store grain dry and cool in sealed containers. Rotate stock and monitor with traps. Bulk grain may need fumigation by a licensed operator.' },
             { m: /granary weevil|sitophilus granarius/i, name: 'Granary weevil', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Sitophilus granarius', wiki: 'Sitophilus_granarius', signs: ["weevil damaged wheat", "weevils grain"],
-              about: 'Weevils are small beetles with a long snout whose larvae develop inside whole grains, seeds and nuts, hollowing them out and spoiling stored food.',
-              breeding: 'Females lay eggs inside individual grains; larvae feed and pupate inside, emerging as adults after 4-8 weeks.',
-              control: 'Find and remove infested product, clean storage areas thoroughly, and store food in sealed containers. Rotate stock and use traps to monitor storage areas.' },
+              about: 'The granary weevil is a shiny dark brown to black weevil (3-5 mm) with a long snout and no spots. It cannot fly, so it spreads in infested grain. Its larvae develop inside whole grains of wheat, barley, oats and maize, hollowing them out and spoiling stored food and animal feed.',
+              breeding: 'Females lay 150-300 eggs, one inside each grain; larvae feed and pupate inside, emerging as adults after 4-8 weeks. Adults can live for 7-8 months.',
+              control: 'Find and remove infested product, clean storage areas thoroughly, and store food in sealed containers. Rotate stock and use traps to monitor storage areas. Bulk grain may need fumigation.' },
+            { m: /bean weevil|acanthoscelides|bruchid/i, name: 'Bean weevil', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Acanthoscelides obtectus', wiki: 'Acanthoscelides_obtectus', signs: ["Acanthoscelides obtectus damage", "bean weevil holes"],
+              about: 'The bean weevil is a small (3-4 mm), oval, grey-brown beetle with a mottled back and a short body that leaves the tip of the abdomen showing. Despite its name it has no long snout. Its larvae develop inside dried beans and peas, leaving round "windows" and exit holes.',
+              breeding: 'Females scatter eggs among stored beans; each larva bores into a bean, feeds and pupates inside. It breeds continuously in warm stores, with a life cycle of about 4-6 weeks.',
+              control: 'Remove and dispose of infested beans and peas, clean storage areas, and store pulses in sealed containers. Freezing for a week kills all stages. Rotate stock and buy from clean suppliers.' },
+            { m: /confused flour beetle|tribolium confusum/i, name: 'Confused flour beetle', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Tribolium confusum', wiki: 'Confused_flour_beetle', signs: ["Tribolium confusum", "flour beetle infestation"],
+              about: 'The confused flour beetle is a small (3-4 mm), flat, reddish-brown beetle almost identical to the red flour beetle, but with antennae that thicken gradually and it does not fly. It infests flour, cereals, cake mixes, dried pet food and other milled products, turning them grey and giving them a sharp, unpleasant smell.',
+              breeding: 'Females lay 300-400 eggs loosely in flour over their long life (up to 3 years). The life cycle takes 6-8 weeks in warm conditions.',
+              control: 'Remove and dispose of infested products. Vacuum and clean shelves, cracks and equipment where flour collects. Store products in sealed containers, rotate stock, and use pheromone or food-lure traps to monitor. Residual crack-and-crevice treatments help in storage and production areas.' },
+            { m: /flour beetle|tribolium/i, name: 'Red flour beetle', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Tribolium castaneum', wiki: 'Red_flour_beetle', signs: ["flour beetle infestation", "Tribolium larvae flour"],
+              about: 'The red flour beetle is a small (3-4 mm), flat, shiny reddish-brown beetle with clubbed antennae; unlike the confused flour beetle it can fly. It is one of the most common pests in flour mills, bakeries and pantries, infesting flour, cereals, cake mixes, nuts and processed grain products and giving them a grey colour and an unpleasant smell.',
+              breeding: 'Females lay 300-400 eggs in the food over their long life (up to 3 years). The life cycle takes 5-6 weeks in warm conditions.',
+              control: 'Remove and dispose of infested products. Vacuum and clean shelves, cracks and equipment. Store products in sealed containers, rotate stock, and use pheromone or food-lure traps to monitor. Residual crack-and-crevice treatments help in storage areas.' },
+            { m: /merchant grain|oryzaephilus mercator/i, name: 'Merchant grain beetle', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Oryzaephilus mercator', wiki: 'Merchant_grain_beetle', signs: ["Oryzaephilus mercator", "beetles in cereal"],
+              about: 'The merchant grain beetle is a slim, flat brown beetle (2.5-3.5 mm) with six saw-like teeth on each side of the thorax - very like the saw-toothed grain beetle but with larger eyes. It prefers oily foods: nuts, seeds, chocolate, dried fruit, muesli and cereals, and can get into poorly sealed packets.',
+              breeding: 'Females lay up to 200 eggs loosely in food; the cycle takes about 4-5 weeks in warm conditions, and adults live 6-10 months.',
+              control: 'Remove infested products, clean shelves and cracks, store food in sealed containers and rotate stock. Monitor with traps.' },
             { m: /saw.?toothed|oryzaephilus/i, name: 'Saw-toothed grain beetle', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Oryzaephilus surinamensis', wiki: 'Oryzaephilus_surinamensis', signs: ["Oryzaephilus surinamensis infestation", "beetles in cereal"],
-              about: 'The saw-toothed grain beetle is a slim, flat brown beetle (2.5-3 mm) with six tooth-like points on each side of the thorax. It infests cereals, dried fruit, nuts and pet food.',
-              breeding: 'Females lay 50-300 eggs in food; the cycle takes 3-4 weeks in warm conditions.',
+              about: 'The saw-toothed grain beetle is a slim, flat brown beetle (2.5-3 mm) with six tooth-like points on each side of the thorax. It is one of the most common pantry beetles, infesting cereals, flour, dried fruit, nuts, pasta, sugar and pet food, and can squeeze into poorly sealed packets.',
+              breeding: 'Females lay 50-300 eggs in food; the cycle takes 3-4 weeks in warm conditions, and adults can live for up to 3 years.',
               control: 'Remove infested products, clean shelves and cracks, store food in sealed containers and rotate stock. Monitor with traps.' },
             { m: /cigarette beetle|lasioderma/i, name: 'Cigarette beetle', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Lasioderma serricorne', wiki: 'Cigarette_beetle', signs: ["Lasioderma serricorne damage", "beetle holes packaging"],
-              about: 'The cigarette beetle is a small (2-3 mm), round, reddish-brown beetle with its head tucked down. It infests dried tobacco, spices, herbs, dried flowers, pet food and cereals.',
-              breeding: 'Females lay up to 100 eggs in food; the cycle takes 6-8 weeks.',
+              about: 'The cigarette beetle is a small (2-3 mm), round, reddish-brown beetle with its head tucked down so it looks humped. It infests dried tobacco, spices (especially paprika and chilli), herbs, dried flowers, pet food, cereals and even books, leaving small round holes in packaging.',
+              breeding: 'Females lay up to 100 eggs in food; the cycle takes 6-8 weeks, faster in warm conditions.',
               control: 'Find and remove infested products, especially spices and pet food. Clean shelves and cracks, and use pheromone traps. Store products in sealed containers.' },
             { m: /drugstore beetle|stegobium|biscuit beetle/i, name: 'Drugstore (biscuit) beetle', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Stegobium paniceum', wiki: 'Drugstore_beetle', signs: ["Stegobium paniceum damage", "beetle infestation pantry"],
-              about: 'The drugstore (biscuit) beetle is a small brown beetle that infests dry foods - biscuits, flour, spices and pet food - and even books and medicines.',
-              breeding: 'Females lay eggs in the food; larvae feed for several weeks before pupating.',
+              about: 'The drugstore (biscuit) beetle is a small (2-3.5 mm), oval, reddish-brown beetle covered in fine hairs, with lines of tiny pits on its wing covers. It infests almost any dry food - biscuits, flour, bread, spices, dried pet food and cereals - and even books, leather and medicines.',
+              breeding: 'Females lay up to 75 eggs in the food; larvae feed for several weeks to months before pupating. The life cycle takes about 2-7 months depending on temperature.',
               control: 'Remove infested products, clean storage areas and store food in sealed containers. Use traps to monitor.' },
+            { m: /lesser grain borer|rhyzopertha/i, name: 'Lesser grain borer', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Rhyzopertha dominica', wiki: 'Rhyzopertha_dominica', signs: ["Rhyzopertha dominica damage", "grain borer dust"],
+              about: 'The lesser grain borer is a small (2.5-3 mm), cylindrical, dark brown beetle with its head hidden under a rough, rounded thorax. Both adults and larvae bore into whole grain - wheat, rice, barley and maize - leaving hollow kernels and a lot of floury dust. It is a strong flier and a serious pest of bulk grain.',
+              breeding: 'Females lay 300-500 eggs loose among the grain; larvae bore into kernels to feed and pupate. The cycle takes about 4-6 weeks in warm conditions.',
+              control: 'Remove infested grain and clean out bins and spillages. Store grain dry and cool, rotate stock and monitor with traps. Bulk grain may need fumigation by a licensed operator.' },
+            { m: /flat grain beetle|rusty grain|cryptolestes/i, name: 'Flat grain beetle', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Cryptolestes ferrugineus', wiki: 'Cryptolestes_ferrugineus', signs: ["Cryptolestes ferrugineus", "beetles in grain"],
+              about: 'The flat (rusty) grain beetle is one of the smallest stored product beetles (1.5-2.5 mm): very flat, reddish-brown, with long antennae. It feeds on damaged grain, flour, cereals and dried fruit, usually following other pests or moist grain.',
+              breeding: 'Females lay eggs in cracks in grain and food; larvae feed on the germ of damaged kernels. The cycle can be as short as 3-4 weeks in warm, humid conditions.',
+              control: 'Remove infested and damaged product, clean storage areas thoroughly and keep grain dry. Store food in sealed containers, rotate stock and monitor with traps.' },
             { m: /warehouse beetle|trogoderma|khapra/i, name: 'Warehouse beetle', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Trogoderma variabile', wiki: 'Trogoderma_variabile', signs: ["Trogoderma larvae", "dermestid larvae skins"],
-              about: 'The warehouse beetle is a small (2-4 mm), oval, mottled brown beetle. Its hairy larvae infest grain, cereals, seeds, pet food and dried foods in warehouses and food factories, and their cast skins and hairs contaminate products.',
+              about: 'The warehouse beetle is a small (2-4 mm), oval, mottled brown beetle. Its hairy larvae infest grain, cereals, seeds, nuts, pet food, spices and dried foods in warehouses, food factories and homes, and their cast skins and hairs contaminate products.',
               breeding: 'Females lay up to 90 eggs in food; larvae can live for months, and even years without food, hiding in cracks.',
               control: 'Remove infested product and vacuum cracks, dead spaces and under equipment where larvae hide. Use pheromone traps to monitor and locate infestations, treat cracks and crevices, and rotate stock. Report any suspected khapra beetle to MPI.' },
-            { m: /book ?lice|booklouse|psocid/i, name: 'Booklice (psocids)', cat: 'Stored product pests', sub: 'Other', sci: 'Liposcelis', wiki: 'Booklouse', signs: ["psocids on food", "booklice mould"],
-              about: 'Booklice (psocids) are tiny (1-2 mm), pale insects that feed on moulds in damp places - in stored food, cardboard, books and new buildings with damp plaster.',
+            { m: /larder beetle|dermestes|hide beetle|bacon beetle/i, name: 'Larder beetle', cat: 'Stored product pests', sub: 'Beetles & weevils', sci: 'Dermestes lardarius', wiki: 'Larder_beetle', signs: ["Dermestes lardarius larva", "dermestid larvae"],
+              about: 'The larder beetle is an oval, dark brown beetle (7-9 mm) with a pale yellow-grey band across the front of its wing covers containing six dark spots. Its hairy brown larvae feed on meat, ham, cheese, pet food, fishmeal, dried animal products, dead insects and dead animals in wall cavities and roof spaces.',
+              breeding: 'Females lay 100-200 eggs on or near the food. When fully grown, larvae bore into wood, cork or packaging to pupate, which can damage timber. The life cycle takes about 2-3 months.',
+              control: 'Find and remove the source - stored animal products, pet food, dead rodents, birds or insect build-ups in voids and light fittings. Vacuum cracks and corners, store food in sealed containers, and apply a residual crack-and-crevice treatment.' },
+            { m: /flour mite|acarus|grain mite|cheese mite/i, name: 'Flour mite', cat: 'Stored product pests', sub: 'Mites & booklice', sci: 'Acarus siro', wiki: 'Acarus_siro', signs: ["Acarus siro", "flour mite infestation"],
+              about: 'Flour (grain) mites are tiny (0.3-0.5 mm), pale, almost see-through mites. In large numbers they make flour, cereals, cheese, pet food and animal feed look like it has a moving grey-brown dust on top and give it a sweet, minty smell. They can cause an itchy rash ("grocer\'s itch") and allergies.',
+              breeding: 'Mites breed very quickly in damp food: females lay up to 800 eggs and the cycle takes only 2-3 weeks in warm, humid conditions. They die out when humidity is low.',
+              control: 'Discard infested food and clean shelves and containers thoroughly. Reduce humidity below 65 % with ventilation and dehumidifiers, and keep food dry and in sealed containers. Rotate stock. Insecticides are rarely needed once the area is dry.' },
+            { m: /book ?lice|booklouse|psocid/i, name: 'Booklice (psocids)', cat: 'Stored product pests', sub: 'Mites & booklice', sci: 'Liposcelis', wiki: 'Booklouse', signs: ["psocids on food", "booklice mould"],
+              about: 'Booklice (psocids) are tiny (1-2 mm), pale, soft-bodied insects that feed on moulds in damp places - in stored food, cardboard, books and new buildings with damp plaster.',
               breeding: 'Females lay eggs singly; development takes about a month and many species reproduce without males, so numbers build quickly in humid conditions.',
               control: 'Reduce humidity below 60 % with ventilation and dehumidifiers. Discard infested food and packaging, clean shelves and dry the area. A residual treatment in cracks helps in heavy infestations.' },
             { m: /pigeon|rock dove|columba/i, name: 'Feral pigeon', cat: 'Birds', sub: '', sci: 'Columba livia', wiki: 'Rock_dove', signs: ["pigeon droppings building", "pigeon nest ledge", "bird spikes pigeons"],
@@ -14333,7 +14441,7 @@
         async function findPestGallery(o) {
             const lib = pestLibraryFor(o.label), seen = new Set(), keep = list => list.filter(x => x.u && !seen.has(x.u) && seen.add(x.u));
             let pest = [];
-            try { pest = keep(await commonsSearch(lib && lib.sci ? `"${lib.sci}"` : o.label, 5)); } catch (e) {}
+            try { pest = keep(await commonsSearch(lib && lib.pics ? lib.pics : lib && lib.sci ? `"${lib.sci}"` : o.label, 5)); } catch (e) {}
             if (pest.length < 3) { try { pest = pest.concat(keep(await commonsSearch((lib && lib.name) || o.label, 5 - pest.length))); } catch (e) {} }
             const signs = [];
             for (const term of (lib && lib.signs) || [o.label + ' infestation', o.label + ' damage']) {
@@ -14801,6 +14909,17 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r73', date: '2026-10-29', v: { svc: '2026.10.29-r73', adm: '2026.10.29-a18', cli: '2026.10.29-p33' },
+            svc: ['Pest guide and Pest found: the same pests in the same categories - Rodents, Crawling insects, Flying insects, Moths, Stored product pests, Birds and Other pests',
+                  'Pests: one "Rat" (covering Norway and ship rats) and "Mouse"',
+                  'Pests added, each with its guide and photos: Gisborne cockroach; the five common ants (Argentine, Darwin\'s, white-footed house, black house and coastal brown); ten common flies; a new Moths category with ten common moths; and fifteen common stored product pests',
+                  'Station check: for rodents, "Number caught" only shows when you choose Caught - like insects. None / Low / Medium / High with the % of bait taken are unchanged',
+                  'Station details: the Change barcode button is now beside the barcode',
+                  'Sync Data shows how much data this device has uploaded on the current visit (it starts again at 0 with each visit)',
+                  'Floor plans: no more choosing a size - zoom out and draw wherever you need; when you save, the plan is sized to fit everything on it (and the station pins), and it grows again if you add something further out later'],
+            adm: ['Pests: the same categories as the Service App, with Moths as its own category; one "Rat" and "Mouse"',
+                  'Pests added to the list with their guide and photos: Gisborne cockroach, the five common ants, ten common flies, ten common moths and fifteen stored product pests (open Lists once and the photos and guides fill in)'],
+            cli: ['Pest lists: moths are grouped in their own category'] },
         { rev: 'r72', date: '2026-10-23', v: { svc: '2026.10.23-r72' },
             svc: ['Site page: the site contact box is only as wide as it needs to be, and tapping anywhere on it opens all the contacts',
                   'Floor plan editor: dragging a wall moves the whole room (or the whole fence line) it belongs to',

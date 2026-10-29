@@ -72,6 +72,22 @@ try {
   await sp.evaluate("chooseVisitType = async () => 'Routine Service'");
   await sp.click('#startServiceLabel'); await sleep(800);
   await sp.evaluate("handleScannedBarcode('NEW-88')"); await sleep(800);
+  // Pest found: the guide's categories, with Rat and Mouse under Rodents and a Moths group
+  const groups = await sp.evaluate("Array.from(document.querySelectorAll('#speciesCaught optgroup')).map(g => g.label)");
+  ok(groups.some(g => g === 'Rodents') && groups.some(g => g.startsWith('Moths')) && groups.some(g => g.startsWith('Stored product pests')), 'Pest found is grouped like the pest guide', groups);
+  ok(await sp.evaluate("JSON.stringify(pestCategories(speciesItems())) === JSON.stringify(Array.from(new Set(Array.from(document.querySelectorAll('#speciesCaught optgroup')).map(g => g.label.split(' · ')[0]))))"), 'Pest found categories are the pest guide categories, in the same order');
+  // rodents: the number caught only shows for Caught
+  const rodent = await sp.evaluate(`(() => {
+    const s = document.getElementById('speciesCaught'), a = document.getElementById('activityLevel'), row = document.getElementById('pestCountRow');
+    s.value = 'Rat'; updatePestCountField(true);
+    const levels = Array.from(a.options).map(o => o.value), noneHidden = row.classList.contains('hidden');
+    a.value = 'Low'; updatePestCountField(); const lowHidden = row.classList.contains('hidden');
+    a.value = 'Caught'; updatePestCountField(); const caughtShown = !row.classList.contains('hidden');
+    s.selectedIndex = 0; updatePestCountField(true);
+    return { levels, noneHidden, lowHidden, caughtShown, pctLabel: a.options.length ? '' : '' };
+  })()`);
+  ok(rodent.levels.join() === 'None,Low,Medium,High,Caught' && rodent.noneHidden && rodent.lowHidden && rodent.caughtShown, 'rodent: Number caught only for Caught', rodent);
+  ok(await sp.evaluate("!!document.getElementById('changeBarcodeBtn').closest('#newStationFields') && !!document.getElementById('scannedBarcodeBadge').parentElement.querySelector('#changeBarcodeBtn')"), 'Change barcode sits beside the barcode in the station details');
   await sp.fill('#newLocName', 'Loading Dock');
   if (await sp.isEnabled('#batchNumber').catch(() => false)) await sp.fill('#batchNumber', 'B-1');
   const saved = await sp.evaluate('saveStationServiceRecord()'); await sleep(500);
@@ -91,6 +107,26 @@ try {
   let seen = false;
   for (let i = 0; i < 20 && !seen; i++) { await sleep(250); seen = await sp.evaluate("(async () => { let f = false; await withSiteCache('1', c => { f = !!(c && (c.recs || []).some(r => r.id === 'rec-live')); return false; }); return f; })()"); }
   ok(seen, 'live update reached the Service App');
+  // Sync Data: the data uploaded on this visit
+  await sp.evaluate('openQueueModal()'); await sleep(300);
+  const vd = await sp.evaluate("({ bytes: visitData && visitData.bytes, site: visitData && visitData.site, text: document.getElementById('visitDataLine').textContent })");
+  ok(vd.bytes > 0 && vd.site === '1' && /Data uploaded this visit: [\d.]+ (B|KB|MB)/.test(vd.text), 'Sync Data shows the data uploaded on this visit', vd);
+  await sp.screenshot({ path: SHOTS + '/sync.png' });
+  await sp.evaluate('closeQueueModal()');
+  // floor plans: no size to choose; the page is sized to fit what's drawn when it's saved
+  const fit = await sp.evaluate(`(async () => {
+    const noSize = !document.getElementById('mapEditSize');
+    await peOpen({ name: 'Fit test' });
+    const d = pe.doc, p = d.ppm, cx = d.w / 2, cy = d.h / 2, before = [d.w / p, d.h / p];
+    const view0 = pe.view.z;
+    [[0, 0], [10, 0], [10, 5], [0, 5]].forEach(([x, y], i) => d.nodes.push({ id: 'fn' + i, x: cx + x * p, y: cy + y * p }));
+    d.rooms.push({ id: 'fr', nodes: ['fn0', 'fn1', 'fn2', 'fn3'] });
+    peFitPage(d);
+    const after = [Math.round(d.w / p * 10) / 10, Math.round(d.h / p * 10) / 10], corner = [d.nodes[0].x / p, d.nodes[0].y / p];
+    peClose(true);
+    return { noSize, before, after, corner, view0 };
+  })()`);
+  ok(fit.noSize && fit.before[0] === 200 && fit.after[0] === 16.6 && fit.after[1] === 11.6 && Math.abs(fit.corner[0] - 3.3) < 0.1, 'floor plan page fits the drawing plus a margin', fit);
   await sp.screenshot({ path: SHOTS + '/service.png' });
   // finish the visit
   await sp.click("#visitWorkspace >> text=Complete & Close Visit"); await sleep(400);
