@@ -116,7 +116,7 @@
         .nav-tab { flex-shrink: 0; font-size: .78rem; font-weight: 800; padding: .55rem .9rem; border-radius: .75rem; color: var(--muted); border: 1px solid transparent; cursor: pointer; background: none; white-space: nowrap; }
         .nav-tab:hover { color: var(--text); background: var(--surface2); }
         .nav-tab.active { color: var(--accent-text); background: var(--surface2); border-color: var(--border); }
-        .nav-tab .count { margin-left: .3rem; font-size: .62rem; padding: .05rem .4rem; border-radius: 999px; background: rgb(var(--b500)); color: #fff; }
+        .nav-tab .count { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; box-sizing: border-box; min-width: 1.15rem; height: 1.15rem; margin-left: .35rem; padding: 0 .32rem; font-size: .62rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; border-radius: 999px; background: rgb(var(--b500)); color: #fff; position: relative; top: -.05em; }
 
         /* Site picker (Netflix style) */
         .site-card { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 1rem; overflow: hidden; text-align: left; cursor: pointer; border: 1px solid rgba(255, 255, 255, .08); transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; box-shadow: var(--shadow); background: linear-gradient(135deg, #1e293b, #0f172a); }
@@ -190,6 +190,7 @@
         .plan-pin { position: absolute; transform: translate(-50%, -100%); cursor: pointer; background: none; border: 0; padding: 0; }
         .plan-pin span { display: block; width: 20px; height: 20px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 3px 8px -2px rgba(0, 0, 0, .6); }
         .plan-pin.overdue span { outline: 3px solid #dc2626; outline-offset: 1px; }
+        .plan-pin-label { position: absolute; left: calc(100% + 4px); top: 0; white-space: nowrap; font-style: normal; font-size: 11px; font-weight: 700; line-height: 1; color: #fff; background: rgba(2, 6, 23, .82); border-radius: 5px; padding: 3px 6px; pointer-events: none; }
         /* clickable tiles */
         button.stat { text-align: left; cursor: pointer; transition: border-color .15s, transform .15s; width: 100%; }
         button.stat:hover, button.stat:focus-visible { border-color: rgb(var(--b500)); transform: translateY(-2px); outline: none; }
@@ -655,7 +656,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (pestis_client_portal.sql); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.30-p35-oci';
+const PORTAL_VERSION = '2026.10.30-p36-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -904,8 +905,6 @@ function openSettings() {
                 <span class="flex items-center gap-2"><span class="t-muted font-semibold">Text size</span><select class="field !w-auto !py-1.5 !text-xs" onchange="savePrefs({ textSize: this.value })">${[['small', 'Small'], ['normal', 'Normal'], ['large', 'Large'], ['xl', 'Extra large']].map(([k, l]) => `<option value="${k}" ${p.textSize === k ? 'selected' : ''}>${l}</option>`).join('')}</select></span>
                 <span class="flex items-center gap-2"><span class="t-muted font-semibold">Animations</span><select class="field !w-auto !py-1.5 !text-xs" onchange="savePrefs({ motion: this.value })"><option value="on" ${p.motion !== 'off' ? 'selected' : ''}>On</option><option value="off" ${p.motion === 'off' ? 'selected' : ''}>Off</option></select></span>
             </div>`)}
-        ${sec('Pest map logo', `<div class="inset p-3 flex flex-wrap items-center gap-3"><img src="${esc(mapLogoSrc())}" alt="Map logo" class="map-logo-prev"><p class="text-xs t-muted flex-1" style="min-width:12rem;">Shown in the top right of the pest maps you download from Floor plans.</p>
-            <span class="flex gap-2"><button type="button" class="btn btn-secondary" onclick="pickMapLogo()">Change logo</button>${portalPrefs().mapLogo ? '<button type="button" class="btn btn-secondary" onclick="savePrefs({ mapLogo: null }); openSettings(); toast(\'Logo reset.\')">Use the Pesties logo</button>' : ''}</span></div>`)}
         ${sec('When I open a site', `<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div><label class="lbl" for="setStartTab">Start on</label><select id="setStartTab" class="field" onchange="savePrefs({ startTab: this.value }); toast('Saved.')">${TABS.map(([k, l]) => `<option value="${k}" ${p.startTab === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
             <div><label class="lbl" for="setPeriod">Reports period</label><select id="setPeriod" class="field" onchange="savePrefs({ period: this.value }); setPreset(this.value, true); if (state.site) renderTab(); toast('Saved.')">${[['30d', 'Last 30 days'], ['90d', 'Last 3 months'], ['12m', 'Last 12 months'], ['ytd', 'This year'], ['all', 'All records']].map(([k, l]) => `<option value="${k}" ${p.period === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>`)}
@@ -1483,7 +1482,14 @@ function renderSiteHeader() {
         + (s.visit_started_at ? `<span class="block mt-1 text-xs font-semibold t-accent">● Your technician is on site now. This visit's results will appear here when the visit is finished.</span>` : '');
     const openRecs = m.recs.filter(r => r.status !== 'complete').length;
     const toReview = (m.sightings || []).filter(x => x.status === 'actioned').length;
-    $('siteTabs').innerHTML = TABS.map(([k, l]) => `<button type="button" class="nav-tab ${state.tab === k ? 'active' : ''}" onclick="${k === 'plans' ? "planId = null; planFocus = null; if (state.tab === 'plans') renderPlans(); else " : ''}setTab('${k}')">${l}${k === 'recs' && openRecs ? `<span class="count">${openRecs}</span>` : ''}${k === 'sightings' && toReview ? `<span class="count" title="Actioned by your technician, waiting for your review">${toReview}</span>` : ''}</button>`).join('');
+    const unreadVisits = unopenedVisits().length;
+    $('siteTabs').innerHTML = TABS.map(([k, l]) => `<button type="button" class="nav-tab ${state.tab === k ? 'active' : ''}" onclick="${k === 'plans' ? "planId = null; planFocus = null; if (state.tab === 'plans') renderPlans(); else " : ''}setTab('${k}')">${l}${k === 'recs' && openRecs ? `<span class="count">${openRecs}</span>` : ''}${k === 'visits' && unreadVisits ? `<span class="count" title="Visit reports you haven't opened yet">${unreadVisits}</span>` : ''}${k === 'sightings' && toReview ? `<span class="count" title="Actioned by your technician, waiting for your review">${toReview}</span>` : ''}</button>`).join('');
+}
+// visit reports from the last 90 days this person hasn't opened (opening one counts it as read, here and in the bell)
+function unopenedVisits() {
+    if (!state.model) return [];
+    const seen = bellSeen();
+    return state.model.visits.filter(v => v.completed > Date.now() - 90 * 86400000 && !seen.has('visit:' + v.id));
 }
 
 function renderTab() {
@@ -1977,6 +1983,36 @@ function selectLimitStation(barcode, quiet) {
             ${recs.map(e => `<tr><td class="whitespace-nowrap">${fmtDateTime(e.at)}</td><td>${esc(e.species)}</td><td class="num font-bold">${e.count}</td><td>${activityChip(e.activity)}</td><td class="t-muted">${esc(e.tech || '-')}</td></tr>`).join('') || '<tr><td colspan="5" class="t-faint italic text-center p-4">No pests recorded in the last 12 months.</td></tr>'}</tbody></table></div>`;
     if (!quiet) box.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+// the pest zoning register (every station in a zone with a limit, and the breaches) for Excel or PDF, like the Recommendations page
+function zoningExport() {
+    const m = state.model, now = new Date();
+    const thisM = new Date(now.getFullYear(), now.getMonth(), 1).getTime(), lastM = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+    const months12 = []; for (let i = 11; i >= 0; i--) months12.push(new Date(now.getFullYear(), now.getMonth() - i, 1).getTime());
+    const rows = [];
+    m.stations.forEach(st => {
+        m.limits.filter(l => zoneKey(l.zone) === zoneKey(st.zone)).forEach(l => {
+            const count = t => limitStatus(l, t).entries.filter(e => e.barcode === st.barcode).reduce((n, e) => n + e.count, 0);
+            const now1 = count(thisM), prev = count(lastM), zoneNow = limitStatus(l, thisM);
+            rows.push([st.name, st.barcode, st.type || '', l.zone, limitPest(l), l.max, now1, prev, zoneNow.total ? Math.round(now1 / zoneNow.total * 100) + '%' : '0%',
+                months12.reduce((n, t) => n + count(t), 0), months12.filter(t => { const z = limitStatus(l, t); return z.over && z.entries.some(e => e.barcode === st.barcode); }).length]);
+        });
+    });
+    rows.sort((a, b) => a[3].localeCompare(b[3]) || b[6] - a[6] || String(a[0]).localeCompare(String(b[0]), undefined, { numeric: true }));
+    const breaches = [];
+    m.limits.forEach(l => months12.forEach(t => { const z = limitStatus(l, t); if (z.over) breaches.push([monthLabel(t), l.zone, limitPest(l), z.total, l.max, z.total - l.max, breachStations(z).map(b => `${b.name} (${b.n})`).join(', ')]); }));
+    return {
+        stations: { cols: [['Station', 30], ['Barcode', 18], ['Type', 28], ['Critical limits area', 26], ['Pest', 22], ['Limit / month', 14], [monthLabel(thisM), 14], [monthLabel(lastM), 14], ['Share of area', 14], ['12 months', 14], ['Months in breach', 16]], rows },
+        breaches: { cols: [['Month', 20], ['Critical limits area', 30], ['Pest', 24], ['Recorded', 14], ['Limit', 12], ['Over by', 12], ['Caught at', 80]], rows: breaches }
+    };
+}
+function exportZoning(kind) {
+    const x = zoningExport(), name = `${safeName(siteName(state.site))} - Pest zoning - ${toDayStr(new Date())}`;
+    if (kind === 'xlsx') { xlsxDownload(name, x.stations.cols, x.stations.rows, 'Pest zoning'); return; }
+    const pdf = newPdf('Pest zoning', `${plural(x.stations.rows.length, 'station')} in critical limits areas · ${monthLabel(Date.now())}`);
+    pdf.heading('Stations in critical limits areas'); pdf.table(x.stations.cols, x.stations.rows);
+    pdf.heading('Breaches in the last 12 months'); pdf.table(x.breaches.cols, x.breaches.rows);
+    pdf.save(name);
+}
 // every station in a zone with a limit: this month, last month, change, share of the zone, months it was part of a breach
 function limitStationsHtml() {
     const m = state.model;
@@ -1999,7 +2035,8 @@ function limitStationsHtml() {
     const breached = rows.filter(r => r.zoneOver && r.now1 > 0);
     const chg = r => r.change == null ? '<span class="chip chip-red">New</span>' : r.change === 0 ? '<span class="t-faint">-</span>' : `<span style="color:${r.change > 0 ? '#dc2626' : '#10b981'};font-weight:800;">${r.change > 0 ? '▲' : '▼'} ${Math.abs(r.change)}%</span>`;
     return `<div class="card p-5 space-y-4">
-        <div><h3 class="font-black t-strong">Breaches by station · ${esc(monthLabel(thisM))}</h3><p class="text-xs t-muted">Every station in an area with a critical limit. Red rows are units adding to a breach right now. Tap a station to see its graph and history below.</p></div>
+        <div class="flex flex-wrap items-start justify-between gap-3"><div><h3 class="font-black t-strong">Breaches by station · ${esc(monthLabel(thisM))}</h3><p class="text-xs t-muted">Every station in an area with a critical limit. Red rows are units adding to a breach right now. Tap a station to see its graph and history below.</p></div>
+            <div class="flex gap-2"><button type="button" class="btn btn-secondary" onclick="exportZoning('xlsx')">⬇ Excel</button><button type="button" class="btn btn-secondary" onclick="exportZoning('pdf')">⬇ PDF</button></div></div>
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div class="inset p-2.5"><div class="eyebrow t-faint">Units in breach</div><div class="font-black text-lg" ${breached.length ? 'style="color:#dc2626;"' : ''}>${breached.length}</div></div>
             <div class="inset p-2.5"><div class="eyebrow t-faint">Caught this month</div><div class="font-black text-lg">${rows.reduce((n, r) => n + r.now1, 0)}</div></div>
@@ -2239,7 +2276,8 @@ function mediaThumbs(paths, links, caption) {
 function galleryHtml(paths, links, caption) {
     const key = 'g' + Math.random().toString(36).slice(2, 8);
     viewerGroups[key] = { items: paths.map((p, i) => ({ url: links[i], video: isVideo(p) })), caption };
-    const first = links[0] ? (isVideo(paths[0]) ? `<video src="${esc(links[0])}" controls playsinline preload="metadata"></video>` : `<img src="${esc(links[0])}" alt="" onclick="openViewer('${key}', 0)">`) : '<div class="p-10 text-center text-xs t-faint">Photo unavailable</div>';
+    // a video opens in the viewer (like the Service App), with the play mark over its first frame
+    const first = links[0] ? (isVideo(paths[0]) ? `<div role="button" tabindex="0" onclick="openViewer('${key}', 0)" onkeydown="if (event.key === 'Enter') this.click()" aria-label="Play the video"><video src="${esc(links[0])}" muted playsinline preload="metadata"></video><span class="rec-play">▶</span></div>` : `<img src="${esc(links[0])}" alt="" onclick="openViewer('${key}', 0)">`) : '<div class="p-10 text-center text-xs t-faint">Photo unavailable</div>';
     return `<div class="rec-hero">${first}</div>${paths.length > 1 ? `<div class="flex flex-wrap gap-2 mt-2">${paths.slice(1).map((p, i) => links[i + 1]
         ? `<div class="thumb" role="button" tabindex="0" onclick="openViewer('${key}', ${i + 1})">${isVideo(p) ? `<video src="${esc(links[i + 1])}" muted preload="metadata"></video><span class="play">▶</span>` : `<img src="${esc(links[i + 1])}" alt="" loading="lazy">`}</div>`
         : '<div class="thumb flex items-center justify-center text-[10px] t-faint text-center p-1">Unavailable</div>').join('')}</div>` : ''}`;
@@ -2401,7 +2439,7 @@ function stepViewer(d) { if (!viewerState) return; const g = viewerGroups[viewer
 function showViewerItem() {
     const g = viewerGroups[viewerState.key], it = g.items[viewerState.i];
     $('viewerImg').classList.toggle('hidden', it.video); $('viewerVideo').classList.toggle('hidden', !it.video);
-    if (it.video) { $('viewerVideo').src = it.url || ''; } else { $('viewerVideo').pause(); $('viewerImg').src = it.url || ''; }
+    if (it.video) { $('viewerVideo').src = it.url || ''; try { const pl = $('viewerVideo').play(); if (pl && pl.catch) pl.catch(() => {}); } catch (e) {} } else { $('viewerVideo').pause(); $('viewerImg').src = it.url || ''; }
     $('viewerPrev').classList.toggle('invisible', g.items.length < 2); $('viewerNext').classList.toggle('invisible', g.items.length < 2);
     $('viewerCaption').textContent = `${g.caption || ''}${g.items.length > 1 ? ` · ${viewerState.i + 1} of ${g.items.length}` : ''}`;
 }
@@ -3255,8 +3293,12 @@ window.addEventListener('resize', () => { clearTimeout(window.__rz); window.__rz
 // ---------- Visits ----------
 function visitList() {
     const o = filterOpts();
-    return state.model.visits.filter(v => inRange(v.completed) && (!o.tech || v.tech === o.tech || v.entries.some(e => e.tech === o.tech)) && matchesSearch(v.type, v.tech, v.notes, ...v.entries.map(e => e.name))).slice().reverse();
+    return state.model.visits.filter(v => inRange(v.completed) && (!visitTypeFilter || v.type === visitTypeFilter) && (!o.tech || v.tech === o.tech || v.entries.some(e => e.tech === o.tech)) && matchesSearch(v.type, v.tech, v.notes, ...v.entries.map(e => e.name))).slice().reverse();
 }
+// the kinds of visit (the same list as the Service App), plus any other kind on record
+const VISIT_TYPES = ['Routine Service', 'Call Out', 'Broken Treatment', 'Initial Install', 'Uninstall', 'Technical Support', 'Meeting'];
+let visitTypeFilter = '';
+function visitTypeOptions() { return VISIT_TYPES.concat(Array.from(new Set(state.model.visits.map(v => v.type).filter(t => t && !VISIT_TYPES.includes(t)))).sort()); }
 function visitRowHtml(v) {
     const n = new Set(v.entries.map(e => e.barcode)).size;
     return `<div class="row-item clickable p-3.5 flex justify-between items-center gap-3" tabindex="0" role="button" onclick="openVisit('${esc(v.id)}')" onkeydown="if (event.key === 'Enter') this.click()">
@@ -3266,8 +3308,10 @@ function visitRowHtml(v) {
 }
 function renderVisits() {
     const list = visitList();
+    const counts = state.model.visits.filter(v => inRange(v.completed)).reduce((m, v) => m.set(v.type, (m.get(v.type) || 0) + 1), new Map());
     $('tabBody').innerHTML = `<div class="card p-5 space-y-3">
-        <div><h3 class="font-black t-strong">Visit reports</h3><p class="text-xs t-muted">${plural(list.length, 'visit')} · ${esc(rangeText())}</p></div>
+        <div class="flex flex-wrap items-end justify-between gap-3"><div><h3 class="font-black t-strong">Visit reports</h3><p class="text-xs t-muted">${plural(list.length, 'visit')} · ${esc(rangeText())}</p></div>
+            <div><label class="lbl" for="visitTypeSel">Type of visit</label><select id="visitTypeSel" class="field !w-auto !py-1.5 !text-xs" onchange="visitTypeFilter = this.value; renderVisits()"><option value="">All types</option>${visitTypeOptions().map(t => `<option value="${esc(t)}" ${visitTypeFilter === t ? 'selected' : ''}>${esc(t)} (${counts.get(t) || 0})</option>`).join('')}</select></div></div>
         <div class="space-y-2.5">${list.map(v => visitRowHtml(v)).join('') || emptyNote('No visits in this period.')}</div></div>`;
 }
 function openVisit(id) {
@@ -3284,6 +3328,8 @@ function showVisit(id) {
     $('modalTitle').textContent = `${fmtDate(v.completed)} · ${v.type}`;
     $('modalSub').textContent = `Finished ${fmtTime(v.end || v.completed)}${v.tech ? ' · ' + v.tech : ''}`;
     markBellKeySeen('visit:' + v.id);
+    renderSiteHeader();   // one fewer unopened visit on the tab
+    if (state.tab === 'visits') renderVisits();
     const n = new Set(v.entries.map(e => e.barcode)).size;
     const fact = (k, val) => `<div class="inset p-2.5"><div class="eyebrow t-faint">${k}</div><div class="font-bold t-strong mt-0.5">${val}</div></div>`;
     const breaches = visitBreaches(v);
@@ -3491,9 +3537,8 @@ async function renderPlans() {
             <div class="flex flex-wrap items-center gap-1.5"><button type="button" class="btn btn-secondary !py-1.5 !px-3" onclick="planId = null; planFocus = null; renderPlans()">‹ All floor plans</button>${m.maps.map(p => `<button type="button" class="tab-btn ${p.id === planId ? 'active' : ''}" onclick="planId = '${esc(p.id)}'; renderPlans();">${esc(p.name)}</button>`).join('')}</div>
             <div class="flex flex-wrap items-center gap-2">
                 <span class="text-xs t-muted">${plural(pins.length, 'station')} on this plan</span>
-                <span class="flex items-center gap-2" title="The logo on your pest maps"><img src="${esc(mapLogoSrc())}" alt="Map logo" class="map-logo-prev"><button type="button" class="link-btn !text-[11px]" onclick="pickMapLogo()">Change logo</button></span>
-                <button type="button" class="btn btn-primary" onclick="downloadPlan('${esc(plan.id)}', true)">⬇ Pest map</button>
-                <button type="button" class="btn btn-secondary" onclick="downloadPlan('${esc(plan.id)}', false)">⬇ Original image</button>
+                <label class="flex items-center gap-1.5 text-xs font-semibold t-strong cursor-pointer" title="Show each station's name beside its pin (the download matches)"><input type="checkbox" id="planLabels" class="w-4 h-4 accent-orange-500" ${planLabelsOn() ? 'checked' : ''} onchange="setPlanLabels(this.checked)"> Station names</label>
+                <button type="button" class="btn btn-primary" onclick="downloadPlan('${esc(plan.id)}')">⬇ Pest map (A4 PDF)</button>
             </div>
         </div>
         <div class="text-center"><div class="plan-stage" id="planStage"><div class="t-faint text-xs p-10">Loading floor plan...</div></div></div>
@@ -3502,7 +3547,8 @@ async function renderPlans() {
     const [url] = await signPaths([plan.image_path]);
     const stage = $('planStage');
     if (!stage || planId !== plan.id) return;
-    stage.innerHTML = url ? `<img src="${esc(url)}" alt="${esc(plan.name)}">${pins.map(x => `<button type="button" class="plan-pin ${x.overdue ? 'overdue' : ''} ${x.barcode === planFocus ? 'plan-focus' : ''}" style="left:${x.x * 100}%;top:${x.y * 100}%;" title="${esc(x.name)}" onclick="showStation('${esc(x.barcode)}')"><span style="background:${stationColor(x.type)}"></span></button>`).join('')}` : '<div class="t-faint text-xs p-10">The floor plan image could not be loaded.</div>';
+    const labels = planLabelsOn();
+    stage.innerHTML = url ? `<img src="${esc(url)}" alt="${esc(plan.name)}">${pins.map(x => `<button type="button" class="plan-pin ${x.overdue ? 'overdue' : ''} ${x.barcode === planFocus ? 'plan-focus' : ''}" style="left:${x.x * 100}%;top:${x.y * 100}%;" title="${esc(x.name)}" onclick="showStation('${esc(x.barcode)}')"><span style="background:${stationColor(x.type)}"></span>${labels ? `<em class="plan-pin-label">${esc(x.name)}</em>` : ''}</button>`).join('')}` : '<div class="t-faint text-xs p-10">The floor plan image could not be loaded.</div>';
     const focusPin = stage.querySelector('.plan-focus');
     if (focusPin) setTimeout(() => { try { focusPin.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch (e) {} }, 150);
 }
@@ -3534,12 +3580,20 @@ async function fillPlanCardImages(box) {
     els.forEach((el, i) => { const ph = el.querySelector('.rec-media-ph'); if (!ph) return; if (urls[i]) ph.outerHTML = `<img src="${esc(urls[i])}" alt="" loading="lazy">`; else ph.innerHTML = '<b>🗺️</b>Picture unavailable'; });
 }
 function planPins(plan) { return state.model.stations.filter(x => x.mapId === plan.id && x.x != null && x.y != null); }
-// The plan image with the station pins drawn on, as a canvas (the image is fetched first, so the canvas can be saved)
-async function planCanvas(plan, withPins) {
+// station names beside the pins: on or off (the screen and the download match)
+function planLabelsOn() { return !!portalPrefs().planLabels; }
+function setPlanLabels(on) { savePrefs({ planLabels: !!on }); if (state.tab === 'plans') renderPlans(); }
+// the plan image, loaded so it can be drawn into a download
+async function planImage(plan) {
     const [url] = await signPaths([plan.image_path]);
     if (!url) throw new Error('The floor plan image could not be loaded.');
     const blob = await (await fetch(url)).blob();
-    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('The floor plan image could not be read.')); i.src = URL.createObjectURL(blob); });
+    return await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('The floor plan image could not be read.')); i.src = URL.createObjectURL(blob); });
+}
+const planPinData = plan => planPins(plan).map(x => ({ x: x.x, y: x.y, name: x.name, type: x.type, color: stationColor(x.type), overdue: x.overdue }));
+// The plan with its station pins drawn on (the same pins as on screen), as a canvas: for the audit pack
+async function planCanvas(plan, withPins) {
+    const img = await planImage(plan);
     const scale = Math.min(1, 2400 / Math.max(img.width, img.height));
     const c = document.createElement('canvas');
     c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
@@ -3547,132 +3601,23 @@ async function planCanvas(plan, withPins) {
     g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
     g.drawImage(img, 0, 0, c.width, c.height);
     if (withPins) {
-        const r = Math.max(7, Math.round(c.width / 140));
-        g.font = `bold ${Math.round(r * 1.5)}px sans-serif`; g.textBaseline = 'middle';
-        planPins(plan).forEach(x => {
-            const px = x.x * c.width, py = x.y * c.height;
-            g.beginPath(); g.arc(px, py, r, 0, Math.PI * 2); g.fillStyle = stationColor(x.type); g.fill(); g.lineWidth = Math.max(2, r / 3); g.strokeStyle = '#fff'; g.stroke();
-            if (x.overdue) { g.beginPath(); g.arc(px, py, r * 1.6, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.stroke(); }
-            const label = x.name, w = g.measureText(label).width;
-            g.fillStyle = 'rgba(2,6,23,.82)'; g.fillRect(px + r + 4, py - r, w + 8, r * 2); g.fillStyle = '#fff'; g.fillText(label, px + r + 8, py);
+        const r = Math.max(9, Math.round(Math.min(c.width, c.height) / 55));
+        planPinData(plan).forEach(x => PVR.pin(g, x.x * c.width, x.y * c.height, r, x.color, x.overdue));
+        g.font = `bold ${Math.round(r * 1.15)}px sans-serif`; g.textBaseline = 'middle';
+        planPinData(plan).forEach(x => {
+            const px = x.x * c.width + r * 1.3, py = x.y * c.height - r * Math.SQRT2, w = g.measureText(x.name).width;
+            g.fillStyle = 'rgba(2,6,23,.82)'; g.fillRect(px, py - r * .85, w + r * 1.1, r * 1.7); g.fillStyle = '#fff'; g.fillText(x.name, px + r * .55, py);
         });
     }
-    return { canvas: c, blob };
+    return { canvas: c };
 }
-// the logo in the pest map's top right: the person's own, or the Pesties logo
-function mapLogoSrc() { return portalPrefs().mapLogo || 'images/pesties-logo.png'; }
-function pickMapLogo() {
-    const inp = document.createElement('input');
-    inp.type = 'file'; inp.accept = 'image/*';
-    inp.onchange = async () => {
-        const f = inp.files[0];
-        if (!f) return;
-        const url = URL.createObjectURL(f);
-        const img = await new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = url; });
-        if (!img) { alert("That file couldn't be read as a picture."); return; }
-        const k = Math.min(1, 480 / Math.max(img.width, img.height));
-        const c = document.createElement('canvas');
-        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        let data = c.toDataURL('image/png');
-        if (data.length > 150000) data = c.toDataURL('image/jpeg', .85);
-        savePrefs({ mapLogo: data });
-        toast('Logo saved - it will show on your pest maps.');
-        if (!$('modal').classList.contains('hidden') && $('modalTitle').textContent === 'Settings') openSettings();
-        if (state.tab === 'plans') renderPlans();
-    };
-    inp.click();
-}
-// The plan with its stations, framed as a "Pest map": a header with the logo, then a legend and the site details
-async function pestMapCanvas(plan) {
-    const { canvas: map } = await planCanvas(plan, true);
-    const W = Math.max(1600, map.width), pad = Math.round(W * 0.028), mapW = W - pad * 2, mapH = Math.round(map.height * mapW / map.width);
-    const F = n => Math.round(n * W / 1600);
-    const pins = planPins(plan);
-    const types = Array.from(pins.reduce((m, x) => m.set(x.type, (m.get(x.type) || 0) + 1), new Map()).entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    const overdue = pins.filter(x => x.overdue).length;
-    const site = state.site || {}, me = state.me || {};
-    const details = [
-        ['Client', siteName(site)],
-        ['Site address', site.Address || '-'],
-        ['Floor plan', plan.name || '-'],
-        ['Stations on this plan', String(pins.length)],
-        ['Map made by', plan.created_by || 'Pesties'],
-        ['Plan created', plan.created_at ? fmtDate(Date.parse(plan.created_at)) : '-'],
-        ['Last updated', plan.updated_at ? fmtDate(Date.parse(plan.updated_at)) : (plan.created_at ? fmtDate(Date.parse(plan.created_at)) : '-')],
-        ['Generated', `${fmtDate(Date.now())}${me.name || me.email ? ' by ' + (me.name || me.email) : ''}`]
-    ];
-    const legCols = types.length + (overdue ? 1 : 0) > 5 ? 2 : 1;
-    const headH = F(150), legendRows = Math.ceil((types.length + (overdue ? 1 : 0)) / legCols), legH = Math.max(F(70) + legendRows * F(44), F(70) + Math.ceil(details.length / 2) * F(58)) + F(30);
-    const H = headH + pad + mapH + pad + legH + pad + F(40);
-    const c = document.createElement('canvas');
-    c.width = W; c.height = H;
-    const g = c.getContext('2d');
-    const accent = getComputedStyle(document.documentElement).getPropertyValue('--b500').trim() || '249 115 22';
-    const acc = `rgb(${accent.split(/\s+/).join(',')})`;
-    const font = (w, px) => `${w} ${F(px)}px system-ui, -apple-system, Segoe UI, Roboto, sans-serif`;
-    const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
-    const fit = (t, max) => { t = String(t); if (g.measureText(t).width <= max) return t; while (t.length > 1 && g.measureText(t + '…').width > max) t = t.slice(0, -1); return t + '…'; };
-    g.fillStyle = '#f1f5f9'; g.fillRect(0, 0, W, H);
-    // header card
-    const grd = g.createLinearGradient(0, 0, W, headH);
-    grd.addColorStop(0, '#0b1530'); grd.addColorStop(1, '#16244a');
-    g.fillStyle = grd; g.fillRect(0, 0, W, headH);
-    g.fillStyle = acc; g.fillRect(0, headH - F(8), W, F(8));
-    g.textBaseline = 'alphabetic';
-    g.fillStyle = acc; g.font = font(800, 22); g.fillText('PEST MAP', pad, F(48));
-    const logo = await new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = mapLogoSrc(); });
-    let logoW = 0;
-    if (logo) {
-        const lh = headH * 0.62, lw = Math.min(W * 0.28, logo.width * lh / logo.height);
-        const lhh = logo.height * lw / logo.width;
-        logoW = lw + F(24);
-        g.fillStyle = '#000'; rr(W - pad - lw - F(12), (headH - F(8) - lhh) / 2 - F(6), lw + F(12), lhh + F(12), F(12)); g.fill();
-        g.drawImage(logo, W - pad - lw - F(6), (headH - F(8) - lhh) / 2, lw, lhh);
-    }
-    g.fillStyle = '#ffffff'; g.font = font(900, 44); g.fillText(fit(siteName(site), W - pad * 2 - logoW - F(20)), pad, F(98));
-    g.fillStyle = '#9db0d1'; g.font = font(600, 21); g.fillText(fit(`${plan.name || 'Floor plan'}${site.Address ? '  ·  ' + site.Address : ''}`, W - pad * 2 - logoW - F(20)), pad, F(128));
-    // the plan
-    const my = headH + pad;
-    g.save(); g.shadowColor = 'rgba(15,23,42,.18)'; g.shadowBlur = F(24); g.fillStyle = '#fff'; rr(pad, my, mapW, mapH, F(14)); g.fill(); g.restore();
-    g.save(); rr(pad, my, mapW, mapH, F(14)); g.clip(); g.drawImage(map, pad, my, mapW, mapH); g.restore();
-    g.strokeStyle = '#d8deeb'; g.lineWidth = F(2); rr(pad, my, mapW, mapH, F(14)); g.stroke();
-    // legend and site details card
-    const ly = my + mapH + pad;
-    g.save(); g.shadowColor = 'rgba(15,23,42,.12)'; g.shadowBlur = F(18); g.fillStyle = '#ffffff'; rr(pad, ly, mapW, legH, F(16)); g.fill(); g.restore();
-    const colL = pad + F(32), splitX = pad + mapW * 0.46;
-    g.fillStyle = acc; g.font = font(800, 17); g.fillText('LEGEND', colL, ly + F(44));
-    g.fillText('MAP DETAILS', splitX + F(32), ly + F(44));
-    g.strokeStyle = '#e2e8f0'; g.lineWidth = F(2); g.beginPath(); g.moveTo(splitX, ly + F(24)); g.lineTo(splitX, ly + legH - F(24)); g.stroke();
-    const legendItems = types.map(([t, n]) => ({ t, n, col: stationColor(t) })).concat(overdue ? [{ t: 'Overdue for service', n: overdue, ring: true }] : []);
-    const colW = (splitX - colL - F(24)) / legCols;
-    legendItems.forEach((it, i) => {
-        const x = colL + (i % legCols) * colW, y = ly + F(84) + Math.floor(i / legCols) * F(44);
-        g.beginPath(); g.arc(x + F(11), y - F(7), F(11), 0, Math.PI * 2);
-        if (it.ring) { g.strokeStyle = '#dc2626'; g.lineWidth = F(3.5); g.stroke(); }
-        else { g.fillStyle = it.col; g.fill(); g.strokeStyle = '#fff'; g.lineWidth = F(3); g.stroke(); }
-        g.fillStyle = '#0b1530'; g.font = font(700, 19); g.fillText(fit(it.t, colW - F(80)), x + F(32), y);
-        g.fillStyle = '#64748b'; g.font = font(800, 19); g.textAlign = 'right'; g.fillText(String(it.n), x + colW - F(16), y); g.textAlign = 'left';
-    });
-    if (!legendItems.length) { g.fillStyle = '#64748b'; g.font = font(600, 19); g.fillText('No stations placed on this plan yet.', colL, ly + F(84)); }
-    const dW = (pad + mapW - splitX - F(64)) / 2;
-    details.forEach(([k, v], i) => {
-        const x = splitX + F(32) + (i % 2) * dW, y = ly + F(80) + Math.floor(i / 2) * F(58);
-        g.fillStyle = '#64748b'; g.font = font(800, 14); g.fillText(k.toUpperCase(), x, y);
-        g.fillStyle = '#0b1530'; g.font = font(700, 20); g.fillText(fit(v, dW - F(16)), x, y + F(26));
-    });
-    g.fillStyle = '#94a3b8'; g.font = font(600, 15); g.fillText(`Generated from the Pesties Client Portal · ${new Date().toLocaleString()}`, pad, H - F(18));
-    return c;
-}
-async function downloadPlan(id, withPins) {
+// the Pest map: one A4 page, the same as from the Service App (PVR, shared)
+async function downloadPlan(id) {
     const plan = state.model.maps.find(p => p.id === id);
     if (!plan) return;
     try {
-        const { canvas, blob } = await planCanvas(plan, withPins);
-        const name = `${safeName(siteName(state.site))} - ${safeName(plan.name)}${withPins ? ' (stations)' : ''}`;
-        if (!withPins) { downloadBlob(blob, name + '.' + ((blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg'))); return; }
-        const pm = await pestMapCanvas(plan);
-        pm.toBlob(b => downloadBlob(b, `${safeName(siteName(state.site))} - ${safeName(plan.name)} - Pest map.png`), 'image/png');
+        await PVR.pestMap({ image: await planImage(plan), pins: planPinData(plan), labels: planLabelsOn(), siteName: siteName(state.site), address: state.site.Address || '',
+            planName: plan.name, madeBy: plan.created_by, created: plan.created_at, updated: plan.updated_at, by: state.me.name || state.me.email, app: 'Client Portal' });
     } catch (e) { alert('Could not download the floor plan: ' + (e.message || e)); }
 }
 
@@ -3921,22 +3866,30 @@ function speciesColourIndex(name) {
     return i < 0 ? 0 : i;
 }
 
-function downloadVisitPdf(id) {
+// the visit report: the same PDF as the Service App's (PVR, shared)
+async function downloadVisitPdf(id) {
     const v = state.model.visits.find(x => x.id === id);
     if (!v) return;
-    const pdf = newPdf('Visit report', `${fmtDate(v.completed)} · ${v.type}${v.tech ? ' · ' + v.tech : ''}`);
-    const breaches = visitBreaches(v);
-    if (breaches.length) pdf.alert([`CRITICAL LIMIT BREACH (${monthLabel(v.completed)})`].concat(breaches.map(x => `${x.limit.zone} · ${limitPest(x.limit)}: ${x.total} recorded, limit ${x.limit.max} a month (${x.total - x.limit.max} over). Caught at: ${breachStations(x).map(b => `${b.name} (${b.n})`).join(', ')}`)));
-    pdf.facts([['Arrived', v.start ? fmtTime(v.start) : '-'], ['Left', fmtTime(v.end)], ['Time on site', durationText(v.start, v.end)], ['Stations checked', new Set(v.entries.map(e => e.barcode)).size]]);
-    if (v.services.length) pdf.para('Services completed: ' + v.services.join(', '));
-    pdf.heading("Technician's notes"); pdf.para(v.notes || 'No notes provided');
-    pdf.heading('Station records');
-    pdf.table([['Station', 34], ['Barcode', 18], ['Type', 30], ['Activity', 16], ['Pests', 24], ['Preparation', 50], ['Notes', 50]],
-        v.entries.map(e => [e.name, e.barcode, e.type, e.activity === 'None' ? 'No activity' : e.activity, e.species ? e.species + (e.count ? ' x' + e.count : '') : '-',
-            e.prep ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '-', e.notes]));
-    if (v.recs.length) { pdf.heading('Recommendations raised'); pdf.table(REC_COLS, recExportRows(v.recs)); }
-    if (v.signedBy || v.noSignatureReason) { pdf.heading('Customer sign-off'); pdf.para(v.signedBy ? `Signed by ${v.signedBy}${v.signedAt ? ' on ' + fmtDateTime(v.signedAt) : ''}` : `Not signed: ${v.noSignatureReason}`); }
-    pdf.save(`${safeName(siteName(state.site))} - Visit report - ${toDayStr(new Date(v.completed))}`);
+    let signature = null;
+    if (v.signaturePath) { try { const [u] = await signPaths([v.signaturePath]); if (u) signature = await imgDataUrl(u); } catch (e) {} }
+    try {
+        await PVR.build({
+            siteName: siteName(state.site), address: state.site.Address || '', completed: v.completed, type: v.type, tech: v.tech, start: v.start, end: v.end,
+            stationsChecked: new Set(v.entries.map(e => e.barcode)).size, services: v.services, notes: v.notes,
+            breaches: visitBreaches(v).map(x => `${x.limit.zone} · ${limitPest(x.limit)}: ${x.total} recorded in ${monthLabel(x.month || v.completed)}, limit ${x.limit.max} a month (${x.total - x.limit.max} over). Caught at: ${breachStations(x).map(b => `${b.name} (${b.n})`).join(', ')}`),
+            entries: v.entries.map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, pests: e.species ? e.species + (e.count ? ' x' + e.count : '') : '',
+                prep: e.prep ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '', notes: e.notes })),
+            recs: v.recs.map(r => ({ no: fmtRecNo(r.no), status: STATUS[r.status] ? STATUS[r.status].label : r.status, raised: r.raisedAt, station: r.station, barcode: r.barcode, text: r.text,
+                closed: r.status === 'complete' ? (r.completedAt || r.lastChange) : null, note: r.updates.length ? r.updates[r.updates.length - 1].note : '' })),
+            signedBy: v.signedBy, signedAt: v.signedAt, noSignatureReason: v.noSignatureReason, signature,
+            by: state.me.name || state.me.email, app: 'Client Portal'
+        });
+    } catch (e) { alert('The report could not be made: ' + (e.message || e)); }
+}
+// a picture as data (for the PDF)
+async function imgDataUrl(url) {
+    const b = await (await fetch(url)).blob();
+    return await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(b); });
 }
 
 // ---------- Audit pack: everything an auditor asks for, for the chosen period ----------
@@ -4132,7 +4085,7 @@ const PR = (() => {
     // ---------- the reports ----------
     const REPORTS = [
         { id: 'trend', icon: '📈', title: 'Pest activity over time', blurb: 'Captures each month, one line per pest - or each year on top of the last to compare.', f: ['view', 'period', 'years', 'type', 'pest'] },
-        { id: 'pests', icon: '🐞', title: 'Pests found', blurb: 'Which pests, how many, and the change from the period before.', f: ['period', 'type'] },
+        { id: 'pests', icon: '🐞', title: 'Pests found', blurb: 'Which pests were found, how many, and the stations they were recorded on.', f: ['period', 'type', 'station', 'pest'] },
         { id: 'stations', icon: '📍', title: 'Busiest stations', blurb: 'The stations catching the most - where to focus.', f: ['period', 'type', 'pest'] },
         { id: 'station', icon: '🔎', title: 'One station', blurb: 'A single station: each pest (or its activity) month by month over the years, and every visit to it.', f: ['station', 'view', 'years', 'pest'] },
         { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'map', 'gap'] },
@@ -4310,22 +4263,25 @@ const PR = (() => {
                 csv: [head.map(h => h.t)].concat(ks.map((k, i) => [monthLong(k)].concat(series.map(x => x.vals[i]), [totals[i]])))
             };
         },
-        pests(d, s) {
-            const [a, b] = range(s), list = pick(d, s, x => x.species);
-            const prevS = Object.assign({}, s, { preset: 'custom', from: new Date(a - (b - a)).toISOString().slice(0, 10), to: new Date(a - DAY).toISOString().slice(0, 10) });
-            const prev = s.preset === 'all' ? [] : pick(d, prevS, x => x.species);
-            const tot = new Map(), ptot = new Map(), sts = new Map();
-            list.forEach(x => { tot.set(x.species, (tot.get(x.species) || 0) + x.count); const k = sts.get(x.species) || new Set(); k.add(x.barcode); sts.set(x.species, k); });
-            prev.forEach(x => ptot.set(x.species, (ptot.get(x.species) || 0) + x.count));
+        pests(d, s, opts) {
+            const list = pick(d, s, x => x.species && (!s.station || x.barcode === s.station) && (!s.pest || x.species === s.pest));
+            // each pest, and each station it was recorded on
+            const tot = new Map(), by = new Map();
+            list.forEach(x => {
+                tot.set(x.species, (tot.get(x.species) || 0) + x.count);
+                const k = x.species + '\u0000' + x.barcode, o = by.get(k) || { sp: x.species, st: x.stationObj, n: 0, times: 0, last: 0 };
+                o.n += x.count; o.times++; o.last = Math.max(o.last, x.at); by.set(k, o);
+            });
             const all = list.reduce((n, x) => n + x.count, 0);
-            const rows = Array.from(tot.entries()).sort((p, q) => q[1] - p[1]);
-            const chg = (now, before) => before ? `${now >= before ? '+' : ''}${Math.round((now - before) / before * 100)}%` : now ? 'new' : '';
-            const head = [{ t: 'Pest' }, { t: 'Captures', num: true }, { t: 'Share', num: true }, { t: 'Stations', num: true }, { t: 'Period before', num: true }, { t: 'Change', num: true }];
+            const pests = Array.from(tot.entries()).sort((p, q) => q[1] - p[1]);
+            const rank = new Map(pests.map(([sp], i) => [sp, i]));
+            const rows = Array.from(by.values()).sort((p, q) => rank.get(p.sp) - rank.get(q.sp) || q.n - p.n || p.st.name.localeCompare(q.st.name, undefined, { numeric: true }));
+            const head = [{ t: 'Pest' }, { t: 'Station' }, { t: 'Station type' }, { t: 'Floor plan' }, { t: 'Captures', num: true }, { t: 'Times recorded', num: true }, { t: 'Last found' }];
             return {
-                html: kpis([{ v: all, l: 'captures' }, { v: rows.length, l: 'different pests' }, { v: rows[0] ? rows[0][0] : '-', l: 'most common' }])
-                    + `<div class="pr-chart">${barChart(rows.map(([sp, n], i) => ({ l: sp, v: n, c: PALETTE[i % 8] })))}</div>`
-                    + table(head, rows.map(([sp, n]) => ({ cells: [e(sp), n, all ? Math.round(n / all * 100) + '%' : '', sts.get(sp).size, s.preset === 'all' ? '-' : (ptot.get(sp) || 0), s.preset === 'all' ? '' : chg(n, ptot.get(sp) || 0)] }))),
-                csv: [head.map(h => h.t)].concat(rows.map(([sp, n]) => [sp, n, all ? Math.round(n / all * 100) + '%' : '', sts.get(sp).size, ptot.get(sp) || 0, chg(n, ptot.get(sp) || 0)]))
+                html: kpis([{ v: all, l: 'captures' }, { v: pests.length, l: 'different pests' }, { v: new Set(list.map(x => x.barcode)).size, l: 'stations with pests' }, { v: pests[0] ? pests[0][0] : '-', l: 'most common' }])
+                    + `<div class="pr-chart">${barChart(pests.map(([sp, n], i) => ({ l: sp, v: n, c: PALETTE[i % 8] })))}</div>`
+                    + table(head, rows.map(o => ({ cells: [e(o.sp), stLink(opts, o.st), e(o.st.type || ''), e(o.st.map || ''), o.n, o.times, e(fmtD(o.last))] })), { empty: 'No pests recorded for this choice.' }),
+                csv: [head.map(h => h.t)].concat(rows.map(o => [o.sp, o.st.name, o.st.type || '', o.st.map || '', o.n, o.times, fmtD(o.last)]))
             };
         },
         stations(d, s, opts) {
@@ -4553,6 +4509,19 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r76', date: '2026-10-30', v: { svc: '2026.10.30-r76', adm: '2026.10.30-a20', cli: '2026.10.30-p36' },
+            svc: ['Visit report: the downloaded PDF is now exactly the same as the one customers download from the Client Portal, with the Pesties logo in the top right',
+                  'Floor plans: "Download pest map" makes one A4 page (PDF) with the plan filling the page, the same pins as on screen, the legend and the site details - the same as from the Client Portal. Station names are included when the Names switch is on'],
+            adm: ['Reports › Pests found: each pest with the stations it was recorded on (no more Share, Period before or Change columns), and filters for station and pest'],
+            cli: ['Visit reports: the PDF has the Pesties logo in the top right, and is the same as the one your technician downloads',
+                  'Visit reports: the Visits tab shows how many reports you haven\'t opened yet, and you can filter by the type of visit (routine service, call out and so on)',
+                  'Floor plans: the downloaded pest map looks just like the screen (the same pins), fills an A4 page, and includes station names only when "Station names" is ticked',
+                  'Floor plans: a "Station names" switch shows each station\'s name beside its pin',
+                  'Floor plans: the "Original image" and "Change logo" buttons are gone',
+                  'Critical limits: download the pest zoning register (every station in a critical limits area, and the breaches) for Excel or as a PDF',
+                  'Reports › Pests found: each pest with the stations it was recorded on, and filters for station and pest',
+                  'Recommendations: a video opens full screen when you tap it',
+                  'The number badges on the tabs are centred properly'] },
         { rev: 'r75', date: '2026-10-30', v: { svc: '2026.10.30-r75', adm: '2026.10.30-a19', cli: '2026.10.30-p35' },
             svc: ['Station types renamed: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring (on every station and past record too). Snap Trap is no longer in the list',
                   'Rodents at a toxic station: None, Low, Medium or High (how much bait was taken). At a non-toxic station: Caught, with the number caught',
@@ -4700,6 +4669,230 @@ const WN = (() => {
     return { LOG, html, unseen, markSeen, badges, latest: app => forApp(app)[0] };
 })();
 /* PESTIS-CHANGELOG:END */
+</script>
+<script id="pestisVisitPdf">
+/* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
+// Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
+//   { siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
+//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, pests, prep, notes }],
+//     recs: [{ no, status, raised, station, barcode, text, closed, note }],
+//     signedBy, signedAt, noSignatureReason, signature (picture data URL or null), by (who downloaded it), app ('Service App' | 'Client Portal') }
+// Times are milliseconds (or ISO text); text is already worded for the customer.
+const PVR = (() => {
+    const t = v => v == null || v === '' ? null : typeof v === 'number' ? v : Date.parse(v);
+    const day = v => { const x = t(v); return x ? new Date(x).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; };
+    const time = v => { const x = t(v); return x ? new Date(x).toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit' }) : '-'; };
+    const dayTime = v => { const x = t(v); return x ? `${day(x)} ${time(x)}` : ''; };
+    const dur = (a, b) => { const ms = t(b) - t(a); if (!t(a) || !t(b) || !(ms > 0)) return '-'; const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
+    const safe = s => String(s || 'Site').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const ENTRY_COLS = [['Station', 34], ['Barcode', 18], ['Type', 30], ['Activity', 16], ['Pests', 24], ['Preparation', 50], ['Notes', 50]];
+    const REC_COLS = [['No.', 16], ['Status', 18], ['Raised', 20], ['Station', 30], ['Barcode', 18], ['Recommendation', 70], ['Closed', 20], ['Latest note', 50]];
+
+    // the Pesties logo, made small enough for a PDF (loaded once)
+    let logoP = null;
+    function logo() {
+        if (!logoP) logoP = new Promise(res => {
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    const h = 300, w = Math.round(img.naturalWidth / img.naturalHeight * h), c = document.createElement('canvas');
+                    c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h);
+                    res({ url: c.toDataURL('image/png'), k: w / h, img: c });
+                } catch (e) { res(null); }
+            };
+            img.onerror = () => res(null);
+            img.src = 'images/pesties-logo.png';
+        });
+        return logoP;
+    }
+
+    // ---------- the Pest map: a floor plan with its stations, on one A4 page (the same from every app) ----------
+    // a station pin: the same teardrop as on screen, its point on the spot
+    function pin(g, x, y, r, color, overdue) {
+        const cy = y - r * Math.SQRT2, a = Math.PI / 4;
+        g.save();
+        g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = r * .6; g.shadowOffsetY = r * .25;
+        g.beginPath(); g.moveTo(x, y); g.arc(x, cy, r, Math.PI / 2 + a, Math.PI / 2 - a + 2 * Math.PI); g.closePath();
+        g.fillStyle = color; g.fill();
+        g.restore();
+        g.beginPath(); g.moveTo(x, y); g.arc(x, cy, r, Math.PI / 2 + a, Math.PI / 2 - a + 2 * Math.PI); g.closePath();
+        g.lineWidth = Math.max(2, r * .2); g.strokeStyle = '#fff'; g.stroke();
+        if (overdue) { g.beginPath(); g.arc(x, cy, r * 1.45, 0, Math.PI * 2); g.lineWidth = Math.max(2, r * .28); g.strokeStyle = '#dc2626'; g.stroke(); }
+    }
+    // d = { image (an <img> or canvas of the plan), pins: [{ x, y (shares of the plan), name, type, color, overdue }], labels,
+    //       siteName, address, planName, madeBy, created, updated, by, app }
+    async function pestMap(d) {
+        const { jsPDF } = window.jspdf;
+        const iw = d.image.naturalWidth || d.image.width, ih = d.image.naturalHeight || d.image.height;
+        const land = iw >= ih;
+        const W = land ? 3508 : 2480, H = land ? 2480 : 3508;   // A4 at 300 dpi
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const g = c.getContext('2d');
+        const pad = 90, headH = 260, footH = 60;
+        const types = Array.from(d.pins.reduce((m, x) => m.set(x.type, { n: ((m.get(x.type) || {}).n || 0) + 1, color: x.color }), new Map()).entries())
+            .sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]));
+        const overdue = d.pins.filter(x => x.overdue).length;
+        const legItems = types.map(([t, o]) => ({ t, n: o.n, color: o.color })).concat(overdue ? [{ t: 'Overdue for service', n: overdue, ring: true }] : []);
+        const details = [['Client', d.siteName || '-'], ['Site address', d.address || '-'], ['Floor plan', d.planName || '-'], ['Stations on this plan', String(d.pins.length)],
+            ['Map made by', d.madeBy || 'Pesties'], ['Last updated', day(d.updated || d.created) || '-'], ['Generated', `${day(Date.now())}${d.by ? ' by ' + d.by : ''}`]];
+        const legCols = land ? 2 : 1, legRows = Math.max(1, Math.ceil(legItems.length / legCols));   // room for the long station type names
+        const legH = Math.max(130 + legRows * 70, 130 + Math.ceil(details.length / (land ? 4 : 2)) * 92);
+        const font = (w, px) => `${w} ${px}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif`;
+        const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+        const fit = (t, max) => { t = String(t); if (g.measureText(t).width <= max) return t; while (t.length > 1 && g.measureText(t + '…').width > max) t = t.slice(0, -1); return t + '…'; };
+        g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+        // header: the site, the plan, and the Pesties logo in the top right
+        g.fillStyle = '#0b1530'; g.fillRect(0, 0, W, headH);
+        g.fillStyle = '#f97316'; g.fillRect(0, headH - 14, W, 14);
+        const lg = await logo();
+        let logoW = 0;
+        if (lg) { const lh = headH * .62, lw = lh * lg.k; logoW = lw + 60; g.drawImage(lg.img, W - pad - lw, (headH - 14 - lh) / 2, lw, lh); }
+        g.textBaseline = 'alphabetic';
+        g.fillStyle = '#f97316'; g.font = font(800, 38); g.fillText('PEST MAP', pad, 84);
+        g.fillStyle = '#ffffff'; g.font = font(900, 76); g.fillText(fit(d.siteName || 'Site', W - pad * 2 - logoW), pad, 168);
+        g.fillStyle = '#9db0d1'; g.font = font(600, 36); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - pad * 2 - logoW), pad, 222);
+        // the plan, as big as the page allows
+        const top = headH + pad * .6, boxH = H - top - legH - pad * 1.2 - footH, boxW = W - pad * 2;
+        const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = pad + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
+        g.save(); g.shadowColor = 'rgba(15,23,42,.18)'; g.shadowBlur = 30; g.fillStyle = '#fff'; g.fillRect(mx, my, mw, mh); g.restore();
+        g.drawImage(d.image, mx, my, mw, mh);
+        g.strokeStyle = '#d8deeb'; g.lineWidth = 3; g.strokeRect(mx, my, mw, mh);
+        const r = Math.max(14, Math.min(34, Math.min(mw, mh) / 55));
+        const labelFont = font(700, Math.round(r * 1.15));
+        d.pins.forEach(x => pin(g, mx + x.x * mw, my + x.y * mh, r, x.color, x.overdue));
+        if (d.labels) {
+            g.font = labelFont; g.textBaseline = 'middle';
+            d.pins.forEach(x => {
+                const px = mx + x.x * mw + r * 1.3, py = my + x.y * mh - r * Math.SQRT2, tw = g.measureText(x.name).width;
+                g.fillStyle = 'rgba(2,6,23,.82)'; rr(px, py - r * .85, tw + r * 1.1, r * 1.7, r * .4); g.fill();
+                g.fillStyle = '#fff'; g.fillText(x.name, px + r * .55, py);
+            });
+            g.textBaseline = 'alphabetic';
+        }
+        // legend and map details
+        const ly = H - legH - footH - pad * .6, splitX = pad + boxW * (land ? .42 : .5);
+        g.fillStyle = '#f8fafc'; rr(pad, ly, boxW, legH, 24); g.fill(); g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; rr(pad, ly, boxW, legH, 24); g.stroke();
+        g.fillStyle = '#f97316'; g.font = font(800, 30); g.fillText('LEGEND', pad + 50, ly + 68); g.fillText('MAP DETAILS', splitX + 50, ly + 68);
+        g.strokeStyle = '#e2e8f0'; g.beginPath(); g.moveTo(splitX, ly + 36); g.lineTo(splitX, ly + legH - 36); g.stroke();
+        const lcW = (splitX - pad - 80) / legCols;
+        legItems.forEach((it, i) => {
+            const x = pad + 50 + (i % legCols) * lcW, y = ly + 136 + Math.floor(i / legCols) * 70;
+            if (it.ring) { g.beginPath(); g.arc(x + 18, y - 12, 18, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 6; g.stroke(); }
+            else pin(g, x + 18, y + 8, 16, it.color, false);
+            g.fillStyle = '#0b1530'; g.font = font(700, 30); g.fillText(fit(it.t, lcW - 130), x + 52, y);
+            g.fillStyle = '#64748b'; g.font = font(800, 30); g.textAlign = 'right'; g.fillText(String(it.n), x + lcW - 30, y); g.textAlign = 'left';
+        });
+        if (!legItems.length) { g.fillStyle = '#64748b'; g.font = font(600, 30); g.fillText('No stations placed on this plan yet.', pad + 50, ly + 136); }
+        const dCols = land ? 4 : 2, dW = (pad + boxW - splitX - 100) / dCols;
+        details.forEach(([key, val], i) => {
+            const x = splitX + 50 + (i % dCols) * dW, y = ly + 128 + Math.floor(i / dCols) * 92;
+            g.fillStyle = '#64748b'; g.font = font(800, 22); g.fillText(key.toUpperCase(), x, y);
+            g.fillStyle = '#0b1530'; g.font = font(700, 31); g.fillText(fit(val, dW - 24), x, y + 40);
+        });
+        g.fillStyle = '#94a3b8'; g.font = font(600, 24); g.fillText(`Generated from the Pesties ${d.app || ''} · ${dayTime(Date.now())}`.replace('  ', ' '), pad, H - 40);
+        // one A4 page, filled edge to edge
+        const doc = new jsPDF({ orientation: land ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
+        doc.addImage(c.toDataURL('image/jpeg', .9), 'JPEG', 0, 0, doc.internal.pageSize.getWidth(), doc.internal.pageSize.getHeight());
+        doc.save(`${safe(d.siteName)} - ${safe(d.planName)} - Pest map.pdf`);
+        return c;
+    }
+
+    async function build(v) {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+        const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 12;
+        const lg = await logo();
+        let y = 0;
+        const title = v.inProgress ? 'Visit report (in progress)' : 'Visit report';
+        const sub = `${day(v.completed)} · ${v.type || 'Visit'}${v.tech ? ' · ' + v.tech : ''}`;
+        const header = () => {
+            doc.setFillColor(15, 23, 42); doc.rect(0, 0, W, 18, 'F');
+            doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+            doc.text(`${v.siteName || 'Site'} · ${title}`, M, 11.5);
+            // the Pesties logo in the top right corner (the name if it can't be loaded)
+            if (lg) { const h = 13, w = h * lg.k; try { doc.addImage(lg.url, 'PNG', W - M - w, 2.5, w, h); } catch (e) {} }
+            else { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text('Pesties', W - M, 11.5, { align: 'right' }); }
+            doc.setTextColor(71, 85, 105); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+            doc.text(sub + (v.address ? ' · ' + v.address : ''), M, 24);
+            y = 30;
+        };
+        const newPage = () => { doc.addPage(); header(); };
+        const room = h => { if (y + h > H - 12) newPage(); };
+        const heading = s => { room(14); doc.setTextColor(15, 23, 42); doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(s, M, y); y += 6; };
+        const para = s => { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(51, 65, 85); doc.splitTextToSize(String(s), W - 2 * M).forEach(line => { room(5); doc.text(line, M, y); y += 4.4; }); y += 2; };
+        const facts = pairs => {
+            const colW = (W - 2 * M) / pairs.length;
+            room(16);
+            pairs.forEach(([k, val], i) => {
+                const x0 = M + i * colW;
+                doc.setFillColor(241, 245, 249); doc.roundedRect(x0, y, colW - 3, 14, 2, 2, 'F');
+                doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.text(String(k).toUpperCase(), x0 + 3, y + 4.5);
+                doc.setTextColor(15, 23, 42); doc.setFontSize(11); doc.text(String(val), x0 + 3, y + 11);
+            });
+            y += 19;
+        };
+        const table = (cols, rows) => {
+            const total = cols.reduce((a, c) => a + c[1], 0), scale = (W - 2 * M) / total, widths = cols.map(c => c[1] * scale);
+            const head = () => {
+                doc.setFillColor(226, 232, 240); doc.rect(M, y, W - 2 * M, 7, 'F');
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(51, 65, 85);
+                let x0 = M; cols.forEach((c, i) => { doc.text(String(c[0]).toUpperCase(), x0 + 1.5, y + 4.7); x0 += widths[i]; });
+                y += 7;
+            };
+            room(14); head();
+            if (!rows.length) { doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(100, 116, 139); doc.text('Nothing recorded.', M + 1.5, y + 5); y += 9; return; }
+            rows.forEach((r, ri) => {
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+                const cells = r.map((val, i) => doc.splitTextToSize(String(val == null ? '' : val), widths[i] - 3));
+                const h = Math.max(...cells.map(c => c.length)) * 3.4 + 2.6;
+                if (y + h > H - 12) { newPage(); head(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
+                if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
+                doc.setTextColor(15, 23, 42);
+                let x0 = M; cells.forEach((c, i) => { doc.text(c, x0 + 1.5, y + 3.9); x0 += widths[i]; });
+                y += h;
+            });
+            y += 5;
+        };
+        const alert = lines => {
+            const wrapped = lines.map(l => doc.splitTextToSize(l, W - 2 * M - 8));
+            const n = wrapped.reduce((a, l) => a + l.length, 0);
+            room(10 + n * 5);
+            doc.setFillColor(254, 226, 226); doc.setDrawColor(239, 68, 68); doc.roundedRect(M, y, W - 2 * M, 8 + n * 5, 2, 2, 'FD');
+            doc.setTextColor(153, 27, 27); doc.setFontSize(9);
+            let ly = y + 6;
+            wrapped.forEach((l, i) => { doc.setFont('helvetica', i ? 'normal' : 'bold'); doc.text(l, M + 4, ly); ly += l.length * 5; });
+            y += 12 + n * 5;
+        };
+
+        header();
+        if ((v.breaches || []).length) alert(['CRITICAL LIMIT BREACH'].concat(v.breaches));
+        facts([['Arrived', v.start ? time(v.start) : '-'], ['Left', v.inProgress ? 'In progress' : time(v.end || v.completed)],
+            ['Time on site', v.inProgress ? '-' : dur(v.start, v.end || v.completed)], ['Stations checked', v.stationsChecked != null ? v.stationsChecked : new Set((v.entries || []).map(e => e.barcode)).size]]);
+        if ((v.services || []).length) para('Services completed: ' + v.services.join(', '));
+        heading("Technician's notes"); para(v.notes || 'No notes provided');
+        heading('Station records');
+        table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']));
+        if ((v.recs || []).length) {
+            heading('Recommendations raised');
+            table(REC_COLS, v.recs.map(r => [r.no || '', r.status || '', day(r.raised), r.station || '', r.barcode || '', r.text || '', r.closed ? day(r.closed) : '', r.note || '']));
+        }
+        if (v.signedBy || v.noSignatureReason) {
+            heading('Customer sign-off');
+            if (v.signedBy && v.signature) { room(30); try { doc.addImage(v.signature, v.signature.startsWith('data:image/png') ? 'PNG' : 'JPEG', M, y, 70, 24); y += 27; } catch (e) {} }
+            para(v.signedBy ? `Signed by ${v.signedBy}${v.signedAt ? ' on ' + dayTime(v.signedAt) : ''}` : `Not signed: ${v.noSignatureReason}`);
+        }
+        const n = doc.getNumberOfPages();
+        for (let i = 1; i <= n; i++) {
+            doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(148, 163, 184);
+            doc.text(`Generated ${dayTime(Date.now())}${v.by ? ' by ' + v.by : ''} · Pesties ${v.app || ''}`.trim(), M, H - 6);
+            doc.text(`Page ${i} of ${n}`, W - M, H - 6, { align: 'right' });
+        }
+        const d = t(v.completed) ? new Date(t(v.completed)) : new Date();
+        doc.save(`${safe(v.siteName)} - Visit report - ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.pdf`);
+    }
+    return { build, logo, pestMap, pin };
+})();
+/* PESTIS-VISITPDF:END */
 </script>
 </body>
 </html>

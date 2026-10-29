@@ -3,6 +3,19 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r76', date: '2026-10-30', v: { svc: '2026.10.30-r76', adm: '2026.10.30-a20', cli: '2026.10.30-p36' },
+            svc: ['Visit report: the downloaded PDF is now exactly the same as the one customers download from the Client Portal, with the Pesties logo in the top right',
+                  'Floor plans: "Download pest map" makes one A4 page (PDF) with the plan filling the page, the same pins as on screen, the legend and the site details - the same as from the Client Portal. Station names are included when the Names switch is on'],
+            adm: ['Reports › Pests found: each pest with the stations it was recorded on (no more Share, Period before or Change columns), and filters for station and pest'],
+            cli: ['Visit reports: the PDF has the Pesties logo in the top right, and is the same as the one your technician downloads',
+                  'Visit reports: the Visits tab shows how many reports you haven\'t opened yet, and you can filter by the type of visit (routine service, call out and so on)',
+                  'Floor plans: the downloaded pest map looks just like the screen (the same pins), fills an A4 page, and includes station names only when "Station names" is ticked',
+                  'Floor plans: a "Station names" switch shows each station\'s name beside its pin',
+                  'Floor plans: the "Original image" and "Change logo" buttons are gone',
+                  'Critical limits: download the pest zoning register (every station in a critical limits area, and the breaches) for Excel or as a PDF',
+                  'Reports › Pests found: each pest with the stations it was recorded on, and filters for station and pest',
+                  'Recommendations: a video opens full screen when you tap it',
+                  'The number badges on the tabs are centred properly'] },
         { rev: 'r75', date: '2026-10-30', v: { svc: '2026.10.30-r75', adm: '2026.10.30-a19', cli: '2026.10.30-p35' },
             svc: ['Station types renamed: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring (on every station and past record too). Snap Trap is no longer in the list',
                   'Rodents at a toxic station: None, Low, Medium or High (how much bait was taken). At a non-toxic station: Caught, with the number caught',

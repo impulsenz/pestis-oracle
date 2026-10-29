@@ -3,11 +3,13 @@
 # or the Service App (index.html), before testing and pushing:
 #   1. src/changelog_shared.js  -> the "What's new" list in index.html, client.html and src/admin_src.html
 #   2. src/reports_shared.js/.css -> the reports in client.html and src/admin_src.html
+#      src/visitpdf_shared.js -> the visit report PDF in index.html and client.html
 #   3. admin.html is made from index.html + src/admin_src.html (never edit admin.html by hand)
 set -euo pipefail
 cd "$(dirname "$0")"
 python3 sync_changelog.py
 python3 sync_reports.py
+python3 sync_visitpdf.py
 python3 build_admin.py
 for f in ../index.html ../admin.html ../client.html; do
   python3 - "$f" <<'PY'

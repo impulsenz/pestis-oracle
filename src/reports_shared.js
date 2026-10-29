@@ -77,7 +77,7 @@ const PR = (() => {
     // ---------- the reports ----------
     const REPORTS = [
         { id: 'trend', icon: '📈', title: 'Pest activity over time', blurb: 'Captures each month, one line per pest - or each year on top of the last to compare.', f: ['view', 'period', 'years', 'type', 'pest'] },
-        { id: 'pests', icon: '🐞', title: 'Pests found', blurb: 'Which pests, how many, and the change from the period before.', f: ['period', 'type'] },
+        { id: 'pests', icon: '🐞', title: 'Pests found', blurb: 'Which pests were found, how many, and the stations they were recorded on.', f: ['period', 'type', 'station', 'pest'] },
         { id: 'stations', icon: '📍', title: 'Busiest stations', blurb: 'The stations catching the most - where to focus.', f: ['period', 'type', 'pest'] },
         { id: 'station', icon: '🔎', title: 'One station', blurb: 'A single station: each pest (or its activity) month by month over the years, and every visit to it.', f: ['station', 'view', 'years', 'pest'] },
         { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'map', 'gap'] },
@@ -255,22 +255,25 @@ const PR = (() => {
                 csv: [head.map(h => h.t)].concat(ks.map((k, i) => [monthLong(k)].concat(series.map(x => x.vals[i]), [totals[i]])))
             };
         },
-        pests(d, s) {
-            const [a, b] = range(s), list = pick(d, s, x => x.species);
-            const prevS = Object.assign({}, s, { preset: 'custom', from: new Date(a - (b - a)).toISOString().slice(0, 10), to: new Date(a - DAY).toISOString().slice(0, 10) });
-            const prev = s.preset === 'all' ? [] : pick(d, prevS, x => x.species);
-            const tot = new Map(), ptot = new Map(), sts = new Map();
-            list.forEach(x => { tot.set(x.species, (tot.get(x.species) || 0) + x.count); const k = sts.get(x.species) || new Set(); k.add(x.barcode); sts.set(x.species, k); });
-            prev.forEach(x => ptot.set(x.species, (ptot.get(x.species) || 0) + x.count));
+        pests(d, s, opts) {
+            const list = pick(d, s, x => x.species && (!s.station || x.barcode === s.station) && (!s.pest || x.species === s.pest));
+            // each pest, and each station it was recorded on
+            const tot = new Map(), by = new Map();
+            list.forEach(x => {
+                tot.set(x.species, (tot.get(x.species) || 0) + x.count);
+                const k = x.species + '\u0000' + x.barcode, o = by.get(k) || { sp: x.species, st: x.stationObj, n: 0, times: 0, last: 0 };
+                o.n += x.count; o.times++; o.last = Math.max(o.last, x.at); by.set(k, o);
+            });
             const all = list.reduce((n, x) => n + x.count, 0);
-            const rows = Array.from(tot.entries()).sort((p, q) => q[1] - p[1]);
-            const chg = (now, before) => before ? `${now >= before ? '+' : ''}${Math.round((now - before) / before * 100)}%` : now ? 'new' : '';
-            const head = [{ t: 'Pest' }, { t: 'Captures', num: true }, { t: 'Share', num: true }, { t: 'Stations', num: true }, { t: 'Period before', num: true }, { t: 'Change', num: true }];
+            const pests = Array.from(tot.entries()).sort((p, q) => q[1] - p[1]);
+            const rank = new Map(pests.map(([sp], i) => [sp, i]));
+            const rows = Array.from(by.values()).sort((p, q) => rank.get(p.sp) - rank.get(q.sp) || q.n - p.n || p.st.name.localeCompare(q.st.name, undefined, { numeric: true }));
+            const head = [{ t: 'Pest' }, { t: 'Station' }, { t: 'Station type' }, { t: 'Floor plan' }, { t: 'Captures', num: true }, { t: 'Times recorded', num: true }, { t: 'Last found' }];
             return {
-                html: kpis([{ v: all, l: 'captures' }, { v: rows.length, l: 'different pests' }, { v: rows[0] ? rows[0][0] : '-', l: 'most common' }])
-                    + `<div class="pr-chart">${barChart(rows.map(([sp, n], i) => ({ l: sp, v: n, c: PALETTE[i % 8] })))}</div>`
-                    + table(head, rows.map(([sp, n]) => ({ cells: [e(sp), n, all ? Math.round(n / all * 100) + '%' : '', sts.get(sp).size, s.preset === 'all' ? '-' : (ptot.get(sp) || 0), s.preset === 'all' ? '' : chg(n, ptot.get(sp) || 0)] }))),
-                csv: [head.map(h => h.t)].concat(rows.map(([sp, n]) => [sp, n, all ? Math.round(n / all * 100) + '%' : '', sts.get(sp).size, ptot.get(sp) || 0, chg(n, ptot.get(sp) || 0)]))
+                html: kpis([{ v: all, l: 'captures' }, { v: pests.length, l: 'different pests' }, { v: new Set(list.map(x => x.barcode)).size, l: 'stations with pests' }, { v: pests[0] ? pests[0][0] : '-', l: 'most common' }])
+                    + `<div class="pr-chart">${barChart(pests.map(([sp, n], i) => ({ l: sp, v: n, c: PALETTE[i % 8] })))}</div>`
+                    + table(head, rows.map(o => ({ cells: [e(o.sp), stLink(opts, o.st), e(o.st.type || ''), e(o.st.map || ''), o.n, o.times, e(fmtD(o.last))] })), { empty: 'No pests recorded for this choice.' }),
+                csv: [head.map(h => h.t)].concat(rows.map(o => [o.sp, o.st.name, o.st.type || '', o.st.map || '', o.n, o.times, fmtD(o.last)]))
             };
         },
         stations(d, s, opts) {

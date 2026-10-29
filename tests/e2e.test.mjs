@@ -142,6 +142,9 @@ try {
   let visit = null;
   for (let i = 0; i < 40 && !visit; i++) { const v = await api(tech)('visits', {}); visit = v.data && v.data[0]; if (!visit) await sleep(250); }
   ok(visit && visit.client_id === '1' && visit.technician_id, 'completed visit reached the server', visit);
+  const svcPdf = await sp.evaluate('({ saved: window.__pdf.saved.slice(), texts: window.__pdf.texts.slice() })');
+  ok(svcPdf.saved.some(f => /^Acme Foods - Visit report - \d{4}-\d\d-\d\d\.pdf$/.test(f)) && svcPdf.texts.some(t => /Acme Foods · Visit report/.test(t)) && svcPdf.texts.includes('STATION RECORDS'.toLowerCase()) === false && svcPdf.texts.includes('Station records'),
+    'Service App visit report is the shared (Client Portal) report', svcPdf.saved);
   // a photo uploaded by the app's queue
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   const up = await sp.evaluate(async b64 => {
@@ -184,6 +187,9 @@ try {
   await cp.goto(BASE + '/client.html#/site/1/overview'); await sleep(3000);
   const otext = await cp.textContent('body');
   ok(/Seal the gap/.test(otext), 'client sees the recommendation', otext.slice(0, 400));
+  const cliPdf = await cp.evaluate(`(async () => { const v = state.model.visits[0]; if (!v) return null; await downloadVisitPdf(v.id); return { saved: window.__pdf.saved.slice(), texts: window.__pdf.texts.slice() }; })()`);
+  ok(cliPdf && cliPdf.saved.some(f => /^Acme Foods - Visit report - \d{4}-\d\d-\d\d\.pdf$/.test(f)) && cliPdf.texts.includes('Station records') && cliPdf.texts.some(t => /Pesties Client Portal/.test(t)),
+    'Client Portal visit report: the same shared report', cliPdf && cliPdf.saved);
   await cp.screenshot({ path: SHOTS + '/portal.png' });
   ok(cp.errors.length === 0, 'Portal: no errors', cp.errors);
 

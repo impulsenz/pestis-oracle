@@ -468,6 +468,19 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r76', date: '2026-10-30', v: { svc: '2026.10.30-r76', adm: '2026.10.30-a20', cli: '2026.10.30-p36' },
+            svc: ['Visit report: the downloaded PDF is now exactly the same as the one customers download from the Client Portal, with the Pesties logo in the top right',
+                  'Floor plans: "Download pest map" makes one A4 page (PDF) with the plan filling the page, the same pins as on screen, the legend and the site details - the same as from the Client Portal. Station names are included when the Names switch is on'],
+            adm: ['Reports › Pests found: each pest with the stations it was recorded on (no more Share, Period before or Change columns), and filters for station and pest'],
+            cli: ['Visit reports: the PDF has the Pesties logo in the top right, and is the same as the one your technician downloads',
+                  'Visit reports: the Visits tab shows how many reports you haven\'t opened yet, and you can filter by the type of visit (routine service, call out and so on)',
+                  'Floor plans: the downloaded pest map looks just like the screen (the same pins), fills an A4 page, and includes station names only when "Station names" is ticked',
+                  'Floor plans: a "Station names" switch shows each station\'s name beside its pin',
+                  'Floor plans: the "Original image" and "Change logo" buttons are gone',
+                  'Critical limits: download the pest zoning register (every station in a critical limits area, and the breaches) for Excel or as a PDF',
+                  'Reports › Pests found: each pest with the stations it was recorded on, and filters for station and pest',
+                  'Recommendations: a video opens full screen when you tap it',
+                  'The number badges on the tabs are centred properly'] },
         { rev: 'r75', date: '2026-10-30', v: { svc: '2026.10.30-r75', adm: '2026.10.30-a19', cli: '2026.10.30-p35' },
             svc: ['Station types renamed: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring (on every station and past record too). Snap Trap is no longer in the list',
                   'Rodents at a toxic station: None, Low, Medium or High (how much bait was taken). At a non-toxic station: Caught, with the number caught',
@@ -695,7 +708,7 @@ const PR = (() => {
     // ---------- the reports ----------
     const REPORTS = [
         { id: 'trend', icon: '📈', title: 'Pest activity over time', blurb: 'Captures each month, one line per pest - or each year on top of the last to compare.', f: ['view', 'period', 'years', 'type', 'pest'] },
-        { id: 'pests', icon: '🐞', title: 'Pests found', blurb: 'Which pests, how many, and the change from the period before.', f: ['period', 'type'] },
+        { id: 'pests', icon: '🐞', title: 'Pests found', blurb: 'Which pests were found, how many, and the stations they were recorded on.', f: ['period', 'type', 'station', 'pest'] },
         { id: 'stations', icon: '📍', title: 'Busiest stations', blurb: 'The stations catching the most - where to focus.', f: ['period', 'type', 'pest'] },
         { id: 'station', icon: '🔎', title: 'One station', blurb: 'A single station: each pest (or its activity) month by month over the years, and every visit to it.', f: ['station', 'view', 'years', 'pest'] },
         { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'map', 'gap'] },
@@ -873,22 +886,25 @@ const PR = (() => {
                 csv: [head.map(h => h.t)].concat(ks.map((k, i) => [monthLong(k)].concat(series.map(x => x.vals[i]), [totals[i]])))
             };
         },
-        pests(d, s) {
-            const [a, b] = range(s), list = pick(d, s, x => x.species);
-            const prevS = Object.assign({}, s, { preset: 'custom', from: new Date(a - (b - a)).toISOString().slice(0, 10), to: new Date(a - DAY).toISOString().slice(0, 10) });
-            const prev = s.preset === 'all' ? [] : pick(d, prevS, x => x.species);
-            const tot = new Map(), ptot = new Map(), sts = new Map();
-            list.forEach(x => { tot.set(x.species, (tot.get(x.species) || 0) + x.count); const k = sts.get(x.species) || new Set(); k.add(x.barcode); sts.set(x.species, k); });
-            prev.forEach(x => ptot.set(x.species, (ptot.get(x.species) || 0) + x.count));
+        pests(d, s, opts) {
+            const list = pick(d, s, x => x.species && (!s.station || x.barcode === s.station) && (!s.pest || x.species === s.pest));
+            // each pest, and each station it was recorded on
+            const tot = new Map(), by = new Map();
+            list.forEach(x => {
+                tot.set(x.species, (tot.get(x.species) || 0) + x.count);
+                const k = x.species + '\u0000' + x.barcode, o = by.get(k) || { sp: x.species, st: x.stationObj, n: 0, times: 0, last: 0 };
+                o.n += x.count; o.times++; o.last = Math.max(o.last, x.at); by.set(k, o);
+            });
             const all = list.reduce((n, x) => n + x.count, 0);
-            const rows = Array.from(tot.entries()).sort((p, q) => q[1] - p[1]);
-            const chg = (now, before) => before ? `${now >= before ? '+' : ''}${Math.round((now - before) / before * 100)}%` : now ? 'new' : '';
-            const head = [{ t: 'Pest' }, { t: 'Captures', num: true }, { t: 'Share', num: true }, { t: 'Stations', num: true }, { t: 'Period before', num: true }, { t: 'Change', num: true }];
+            const pests = Array.from(tot.entries()).sort((p, q) => q[1] - p[1]);
+            const rank = new Map(pests.map(([sp], i) => [sp, i]));
+            const rows = Array.from(by.values()).sort((p, q) => rank.get(p.sp) - rank.get(q.sp) || q.n - p.n || p.st.name.localeCompare(q.st.name, undefined, { numeric: true }));
+            const head = [{ t: 'Pest' }, { t: 'Station' }, { t: 'Station type' }, { t: 'Floor plan' }, { t: 'Captures', num: true }, { t: 'Times recorded', num: true }, { t: 'Last found' }];
             return {
-                html: kpis([{ v: all, l: 'captures' }, { v: rows.length, l: 'different pests' }, { v: rows[0] ? rows[0][0] : '-', l: 'most common' }])
-                    + `<div class="pr-chart">${barChart(rows.map(([sp, n], i) => ({ l: sp, v: n, c: PALETTE[i % 8] })))}</div>`
-                    + table(head, rows.map(([sp, n]) => ({ cells: [e(sp), n, all ? Math.round(n / all * 100) + '%' : '', sts.get(sp).size, s.preset === 'all' ? '-' : (ptot.get(sp) || 0), s.preset === 'all' ? '' : chg(n, ptot.get(sp) || 0)] }))),
-                csv: [head.map(h => h.t)].concat(rows.map(([sp, n]) => [sp, n, all ? Math.round(n / all * 100) + '%' : '', sts.get(sp).size, ptot.get(sp) || 0, chg(n, ptot.get(sp) || 0)]))
+                html: kpis([{ v: all, l: 'captures' }, { v: pests.length, l: 'different pests' }, { v: new Set(list.map(x => x.barcode)).size, l: 'stations with pests' }, { v: pests[0] ? pests[0][0] : '-', l: 'most common' }])
+                    + `<div class="pr-chart">${barChart(pests.map(([sp, n], i) => ({ l: sp, v: n, c: PALETTE[i % 8] })))}</div>`
+                    + table(head, rows.map(o => ({ cells: [e(o.sp), stLink(opts, o.st), e(o.st.type || ''), e(o.st.map || ''), o.n, o.times, e(fmtD(o.last))] })), { empty: 'No pests recorded for this choice.' }),
+                csv: [head.map(h => h.t)].concat(rows.map(o => [o.sp, o.st.name, o.st.type || '', o.st.map || '', o.n, o.times, fmtD(o.last)]))
             };
         },
         stations(d, s, opts) {

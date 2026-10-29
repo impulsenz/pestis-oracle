@@ -1975,7 +1975,7 @@
                         <button type="button" onclick="openMapEdit('rename')" class="map-menu-item">Rename this plan</button>
                         <button type="button" onclick="openMapEdit('image')" class="map-menu-item">Replace with a picture</button>
                         <button type="button" onclick="markMapChecked()" class="map-menu-item">✓ Mark as checked (still correct)</button>
-                        <button type="button" onclick="exportMapImage()" class="map-menu-item">Download plan with pins</button>
+                        <button type="button" onclick="exportMapImage()" class="map-menu-item">Download pest map (A4 PDF)</button>
                         <button type="button" onclick="unpinAllOnMap()" class="map-menu-item">Unpin all stations (place them again)</button>
                         <button type="button" onclick="deleteCurrentMap()" class="map-menu-item" style="color:#ef4444;">Delete this plan</button>
                     </div>
@@ -2250,7 +2250,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r75-oci';
+        const APP_VERSION = '2026.10.30-r76-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -8890,222 +8890,28 @@
 
         // PROFESSIONAL PDF SERVICE REPORT GENERATOR
         // visit: { date, startedAt, endedAt, summaryNote, technician, servicesCompleted, visitType, entries[], inProgress }
+        // The visit report: the same PDF as the Client Portal's (PVR, shared), for a closed visit or the one in progress
         async function generatePDFReport(visit) {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF('p', 'mm', 'a4');
             const v = visit || {};
-            const when = new Date(v.date || Date.now());
-            const visitDateStr = when.toLocaleDateString(LOCALE, NZ_DATE);
-            const tm = iso => iso ? new Date(iso).toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' }) : '';
-            const dtm = iso => iso ? `${new Date(iso).toLocaleDateString(LOCALE, NZ_DATE)} ${tm(iso)}` : 'Not recorded';
-            const allEntries = (v.entries || []).slice().sort((a, b) => a.at - b.at);
-            const entries = allEntries.filter(e => !e.recOnly);
-            const pageBreak = (need) => { if (y > 287 - (need || 20)) { doc.addPage(); y = 20; } };
-            let y = 15;
-
-            // Header banner: navy with orange accent
-            doc.setFillColor(12, 23, 51);
-            doc.rect(0, 0, 210, 30, 'F');
-            doc.setFillColor(249, 115, 22);
-            doc.rect(0, 30, 210, 2, 'F');
-            doc.setTextColor(255, 255, 255);
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(18);
-            doc.text(v.inProgress ? 'SERVICE REPORT (IN PROGRESS)' : 'PEST CONTROL SERVICE REPORT', 14, 18);
-            doc.setFontSize(10);
-            doc.setFont('helvetica', 'normal');
-            doc.text(`Date: ${visitDateStr}`, 150, 14);
-            doc.text(v.inProgress ? 'Not yet submitted' : `Closed: ${tm(v.endedAt || v.date)}`, 150, 20);
-            doc.text(`Visit: ${visitTypeOf(v)}`, 150, 26);
-
-            y = 42;
-            const breaches = visitLimitBreaches(v);
-            if (breaches.length) {
-                const bl = breaches.map(x => doc.splitTextToSize(`${x.limit.name} - ${x.rule.species}: ${x.total} caught in ${monthName(x.month)}, limit ${x.rule.max} a month (${x.total - x.rule.max} over). Caught at: ${breachStations(x).map(b => `${b.name} (${b.n})`).join(', ')}`, 172));
-                const h = 10 + bl.reduce((n, l) => n + l.length * 5, 0);
-                doc.setFillColor(254, 226, 226);
-                doc.setDrawColor(220, 38, 38);
-                doc.rect(14, y - 5, 182, h, 'FD');
-                doc.setTextColor(185, 28, 28);
-                doc.setFont('helvetica', 'bold');
-                doc.setFontSize(11);
-                doc.text('CRITICAL LIMIT BREACH', 18, y);
-                doc.setFont('helvetica', 'normal');
-                doc.setFontSize(9.5);
-                let by = y + 6;
-                bl.forEach(l => { doc.text(l, 18, by); by += l.length * 5; });
-                y += h + 4;
-            }
-            doc.setTextColor(15, 23, 42);
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(12);
-            doc.text('Customer & Location Details', 14, y);
-            y += 6;
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(10);
-            const lines = [
-                `Client Name: ${selectedClient.Name}`,
-                `Address: ${selectedClient.Address || 'N/A'}`,
-                `Site Contact: ${selectedClient.Contact || 'N/A'} (${selectedClient.Email || 'No email'})`,
-                v.technician ? `Technician: ${v.technician}` : '',
-                `Signed in: ${dtm(v.startedAt || (entries[0] && new Date(entries[0].at).toISOString()))}    Signed out: ${v.inProgress ? 'In progress' : dtm(v.endedAt || v.date)}`
-            ].filter(Boolean);
-            lines.forEach(l => { doc.text(doc.splitTextToSize(l, 182), 14, y); y += 6; });
-            if ((v.servicesCompleted || []).length) {
-                const svcLines = doc.splitTextToSize(`Services Performed: ${v.servicesCompleted.join(', ')}`, 182);
-                doc.text(svcLines, 14, y);
-                y += svcLines.length * 6;
-            }
-
-            y += 4;
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(12);
-            doc.text('Overall Visit Summary & Service Notes', 14, y);
-            y += 6;
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(10);
-            const splitSummary = doc.splitTextToSize(v.summaryNote || 'No notes provided', 182);
-            doc.text(splitSummary, 14, y);
-            y += (splitSummary.length * 6) + 6;
-
-            // Preparations used on this visit, with totals and batch numbers
-            const preps = new Map();
-            entries.forEach(e => {
-                if (!e.prep || e.prep === NONE_PREP) return;
-                const k = e.prep + '|' + (e.unit || 'each');
-                const p = preps.get(k) || { name: e.prep, unit: e.unit || 'each', qty: 0, stations: 0, batches: new Set() };
-                if (!isNaN(parseFloat(e.qty))) p.qty += parseFloat(e.qty);
-                p.stations++;
-                if (e.batch) p.batches.add(e.batch);
-                preps.set(k, p);
+            const entries = (v.entries || []).filter(e => !e.recOnly).sort((a, b) => a.at - b.at);
+            const raised = new Set((v.entries || []).filter(e => e.recommendation).map(e => (e.payload && (e.payload.recRef || e.payload.clientRef)) || ''));
+            const recs = allSiteRecs().filter(r => raised.has(r.id)).sort((a, b) => new Date(a.date) - new Date(b.date));
+            let signature = null;
+            if (v.signedBy) { try { const u = await visitSignatureUrl(v); if (u) signature = await getBase64ImageFromUrl(u); } catch (e) { signature = null; } }
+            await PVR.build({
+                siteName: selectedClient.Name, address: selectedClient.Address || '', completed: v.endedAt || v.date || Date.now(), type: visitTypeOf(v), tech: v.technician || '',
+                start: v.startedAt || (entries[0] && entries[0].at) || null, end: v.inProgress ? null : (v.endedAt || v.date), inProgress: !!v.inProgress,
+                stationsChecked: new Set(entries.map(e => e.barcode)).size, services: v.servicesCompleted || [], notes: v.summaryNote || '',
+                breaches: visitLimitBreaches(v).map(x => `${x.limit.name} · ${x.rule.species}: ${x.total} recorded in ${monthName(x.month)}, limit ${x.rule.max} a month (${x.total - x.rule.max} over). Caught at: ${breachStations(x).map(b => `${b.name} (${b.n})`).join(', ')}`),
+                entries: entries.map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity,
+                    pests: e.species && e.species !== NONE_SPECIES ? `${e.species}${e.count ? ' x' + e.count : ''}` : '',
+                    prep: e.prep && e.prep !== NONE_PREP ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '', notes: e.notes || '' })),
+                recs: recs.map(r => ({ no: fmtRecNo(r.recNo), status: (REC_STATUS[r.status] || REC_STATUS.open).label, raised: r.date, station: r.station, barcode: r.general ? '' : r.barcode,
+                    text: `${r.category ? '[' + r.category + '] ' : ''}${r.recommendation}${r.details ? ' - ' + r.details : ''}`, closed: r.status === 'complete' ? r.completedAt : null,
+                    note: ((r.updates || []).filter(u => u.note).slice(-1)[0] || {}).note || '' })),
+                signedBy: v.signedBy || '', signedAt: v.signedAt || null, noSignatureReason: v.noSignatureReason || '', signature,
+                by: technicianLabel(), app: 'Service App'
             });
-            pageBreak(20);
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(12);
-            doc.text('Preparations & Chemicals Used', 14, y);
-            y += 6;
-            doc.setFont('helvetica', 'normal');
-            doc.setFontSize(10);
-            if (!preps.size) { doc.text('None recorded.', 14, y); y += 8; }
-            else {
-                preps.forEach(p => {
-                    pageBreak(8);
-                    const l = doc.splitTextToSize(`- ${p.name}: ${fmtQty(p.qty, p.unit) || '-'} across ${p.stations} station${p.stations === 1 ? '' : 's'}${p.batches.size ? '  (batch ' + Array.from(p.batches).join(', ') + ')' : ''}`, 182);
-                    doc.text(l, 14, y);
-                    y += l.length * 6;
-                });
-                y += 3;
-            }
-
-            pageBreak(20);
-            doc.setFont('helvetica', 'bold');
-            doc.setFontSize(12);
-            doc.text(`Stations Serviced (${new Set(entries.map(e => e.barcode)).size} of ${siteDevices.length})`, 14, y);
-            y += 8;
-            if (!entries.length) { doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.text('No stations recorded on this visit.', 14, y); y += 8; }
-            for (const e of entries) {
-                const notes = doc.splitTextToSize(`Notes: ${e.notes || 'None recorded'}`, 174);
-                const boxH = 18 + notes.length * 5;
-                pageBreak(boxH + 4);
-                doc.setFillColor(241, 245, 249);
-                doc.rect(14, y - 4, 182, boxH, 'F');
-                doc.setTextColor(15, 23, 42);
-                doc.setFont('helvetica', 'bold');
-                doc.setFontSize(10);
-                doc.text(doc.splitTextToSize(`${e.name} (${e.type})`, 118)[0], 18, y + 1);
-                doc.setFont('helvetica', 'normal');
-                doc.setFontSize(9);
-                doc.text(`Barcode: ${e.barcode}  ·  ${tm(new Date(e.at).toISOString())}`, 138, y + 1);
-                y += 6;
-                const sp = e.species && e.species !== NONE_SPECIES ? `${e.species}${e.count ? ' x' + e.count : ''}` : 'None';
-                const pr = e.prep && e.prep !== NONE_PREP ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' (batch ' + e.batch + ')' : ''}` : 'None';
-                doc.text(doc.splitTextToSize(`Activity: ${activityLabel(e.activity)}  |  Species: ${sp}  |  Prep: ${pr}`, 174), 18, y + 1);
-                y += 6;
-                doc.text(notes, 18, y + 1);
-                y += notes.length * 5 + 8;
-            }
-
-            // Recommendations: those raised on this visit, plus everything still open at the site
-            const raised = new Set(allEntries.filter(e => e.recommendation).map(e => (e.payload && (e.payload.recRef || e.payload.clientRef)) || ''));
-            const recs = allSiteRecs().filter(r => raised.has(r.id) || r.status !== 'complete')
-                .sort((a, b) => (raised.has(b.id) - raised.has(a.id)) || (new Date(a.date) - new Date(b.date)));
-            if (recs.length) {
-                pageBreak(30);
-                doc.setFont('helvetica', 'bold');
-                doc.setFontSize(12);
-                doc.text('Recommendations & Corrective Actions', 14, y);
-                y += 8;
-                for (const item of recs) {
-                    pageBreak(24);
-                    doc.setFont('helvetica', 'bold');
-                    doc.setFontSize(9);
-                    const stLabel = (REC_STATUS[item.status] || REC_STATUS.open).label;
-                    const age = recAgeDays(item);
-                    doc.text(`${fmtRecNo(item.recNo) || 'Recommendation'}  -  ${item.station}  -  ${stLabel}${item.status !== 'complete' && age != null ? ' (open ' + age + ' days)' : ''}${raised.has(item.id) ? '  -  raised this visit' : ''}`, 14, y);
-                    y += 5;
-                    doc.setFont('helvetica', 'normal');
-                    const splitRec = doc.splitTextToSize(`${item.category ? '[' + item.category + '] ' : ''}${item.recommendation}${item.details ? ' - ' + item.details : ''}`, 182);
-                    doc.text(splitRec, 14, y);
-                    y += (splitRec.length * 5) + 2;
-                    for (const u of (item.updates || []).filter(u => u.note)) {
-                        pageBreak(10);
-                        const line = doc.splitTextToSize(`${new Date(u.at).toLocaleDateString(LOCALE, NZ_DATE)} ${u.by ? '(' + u.by + ')' : ''}: ${u.note}`, 176);
-                        doc.text(line, 18, y);
-                        y += line.length * 5;
-                    }
-                    y += 1;
-                    // Photos in rows of four (streamed from storage for the report only)
-                    const imgs = [];
-                    const remote = (item.allSlots || []).filter(sl => !sl.local && !isVideoPath(sl.path)).map(sl => sl.path);
-                    const links = remote.length && isOnline ? await getSignedUrls(remote) : new Map();
-                    const vidCount = (item.allSlots || []).filter(sl => isVideoPath(sl.path)).length;
-                    const reportUrls = (item.allSlots || []).filter(sl => !isVideoPath(sl.path)).map(sl => sl.local || links.get(sl.path)).filter(Boolean).slice(0, 8);
-                    if (vidCount) {
-                        pageBreak(6);
-                        doc.setFont('helvetica', 'italic');
-                        doc.text(`${vidCount} video${vidCount === 1 ? '' : 's'} recorded - view in the Pestis app.`, 14, y);
-                        doc.setFont('helvetica', 'normal');
-                        y += 5;
-                    }
-                    for (const url of reportUrls) {
-                        try { const b64 = await getBase64ImageFromUrl(url); if (b64) imgs.push(b64); } catch (err) { console.warn('Could not embed image in PDF:', err); }
-                    }
-                    for (let i = 0; i < imgs.length; i += 4) {
-                        pageBreak(48);
-                        imgs.slice(i, i + 4).forEach((b64, j) => {
-                            const fmt = b64.startsWith('data:image/png') ? 'PNG' : 'JPEG';
-                            try { doc.addImage(b64, fmt, 14 + j * 46, y, 42, 42); } catch (e) { console.warn('PDF image skipped', e); }
-                        });
-                        y += 46;
-                    }
-                    y += 5;
-                }
-            }
-
-            // Customer sign-off
-            if (v.signedBy || v.noSignatureReason) {
-                pageBreak(44);
-                y += 4;
-                doc.setTextColor(15, 23, 42);
-                doc.setFont('helvetica', 'bold');
-                doc.setFontSize(12);
-                doc.text('Customer Sign-off', 14, y);
-                y += 6;
-                doc.setFont('helvetica', 'normal');
-                doc.setFontSize(10);
-                if (v.signedBy) {
-                    let sig = null;
-                    try { const u = await visitSignatureUrl(v); if (u) sig = await getBase64ImageFromUrl(u); } catch (e) { sig = null; }
-                    if (sig) { try { doc.addImage(sig, 'PNG', 14, y, 70, 24); } catch (e) { console.warn('Signature skipped', e); } y += 27; }
-                    doc.text(`Signed by ${v.signedBy}${v.signedAt ? ' - ' + dtm(v.signedAt) : ''}`, 14, y);
-                    y += 6;
-                } else {
-                    doc.text(doc.splitTextToSize(`Not signed by the customer: ${v.noSignatureReason}`, 182), 14, y);
-                    y += 6;
-                }
-            }
-
-            doc.save(`Service_Report_${String(selectedClient.Name || 'Site').replace(/\s+/g, '_')}_${visitDateStr.replace(/\//g, '-')}.pdf`);
         }
 
         function downloadVisitReport(index) {
@@ -11850,44 +11656,22 @@
             });
         }
 
-        // Saves the plan with its pins as an image
+        // the Pest map: one A4 page, the same as from the Client Portal (PVR, shared); station names follow the Names switch
         async function exportMapImage() {
             document.getElementById('mapMenu').classList.add('hidden');
             const m = currentMap();
             const src = document.getElementById('mapImage').src;
             if (!m || !src || !mapView.w) { alert('Open a floor plan first.'); return; }
             try {
-                const img = await new Promise((res, rej) => { const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => res(i); i.onerror = rej; i.src = src; });
-                const W = img.naturalWidth, H = img.naturalHeight;
-                const c = document.createElement('canvas');
-                c.width = W; c.height = H;
-                const g = c.getContext('2d');
-                g.drawImage(img, 0, 0);
-                const r = Math.max(9, Math.round(Math.min(W, H) / 70));
-                g.font = `bold ${Math.round(r * 1.1)}px system-ui, sans-serif`;
-                g.textAlign = 'center';
-                pinsOn(m.id).filter(([, p]) => p.x != null).forEach(([b, p]) => {
+                const img = await new Promise((res, rej) => { const i = new Image(); i.crossOrigin = 'anonymous'; i.onload = () => res(i); i.onerror = () => rej(new Error('the plan picture could not be loaded')); i.src = src; });
+                const pins = pinsOn(m.id).filter(([, p]) => p.x != null).map(([b, p]) => {
                     const st = mapStations().find(x => x.barcode === b);
-                    if (!st) return;
-                    const x = p.x * W, y = p.y * H;
-                    g.beginPath(); g.arc(x, y - r, r, 0, Math.PI * 2);
-                    g.fillStyle = stationColor(st.type).color; g.fill();
-                    g.lineWidth = Math.max(2, r / 4); g.strokeStyle = '#fff'; g.stroke();
-                    const label = st.name;
-                    const tw = g.measureText(label).width + r;
-                    g.fillStyle = 'rgba(2,6,23,.82)';
-                    g.fillRect(x - tw / 2, y + r * 0.4, tw, r * 1.7);
-                    g.fillStyle = '#fff';
-                    g.fillText(label, x, y + r * 1.75);
-                });
-                const blob = await new Promise(res => c.toBlob(res, 'image/png'));
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `${String(selectedClient.Name || 'site').replace(/\s+/g, '_')}_${m.name.replace(/\s+/g, '_')}_plan.png`;
-                document.body.appendChild(a); a.click();
-                setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+                    return st ? { x: p.x, y: p.y, name: st.name, type: st.type, color: stationColor(st.type).color, overdue: false } : null;
+                }).filter(Boolean);
+                await PVR.pestMap({ image: img, pins, labels: document.getElementById('mapShowLabels').checked, siteName: selectedClient.Name, address: selectedClient.Address || '',
+                    planName: m.name, madeBy: m.createdBy || m.created_by || '', created: m.createdAt || m.created_at, updated: m.editedAt || m.updated_at, by: technicianLabel(), app: 'Service App' });
             } catch (err) {
-                alert("The plan image couldn't be saved from this browser (" + (err && err.message ? err.message : 'image blocked') + ').');
+                alert("The pest map couldn't be made (" + (err && err.message ? err.message : 'picture blocked') + ').');
             }
         }
 
@@ -14935,6 +14719,19 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r76', date: '2026-10-30', v: { svc: '2026.10.30-r76', adm: '2026.10.30-a20', cli: '2026.10.30-p36' },
+            svc: ['Visit report: the downloaded PDF is now exactly the same as the one customers download from the Client Portal, with the Pesties logo in the top right',
+                  'Floor plans: "Download pest map" makes one A4 page (PDF) with the plan filling the page, the same pins as on screen, the legend and the site details - the same as from the Client Portal. Station names are included when the Names switch is on'],
+            adm: ['Reports › Pests found: each pest with the stations it was recorded on (no more Share, Period before or Change columns), and filters for station and pest'],
+            cli: ['Visit reports: the PDF has the Pesties logo in the top right, and is the same as the one your technician downloads',
+                  'Visit reports: the Visits tab shows how many reports you haven\'t opened yet, and you can filter by the type of visit (routine service, call out and so on)',
+                  'Floor plans: the downloaded pest map looks just like the screen (the same pins), fills an A4 page, and includes station names only when "Station names" is ticked',
+                  'Floor plans: a "Station names" switch shows each station\'s name beside its pin',
+                  'Floor plans: the "Original image" and "Change logo" buttons are gone',
+                  'Critical limits: download the pest zoning register (every station in a critical limits area, and the breaches) for Excel or as a PDF',
+                  'Reports › Pests found: each pest with the stations it was recorded on, and filters for station and pest',
+                  'Recommendations: a video opens full screen when you tap it',
+                  'The number badges on the tabs are centred properly'] },
         { rev: 'r75', date: '2026-10-30', v: { svc: '2026.10.30-r75', adm: '2026.10.30-a19', cli: '2026.10.30-p35' },
             svc: ['Station types renamed: External / Internal Non-Toxic Rodent Station, Crawling Insect Monitoring and Flying Insect Monitoring (on every station and past record too). Snap Trap is no longer in the list',
                   'Rodents at a toxic station: None, Low, Medium or High (how much bait was taken). At a non-toxic station: Caught, with the number caught',
@@ -15082,6 +14879,230 @@ const WN = (() => {
     return { LOG, html, unseen, markSeen, badges, latest: app => forApp(app)[0] };
 })();
 /* PESTIS-CHANGELOG:END */
+</script>
+<script id="pestisVisitPdf">
+/* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
+// Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
+//   { siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
+//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, pests, prep, notes }],
+//     recs: [{ no, status, raised, station, barcode, text, closed, note }],
+//     signedBy, signedAt, noSignatureReason, signature (picture data URL or null), by (who downloaded it), app ('Service App' | 'Client Portal') }
+// Times are milliseconds (or ISO text); text is already worded for the customer.
+const PVR = (() => {
+    const t = v => v == null || v === '' ? null : typeof v === 'number' ? v : Date.parse(v);
+    const day = v => { const x = t(v); return x ? new Date(x).toLocaleDateString('en-NZ', { day: 'numeric', month: 'short', year: 'numeric' }) : ''; };
+    const time = v => { const x = t(v); return x ? new Date(x).toLocaleTimeString('en-NZ', { hour: 'numeric', minute: '2-digit' }) : '-'; };
+    const dayTime = v => { const x = t(v); return x ? `${day(x)} ${time(x)}` : ''; };
+    const dur = (a, b) => { const ms = t(b) - t(a); if (!t(a) || !t(b) || !(ms > 0)) return '-'; const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
+    const safe = s => String(s || 'Site').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const ENTRY_COLS = [['Station', 34], ['Barcode', 18], ['Type', 30], ['Activity', 16], ['Pests', 24], ['Preparation', 50], ['Notes', 50]];
+    const REC_COLS = [['No.', 16], ['Status', 18], ['Raised', 20], ['Station', 30], ['Barcode', 18], ['Recommendation', 70], ['Closed', 20], ['Latest note', 50]];
+
+    // the Pesties logo, made small enough for a PDF (loaded once)
+    let logoP = null;
+    function logo() {
+        if (!logoP) logoP = new Promise(res => {
+            const img = new Image();
+            img.onload = () => {
+                try {
+                    const h = 300, w = Math.round(img.naturalWidth / img.naturalHeight * h), c = document.createElement('canvas');
+                    c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h);
+                    res({ url: c.toDataURL('image/png'), k: w / h, img: c });
+                } catch (e) { res(null); }
+            };
+            img.onerror = () => res(null);
+            img.src = 'images/pesties-logo.png';
+        });
+        return logoP;
+    }
+
+    // ---------- the Pest map: a floor plan with its stations, on one A4 page (the same from every app) ----------
+    // a station pin: the same teardrop as on screen, its point on the spot
+    function pin(g, x, y, r, color, overdue) {
+        const cy = y - r * Math.SQRT2, a = Math.PI / 4;
+        g.save();
+        g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = r * .6; g.shadowOffsetY = r * .25;
+        g.beginPath(); g.moveTo(x, y); g.arc(x, cy, r, Math.PI / 2 + a, Math.PI / 2 - a + 2 * Math.PI); g.closePath();
+        g.fillStyle = color; g.fill();
+        g.restore();
+        g.beginPath(); g.moveTo(x, y); g.arc(x, cy, r, Math.PI / 2 + a, Math.PI / 2 - a + 2 * Math.PI); g.closePath();
+        g.lineWidth = Math.max(2, r * .2); g.strokeStyle = '#fff'; g.stroke();
+        if (overdue) { g.beginPath(); g.arc(x, cy, r * 1.45, 0, Math.PI * 2); g.lineWidth = Math.max(2, r * .28); g.strokeStyle = '#dc2626'; g.stroke(); }
+    }
+    // d = { image (an <img> or canvas of the plan), pins: [{ x, y (shares of the plan), name, type, color, overdue }], labels,
+    //       siteName, address, planName, madeBy, created, updated, by, app }
+    async function pestMap(d) {
+        const { jsPDF } = window.jspdf;
+        const iw = d.image.naturalWidth || d.image.width, ih = d.image.naturalHeight || d.image.height;
+        const land = iw >= ih;
+        const W = land ? 3508 : 2480, H = land ? 2480 : 3508;   // A4 at 300 dpi
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const g = c.getContext('2d');
+        const pad = 90, headH = 260, footH = 60;
+        const types = Array.from(d.pins.reduce((m, x) => m.set(x.type, { n: ((m.get(x.type) || {}).n || 0) + 1, color: x.color }), new Map()).entries())
+            .sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]));
+        const overdue = d.pins.filter(x => x.overdue).length;
+        const legItems = types.map(([t, o]) => ({ t, n: o.n, color: o.color })).concat(overdue ? [{ t: 'Overdue for service', n: overdue, ring: true }] : []);
+        const details = [['Client', d.siteName || '-'], ['Site address', d.address || '-'], ['Floor plan', d.planName || '-'], ['Stations on this plan', String(d.pins.length)],
+            ['Map made by', d.madeBy || 'Pesties'], ['Last updated', day(d.updated || d.created) || '-'], ['Generated', `${day(Date.now())}${d.by ? ' by ' + d.by : ''}`]];
+        const legCols = land ? 2 : 1, legRows = Math.max(1, Math.ceil(legItems.length / legCols));   // room for the long station type names
+        const legH = Math.max(130 + legRows * 70, 130 + Math.ceil(details.length / (land ? 4 : 2)) * 92);
+        const font = (w, px) => `${w} ${px}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif`;
+        const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
+        const fit = (t, max) => { t = String(t); if (g.measureText(t).width <= max) return t; while (t.length > 1 && g.measureText(t + '…').width > max) t = t.slice(0, -1); return t + '…'; };
+        g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+        // header: the site, the plan, and the Pesties logo in the top right
+        g.fillStyle = '#0b1530'; g.fillRect(0, 0, W, headH);
+        g.fillStyle = '#f97316'; g.fillRect(0, headH - 14, W, 14);
+        const lg = await logo();
+        let logoW = 0;
+        if (lg) { const lh = headH * .62, lw = lh * lg.k; logoW = lw + 60; g.drawImage(lg.img, W - pad - lw, (headH - 14 - lh) / 2, lw, lh); }
+        g.textBaseline = 'alphabetic';
+        g.fillStyle = '#f97316'; g.font = font(800, 38); g.fillText('PEST MAP', pad, 84);
+        g.fillStyle = '#ffffff'; g.font = font(900, 76); g.fillText(fit(d.siteName || 'Site', W - pad * 2 - logoW), pad, 168);
+        g.fillStyle = '#9db0d1'; g.font = font(600, 36); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - pad * 2 - logoW), pad, 222);
+        // the plan, as big as the page allows
+        const top = headH + pad * .6, boxH = H - top - legH - pad * 1.2 - footH, boxW = W - pad * 2;
+        const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = pad + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
+        g.save(); g.shadowColor = 'rgba(15,23,42,.18)'; g.shadowBlur = 30; g.fillStyle = '#fff'; g.fillRect(mx, my, mw, mh); g.restore();
+        g.drawImage(d.image, mx, my, mw, mh);
+        g.strokeStyle = '#d8deeb'; g.lineWidth = 3; g.strokeRect(mx, my, mw, mh);
+        const r = Math.max(14, Math.min(34, Math.min(mw, mh) / 55));
+        const labelFont = font(700, Math.round(r * 1.15));
+        d.pins.forEach(x => pin(g, mx + x.x * mw, my + x.y * mh, r, x.color, x.overdue));
+        if (d.labels) {
+            g.font = labelFont; g.textBaseline = 'middle';
+            d.pins.forEach(x => {
+                const px = mx + x.x * mw + r * 1.3, py = my + x.y * mh - r * Math.SQRT2, tw = g.measureText(x.name).width;
+                g.fillStyle = 'rgba(2,6,23,.82)'; rr(px, py - r * .85, tw + r * 1.1, r * 1.7, r * .4); g.fill();
+                g.fillStyle = '#fff'; g.fillText(x.name, px + r * .55, py);
+            });
+            g.textBaseline = 'alphabetic';
+        }
+        // legend and map details
+        const ly = H - legH - footH - pad * .6, splitX = pad + boxW * (land ? .42 : .5);
+        g.fillStyle = '#f8fafc'; rr(pad, ly, boxW, legH, 24); g.fill(); g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; rr(pad, ly, boxW, legH, 24); g.stroke();
+        g.fillStyle = '#f97316'; g.font = font(800, 30); g.fillText('LEGEND', pad + 50, ly + 68); g.fillText('MAP DETAILS', splitX + 50, ly + 68);
+        g.strokeStyle = '#e2e8f0'; g.beginPath(); g.moveTo(splitX, ly + 36); g.lineTo(splitX, ly + legH - 36); g.stroke();
+        const lcW = (splitX - pad - 80) / legCols;
+        legItems.forEach((it, i) => {
+            const x = pad + 50 + (i % legCols) * lcW, y = ly + 136 + Math.floor(i / legCols) * 70;
+            if (it.ring) { g.beginPath(); g.arc(x + 18, y - 12, 18, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 6; g.stroke(); }
+            else pin(g, x + 18, y + 8, 16, it.color, false);
+            g.fillStyle = '#0b1530'; g.font = font(700, 30); g.fillText(fit(it.t, lcW - 130), x + 52, y);
+            g.fillStyle = '#64748b'; g.font = font(800, 30); g.textAlign = 'right'; g.fillText(String(it.n), x + lcW - 30, y); g.textAlign = 'left';
+        });
+        if (!legItems.length) { g.fillStyle = '#64748b'; g.font = font(600, 30); g.fillText('No stations placed on this plan yet.', pad + 50, ly + 136); }
+        const dCols = land ? 4 : 2, dW = (pad + boxW - splitX - 100) / dCols;
+        details.forEach(([key, val], i) => {
+            const x = splitX + 50 + (i % dCols) * dW, y = ly + 128 + Math.floor(i / dCols) * 92;
+            g.fillStyle = '#64748b'; g.font = font(800, 22); g.fillText(key.toUpperCase(), x, y);
+            g.fillStyle = '#0b1530'; g.font = font(700, 31); g.fillText(fit(val, dW - 24), x, y + 40);
+        });
+        g.fillStyle = '#94a3b8'; g.font = font(600, 24); g.fillText(`Generated from the Pesties ${d.app || ''} · ${dayTime(Date.now())}`.replace('  ', ' '), pad, H - 40);
+        // one A4 page, filled edge to edge
+        const doc = new jsPDF({ orientation: land ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
+        doc.addImage(c.toDataURL('image/jpeg', .9), 'JPEG', 0, 0, doc.internal.pageSize.getWidth(), doc.internal.pageSize.getHeight());
+        doc.save(`${safe(d.siteName)} - ${safe(d.planName)} - Pest map.pdf`);
+        return c;
+    }
+
+    async function build(v) {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+        const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 12;
+        const lg = await logo();
+        let y = 0;
+        const title = v.inProgress ? 'Visit report (in progress)' : 'Visit report';
+        const sub = `${day(v.completed)} · ${v.type || 'Visit'}${v.tech ? ' · ' + v.tech : ''}`;
+        const header = () => {
+            doc.setFillColor(15, 23, 42); doc.rect(0, 0, W, 18, 'F');
+            doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
+            doc.text(`${v.siteName || 'Site'} · ${title}`, M, 11.5);
+            // the Pesties logo in the top right corner (the name if it can't be loaded)
+            if (lg) { const h = 13, w = h * lg.k; try { doc.addImage(lg.url, 'PNG', W - M - w, 2.5, w, h); } catch (e) {} }
+            else { doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.text('Pesties', W - M, 11.5, { align: 'right' }); }
+            doc.setTextColor(71, 85, 105); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+            doc.text(sub + (v.address ? ' · ' + v.address : ''), M, 24);
+            y = 30;
+        };
+        const newPage = () => { doc.addPage(); header(); };
+        const room = h => { if (y + h > H - 12) newPage(); };
+        const heading = s => { room(14); doc.setTextColor(15, 23, 42); doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.text(s, M, y); y += 6; };
+        const para = s => { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(51, 65, 85); doc.splitTextToSize(String(s), W - 2 * M).forEach(line => { room(5); doc.text(line, M, y); y += 4.4; }); y += 2; };
+        const facts = pairs => {
+            const colW = (W - 2 * M) / pairs.length;
+            room(16);
+            pairs.forEach(([k, val], i) => {
+                const x0 = M + i * colW;
+                doc.setFillColor(241, 245, 249); doc.roundedRect(x0, y, colW - 3, 14, 2, 2, 'F');
+                doc.setTextColor(100, 116, 139); doc.setFont('helvetica', 'bold'); doc.setFontSize(6.5); doc.text(String(k).toUpperCase(), x0 + 3, y + 4.5);
+                doc.setTextColor(15, 23, 42); doc.setFontSize(11); doc.text(String(val), x0 + 3, y + 11);
+            });
+            y += 19;
+        };
+        const table = (cols, rows) => {
+            const total = cols.reduce((a, c) => a + c[1], 0), scale = (W - 2 * M) / total, widths = cols.map(c => c[1] * scale);
+            const head = () => {
+                doc.setFillColor(226, 232, 240); doc.rect(M, y, W - 2 * M, 7, 'F');
+                doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(51, 65, 85);
+                let x0 = M; cols.forEach((c, i) => { doc.text(String(c[0]).toUpperCase(), x0 + 1.5, y + 4.7); x0 += widths[i]; });
+                y += 7;
+            };
+            room(14); head();
+            if (!rows.length) { doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(100, 116, 139); doc.text('Nothing recorded.', M + 1.5, y + 5); y += 9; return; }
+            rows.forEach((r, ri) => {
+                doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+                const cells = r.map((val, i) => doc.splitTextToSize(String(val == null ? '' : val), widths[i] - 3));
+                const h = Math.max(...cells.map(c => c.length)) * 3.4 + 2.6;
+                if (y + h > H - 12) { newPage(); head(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
+                if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
+                doc.setTextColor(15, 23, 42);
+                let x0 = M; cells.forEach((c, i) => { doc.text(c, x0 + 1.5, y + 3.9); x0 += widths[i]; });
+                y += h;
+            });
+            y += 5;
+        };
+        const alert = lines => {
+            const wrapped = lines.map(l => doc.splitTextToSize(l, W - 2 * M - 8));
+            const n = wrapped.reduce((a, l) => a + l.length, 0);
+            room(10 + n * 5);
+            doc.setFillColor(254, 226, 226); doc.setDrawColor(239, 68, 68); doc.roundedRect(M, y, W - 2 * M, 8 + n * 5, 2, 2, 'FD');
+            doc.setTextColor(153, 27, 27); doc.setFontSize(9);
+            let ly = y + 6;
+            wrapped.forEach((l, i) => { doc.setFont('helvetica', i ? 'normal' : 'bold'); doc.text(l, M + 4, ly); ly += l.length * 5; });
+            y += 12 + n * 5;
+        };
+
+        header();
+        if ((v.breaches || []).length) alert(['CRITICAL LIMIT BREACH'].concat(v.breaches));
+        facts([['Arrived', v.start ? time(v.start) : '-'], ['Left', v.inProgress ? 'In progress' : time(v.end || v.completed)],
+            ['Time on site', v.inProgress ? '-' : dur(v.start, v.end || v.completed)], ['Stations checked', v.stationsChecked != null ? v.stationsChecked : new Set((v.entries || []).map(e => e.barcode)).size]]);
+        if ((v.services || []).length) para('Services completed: ' + v.services.join(', '));
+        heading("Technician's notes"); para(v.notes || 'No notes provided');
+        heading('Station records');
+        table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']));
+        if ((v.recs || []).length) {
+            heading('Recommendations raised');
+            table(REC_COLS, v.recs.map(r => [r.no || '', r.status || '', day(r.raised), r.station || '', r.barcode || '', r.text || '', r.closed ? day(r.closed) : '', r.note || '']));
+        }
+        if (v.signedBy || v.noSignatureReason) {
+            heading('Customer sign-off');
+            if (v.signedBy && v.signature) { room(30); try { doc.addImage(v.signature, v.signature.startsWith('data:image/png') ? 'PNG' : 'JPEG', M, y, 70, 24); y += 27; } catch (e) {} }
+            para(v.signedBy ? `Signed by ${v.signedBy}${v.signedAt ? ' on ' + dayTime(v.signedAt) : ''}` : `Not signed: ${v.noSignatureReason}`);
+        }
+        const n = doc.getNumberOfPages();
+        for (let i = 1; i <= n; i++) {
+            doc.setPage(i); doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(148, 163, 184);
+            doc.text(`Generated ${dayTime(Date.now())}${v.by ? ' by ' + v.by : ''} · Pesties ${v.app || ''}`.trim(), M, H - 6);
+            doc.text(`Page ${i} of ${n}`, W - M, H - 6, { align: 'right' });
+        }
+        const d = t(v.completed) ? new Date(t(v.completed)) : new Date();
+        doc.save(`${safe(v.siteName)} - Visit report - ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.pdf`);
+    }
+    return { build, logo, pestMap, pin };
+})();
+/* PESTIS-VISITPDF:END */
 </script>
 </body>
 </html>
