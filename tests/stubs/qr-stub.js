@@ -1,0 +1,1 @@
+window.Html5Qrcode=function(){this.start=function(cfg,opts,ok){window.__qrSuccess=ok;return Promise.resolve()};this.stop=function(){window.__qrSuccess=null;return Promise.resolve()};this.applyVideoConstraints=function(){return Promise.reject(new Error('no torch'))}};

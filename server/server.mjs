@@ -1146,9 +1146,9 @@ function serveStatic(req, res, pathname) {
   try { p = decodeURIComponent(pathname); } catch { return send(res, 400, 'Bad path', 'text/plain'); }
   if (p === '/' || p === '') p = '/index.html';
   if (p === '/admin' || p === '/client' || p === '/portal') p = p === '/admin' ? '/admin.html' : '/client.html';
-  // only the apps and their pictures are public: never the server, tools or settings
+  // only the apps (top-level files) and their pictures are public: never the server, sources, tools or tests
   const parts = p.split('/').filter(Boolean);
-  if (!parts.length || parts.some(x => x.startsWith('.')) || ['server', 'tools', 'node_modules', 'setup'].includes(parts[0]) || !MIME[path.extname(p).toLowerCase()])
+  if (!parts.length || parts.some(x => x.startsWith('.')) || (parts.length > 1 && parts[0] !== 'images') || !MIME[path.extname(p).toLowerCase()])
     return send(res, 404, 'Not found', 'text/plain');
   const file = path.resolve(PUBLIC_DIR, '.' + p);
   if (!file.startsWith(PUBLIC_DIR + path.sep)) return send(res, 403, 'Forbidden', 'text/plain');

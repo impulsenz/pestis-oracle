@@ -20,7 +20,11 @@ browser ──HTTPS──► Caddy (certificates) ──► Pestis server (Node.
 | `server/mail.mjs` | Sends the Client Portal's emailed sign-in links |
 | `server/callback.html` | Finishes signing in after Google (or an emailed link) |
 | `server/setup-pestis-server.sh` | Installs or updates everything on an Oracle Cloud server |
-| `tools/make_server_copy.py` | Makes these app copies from the original Pestis apps |
+| `src/` | Admin's own code (`admin_src.html`) and the code shared between the apps (reports, What's new) |
+| `tools/build.sh` | Rebuilds `admin.html` and the shared parts after a change |
+| `tests/` | Tests: the server and its rules, the three apps in a browser, and offline (`tests/run.sh`) |
+| `CLAUDE.md` | How changes are made, tested and released (read by Claude Code) |
+| `tools/make_server_copy.py` | The one-time conversion from the Supabase apps (not used any more) |
 
 ## What the server does
 

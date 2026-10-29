@@ -1,0 +1,1 @@
+window.__pdf={texts:[],saved:[]};window.jspdf={jsPDF:function(){var n=function(){};return{setFillColor:n,setDrawColor:n,setLineWidth:n,line:n,rect:n,setTextColor:n,setFont:n,setFontSize:n,text:function(t){window.__pdf.texts.push([].concat(t).join(' '))},splitTextToSize:function(t){return[String(t)]},addPage:n,addImage:n,save:function(f){window.__pdf.saved.push(f)}};}};
