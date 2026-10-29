@@ -1,2 +1,5 @@
-# made on the server by setup/install.sh - holds the server's address and public key
-config.js
+# local test data
+*.db
+*.db-wal
+*.db-shm
+node_modules/

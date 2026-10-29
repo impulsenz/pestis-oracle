@@ -1,14 +1,13 @@
 // Pestis offline app cache.
 // Keeps the app and its libraries available with no connection. Photos are NOT stored on the device.
-// Database calls are NOT cached here - the app's own upload queue handles data.
+// Calls to the Pestis server are NOT cached here - the app's own upload queue handles data.
 
 const SHELL_CACHE = 'pestis-oci-shell-v72';
 const RUNTIME_CACHE = 'pestis-oci-runtime-v72';
 
-const SHELL = ['./', './index.html', './admin.html', './config.js', './images/pesties-logo.png'];   // admin.html: the app's add-ons (Admin, profile, Settings)
+const SHELL = ['./', './index.html', './admin.html', './pestis-db.js', './images/pesties-logo.png'];   // admin.html: the app's add-ons (Admin, profile, Settings)
 const CDN = [
     'https://cdn.tailwindcss.com',
-    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
     'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js',
     'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
 ];
@@ -65,8 +64,8 @@ self.addEventListener('fetch', event => {
     const req = event.request;
     if (req.method !== 'GET') return;
     const url = new URL(req.url);
-    // your Supabase is at the same address: sign-in, the database, files and live updates always go to the server
-    if (url.origin === self.location.origin && /^\/(auth|rest|storage|realtime|functions|graphql|pg|analytics)\/v?\d*/.test(url.pathname)) return;
+    // the Pestis server (same address): data, sign-in, photos, documents and live updates always go straight to it
+    if (url.origin === self.location.origin && /^\/(api|rest|auth)\//.test(url.pathname)) return;
 
     // App page: try the network first, fall back to the saved copy when offline
     if (req.mode === 'navigate') {

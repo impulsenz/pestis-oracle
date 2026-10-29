@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <script src="config.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pestis (Oracle) - Enterprise Field Operations</title>
+    <title>Pestis - Enterprise Field Operations</title>
     <script>
         // Start-up check: notes anything that goes wrong while the app starts, so the sign-in screen can say what it is
         window.__boot = { step: 'Loading the app', errors: [], started: Date.now() };
@@ -70,7 +69,7 @@
             window.applyPestisLook(lj('pestis-color-theme'), lj('pestis-text-size'), lj('pestis-motion'));
         } catch (e) {}
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="pestis-db.js"></script>
     <!-- Html5Qrcode Scanner Library (pinned version so it can be cached for offline use) -->
     <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js" type="text/javascript"></script>
     <!-- jsPDF for Professional Client PDF Service Reports -->
@@ -883,7 +882,7 @@
             function show() {
                 if (!stuck()) return;
                 var B = window.__boot || { step: '', errors: [] };
-                var lib = typeof window.supabase === 'undefined' ? 'The sign-in library (supabase-js) did not download - check the internet connection or any ad / content blocker.' : '';
+                var lib = typeof window.supabase === 'undefined' ? 'The database connection (pestis-db.js) did not load - check the internet connection.' : '';
                 // the app's own code never ran: the file on the server was cut short (e.g. pasted into GitHub's editor, which stops at 100,000 characters)
                 if (typeof window.toggleTheme !== 'function' && !lib) lib = 'This page is incomplete: the app code at the end of index.html never loaded (961 KB expected, the server copy is cut short). Re-upload the whole index.html to GitHub with Add file > Upload files - copying and pasting it into the editor cuts it off.';
                 var errs = (lib ? [lib] : []).concat(B.errors || []).slice(-6);
@@ -2253,14 +2252,12 @@
 
     <!-- ===================== APP LOGIC ===================== -->
     <script>
-        const PESTIS_CFG = (typeof window !== 'undefined' && window.PESTIS_CONFIG) || {};   // config.js, made on the server
-        const SUPABASE_URL = String(PESTIS_CFG.url || location.origin).replace(/\/+$/, '');           // your own Supabase (same address as the apps)
-        const SUPABASE_ANON_KEY = PESTIS_CFG.anonKey || '';
-        if (!SUPABASE_ANON_KEY) document.addEventListener('DOMContentLoaded', () => { const b = document.createElement('div'); b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;color:#fff;font:700 13px system-ui,sans-serif;padding:10px 14px;text-align:center;'; b.textContent = "This copy of Pestis isn't connected to its server yet: config.js is missing on the server (see SETUP.md, step 9)."; document.body.appendChild(b); });
+        const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
+        const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
         const PHOTO_BUCKET = 'station-photos';
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
-        const SQL_HINT = ' Run pestis_offline_sites_update.sql in the Supabase SQL editor.';
+        const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
         const APP_VERSION = '2026.10.23-r72-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
@@ -2481,11 +2478,11 @@
             if (m) {
                 const col = m[1], table = m[2];
                 const script = COLUMN_FIX_SCRIPT[col] || 'pestis_fix_client_columns.sql';
-                return `The "${table}" table in the database has no "${col}" column. Run ${script} in the Supabase SQL editor, then tap Retry.`;
+                return `The "${table}" table in the database has no "${col}" column. Run ${script} on the Pestis server (it updates the database itself when it restarts), then tap Retry.`;
             }
-            if (/operator does not exist: json/i.test(msg)) return 'The database rejected this because of the earlier recommendation-number script. Run pestis_recommendations.sql in the Supabase SQL editor (it fixes this), then tap Sync Now.';
-            if (/recommendations'|recommendations"|relation "public\.recommendations"|table 'public\.recommendations'/i.test(msg) && /does not exist|schema cache|could not find the table/i.test(msg)) return 'The database has no recommendations table yet. Run pestis_recommendations.sql in the Supabase SQL editor, then tap Retry.';
-            if (/(stations|site_maps|visits|recommendation_updates|site_events|preparations|species|station_types|app_settings)/i.test(msg) && /does not exist|schema cache|could not find the table/i.test(msg)) return "The database doesn't have the new tables yet. Run pestis_split_tables.sql in the Supabase SQL editor, then tap Retry.";
+            if (/operator does not exist: json/i.test(msg)) return 'The database rejected this because of the earlier recommendation-number script. Run pestis_recommendations.sql on the Pestis server (it updates the database itself when it restarts) (it fixes this), then tap Sync Now.';
+            if (/recommendations'|recommendations"|relation "public\.recommendations"|table 'public\.recommendations'/i.test(msg) && /does not exist|schema cache|could not find the table/i.test(msg)) return 'The database has no recommendations table yet. Run pestis_recommendations.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.';
+            if (/(stations|site_maps|visits|recommendation_updates|site_events|preparations|species|station_types|app_settings)/i.test(msg) && /does not exist|schema cache|could not find the table/i.test(msg)) return "The database doesn't have the new tables yet. Run pestis_split_tables.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.";
             if (/column .* does not exist|schema cache/i.test(msg)) return msg + '.' + SQL_HINT;
             return msg;
         }
@@ -3217,7 +3214,7 @@
         const PORTAL_PAGE = 'client.html';
         function portalUrl() { return window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + PORTAL_PAGE; }
         const portalMissing = e => /client_users|client_access|site_documents|by_client|does not exist|schema cache|could not find/i.test((e && e.message) || '');
-        const PORTAL_SQL_NOTE = 'Run pestis_client_portal.sql in the Supabase SQL editor to switch on the Client Portal.';
+        const PORTAL_SQL_NOTE = 'Run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts) to switch on the Client Portal.';
         async function copyPortalLink() {
             try { await navigator.clipboard.writeText(portalUrl()); alert('Client Portal link copied:\n' + portalUrl()); }
             catch (e) { prompt('Copy the Client Portal link:', portalUrl()); }
@@ -4122,7 +4119,7 @@
                 const row = Object.assign({}, item.data.row);
                 let { data, error } = await _supabase.from('staff_days').update(row).eq('id', row.id).select('id');
                 if (!error && !(data && data.length)) ({ error } = await _supabase.from('staff_days').insert([row]));
-                if (error && /staff_days/i.test(error.message || '') && /does not exist|schema cache|could not find/i.test(error.message || '')) throw new Error('The database has no day log yet. Run pestis_client_portal.sql in the Supabase SQL editor, then tap Retry.');
+                if (error && /staff_days/i.test(error.message || '') && /does not exist|schema cache|could not find/i.test(error.message || '')) throw new Error('The database has no day log yet. Run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.');
                 if (error) throw error;
                 return;
             }
@@ -4283,7 +4280,7 @@
                     const { count, error: cErr } = await _supabase.from('service_logs').select('barcode_id', { count: 'exact', head: true })
                         .eq('client_id', cid).eq('barcode_id', item.data.from);
                     if (cErr) throw cErr;
-                    if (count) throw new Error('The database refused to move the records (permission denied). Run pestis_r14_update.sql in the Supabase SQL editor, then tap Retry. The app already shows the new barcode.');
+                    if (count) throw new Error('The database refused to move the records (permission denied). Run pestis_r14_update.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry. The app already shows the new barcode.');
                 }
                 return;
             }
@@ -4308,7 +4305,7 @@
                 if (res.error && item.kind === 'add_option' && Object.keys(extra).length && extraCols.some(c => (res.error.message || '').includes(c))) {
                     listExtrasMissing = true;
                     res = await _supabase.from(table).upsert([base], { onConflict: 'id' });
-                    if (!res.error) throw new Error('Saved, but the SDS / pest guide details need pestis_client_portal.sql to be run in the Supabase SQL editor. Run it, then tap Retry.');
+                    if (!res.error) throw new Error('Saved, but the SDS / pest guide details need pestis_client_portal.sql to be run on the Pestis server (it updates the database itself when it restarts). Run it, then tap Retry.');
                 }
                 if (!res.error) return;
                 if (!/does not exist|schema cache|could not find the table/i.test(res.error.message || '')) throw new Error(friendlyOptionsError(res.error));
@@ -8141,9 +8138,9 @@
         // Uploaded recommendations still without a number after a full refresh: the database script hasn't been run
         let recNumbersMissing = false;
         function recNumbersNotice() {
-            if (splitTablesMissing) return `<div class="row-item p-2.5 text-[11px]" style="border-color:#d97706;color:#d97706;">The database doesn't have the new stations / floor plans / visits tables yet. Run <b>pestis_split_tables.sql</b> in the Supabase SQL editor, then tap Sync Site. Changes made meanwhile are kept on this device.</div>`;
+            if (splitTablesMissing) return `<div class="row-item p-2.5 text-[11px]" style="border-color:#d97706;color:#d97706;">The database doesn't have the new stations / floor plans / visits tables yet. Run <b>pestis_split_tables.sql</b> on the Pestis server (it updates the database itself when it restarts), then tap Sync Site. Changes made meanwhile are kept on this device.</div>`;
             if (!recTableMissing) return '';
-            return `<div class="row-item p-2.5 text-[11px]" style="border-color:#d97706;color:#d97706;">Recommendation numbers need the recommendations table in the database. Run <b>pestis_recommendations.sql</b> in the Supabase SQL editor, then tap Sync Site.</div>`;
+            return `<div class="row-item p-2.5 text-[11px]" style="border-color:#d97706;color:#d97706;">Recommendation numbers need the recommendations table in the database. Run <b>pestis_recommendations.sql</b> on the Pestis server (it updates the database itself when it restarts), then tap Sync Site.</div>`;
         }
 
         function recRowHtml(item, opts) {
@@ -11670,7 +11667,7 @@
                 peClose(true);
                 await refreshSiteStateFromCache();
                 if (document.getElementById('mapModal').classList.contains('hidden')) openMapModal({ mapId: id }); else selectMap(id);
-                if (drawingColumnMissing) setTimeout(() => alert('The plan was saved as a picture. To keep the drawing editable later, run pestis_client_portal.sql in the Supabase SQL editor.'), 300);
+                if (drawingColumnMissing) setTimeout(() => alert('The plan was saved as a picture. To keep the drawing editable later, run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts).'), 300);
             } catch (err) {
                 peToast('Could not save the plan: ' + (err.message || err));
             } finally {
@@ -13830,10 +13827,10 @@
 
         function friendlyOptionsError(err) {
             const msg = (err && err.message) || String(err);
-            if (/row-level security|permission denied|violates row-level/i.test(msg)) return 'Only admins can change these lists (the database refused the change). If you are an admin, run pestis_r14_update.sql in the Supabase SQL editor, then tap Retry.';
-            if (/'unit' column|column "unit"|unit.*schema cache/i.test(msg)) return "The database can't store preparation units yet. Run pestis_r14_update.sql in the Supabase SQL editor, then tap Retry.";
-            if (/app_options_kind_check|violates check constraint/i.test(msg)) return 'The database does not accept station types yet. Run pestis_visit_and_station_types.sql in the Supabase SQL editor, then tap Retry.';
-            if (/app_options|relation .* does not exist|schema cache/i.test(msg)) return msg + '. Run pestis_settings_update.sql in the Supabase SQL editor.';
+            if (/row-level security|permission denied|violates row-level/i.test(msg)) return 'Only admins can change these lists (the database refused the change). If you are an admin, run pestis_r14_update.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.';
+            if (/'unit' column|column "unit"|unit.*schema cache/i.test(msg)) return "The database can't store preparation units yet. Run pestis_r14_update.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.";
+            if (/app_options_kind_check|violates check constraint/i.test(msg)) return 'The database does not accept station types yet. Run pestis_visit_and_station_types.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.';
+            if (/app_options|relation .* does not exist|schema cache/i.test(msg)) return msg + '. Run pestis_settings_update.sql on the Pestis server (it updates the database itself when it restarts).';
             return msg;
         }
 

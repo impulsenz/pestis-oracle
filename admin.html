@@ -9,10 +9,9 @@
     Version 2026.10.23-a17-oci
 -->
 <head>
-    <script src="config.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pestis (Oracle) Admin</title>
+    <title>Pestis Admin</title>
     <script>
         // Start-up check: notes anything that goes wrong while the app starts, so the sign-in screen can say what it is
         window.__boot = { step: 'Loading the app', errors: [], started: Date.now() };
@@ -78,7 +77,7 @@
             window.applyPestisLook(lj('pestis-color-theme'), lj('pestis-text-size'), lj('pestis-motion'));
         } catch (e) {}
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="pestis-db.js"></script>
 
 
     <style>
@@ -1064,7 +1063,7 @@
             function show() {
                 if (!stuck()) return;
                 var B = window.__boot || { step: '', errors: [] };
-                var lib = typeof window.supabase === 'undefined' ? 'The sign-in library (supabase-js) did not download - check the internet connection or any ad / content blocker.' : '';
+                var lib = typeof window.supabase === 'undefined' ? 'The database connection (pestis-db.js) did not load - check the internet connection.' : '';
                 // the app's own code never ran: the file on the server was cut short (e.g. pasted into GitHub's editor, which stops at 100,000 characters)
                 if (typeof window.adminBoot !== 'function' && !lib) lib = 'This page is incomplete: the app code at the end of admin.html never loaded (961 KB expected, the server copy is cut short). Re-upload the whole admin.html to GitHub with Add file > Upload files - copying and pasting it into the editor cuts it off.';
                 var errs = (lib ? [lib] : []).concat(B.errors || []).slice(-6);
@@ -1451,10 +1450,8 @@
         //  (index.html) or the Client Portal (client.html); they only share the database.
         // ===================================================================
         window.adminBoot = true;
-        const PESTIS_CFG = (typeof window !== 'undefined' && window.PESTIS_CONFIG) || {};   // config.js, made on the server
-        const SUPABASE_URL = String(PESTIS_CFG.url || location.origin).replace(/\/+$/, '');           // your own Supabase (same address as the apps)
-        const SUPABASE_ANON_KEY = PESTIS_CFG.anonKey || '';
-        if (!SUPABASE_ANON_KEY) document.addEventListener('DOMContentLoaded', () => { const b = document.createElement('div'); b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;color:#fff;font:700 13px system-ui,sans-serif;padding:10px 14px;text-align:center;'; b.textContent = "This copy of Pestis isn't connected to its server yet: config.js is missing on the server (see SETUP.md, step 9)."; document.body.appendChild(b); });
+        const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
+        const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
         const ADMIN_MODE = true;
         const LIMITS_ON = false;
         const SERVICE_APP_PAGE = 'index.html';
@@ -1518,7 +1515,7 @@
                     res = await _supabase.from(table).upsert([Object.assign({}, base, extra)], { onConflict: 'id' });
                     if (res.error && Object.keys(extra).length && cols.some(c => (res.error.message || '').includes(c))) {
                         res = await _supabase.from(table).upsert([base], { onConflict: 'id' });
-                        if (!res.error) alert('Saved, but the SDS / pest guide details need pestis_client_portal.sql to be run in the Supabase SQL editor.');
+                        if (!res.error) alert('Saved, but the SDS / pest guide details need pestis_client_portal.sql to be run on the Pestis server (it updates the database itself when it restarts).');
                     }
                 }
             } else if (item.kind === 'save_setting') {
@@ -2011,7 +2008,7 @@
 
         const portalMissing = e => /client_users|client_access|site_documents|by_client|does not exist|schema cache|could not find/i.test((e && e.message) || '');
 
-        const PORTAL_SQL_NOTE = 'Run pestis_client_portal.sql in the Supabase SQL editor to switch on the Client Portal.';
+        const PORTAL_SQL_NOTE = 'Run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts) to switch on the Client Portal.';
 
         async function copyPortalLink() {
             try { await navigator.clipboard.writeText(portalUrl()); alert('Client Portal link copied:\n' + portalUrl()); }
@@ -4047,7 +4044,7 @@ const PR = (() => {
                     + (cur.savedAt ? `<div class="text-[11px] t-faint">Last saved ${esc(fmtDateTimeLong(new Date(cur.savedAt).toISOString()).date)}</div>` : '<div class="text-[11px] t-faint">They haven\'t saved any settings yet - these are the defaults.</div>');
             } catch (e) {
                 if (spEditing !== u) return;
-                box.innerHTML = `<div style="color:#dc2626;">${/admin_get_user_prefs|function|schema cache/i.test(e.message || '') ? 'Run pestis_client_portal.sql in the Supabase SQL editor to edit people\'s settings here.' : 'Could not load their settings: ' + esc(e.message || e)}</div>`;
+                box.innerHTML = `<div style="color:#dc2626;">${/admin_get_user_prefs|function|schema cache/i.test(e.message || '') ? 'Run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts) to edit people\'s settings here.' : 'Could not load their settings: ' + esc(e.message || e)}</div>`;
             }
         }
         function collectPersonSettings() {
@@ -4387,7 +4384,7 @@ const PR = (() => {
                 const main = list.filter(x => x.is_primary).sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0] || list[0];
                 list.forEach(x => { x._main = x === main; });
                 adminCt.list = list.sort((a, b) => (b._main - a._main) || String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }));
-            } catch (e) { adminCt.error = /site_contacts|does not exist|schema cache/i.test(e.message || '') ? 'The database needs updating for site contacts: run pestis_client_portal.sql in the Supabase SQL editor.' : (e.message || String(e)); }
+            } catch (e) { adminCt.error = /site_contacts|does not exist|schema cache/i.test(e.message || '') ? 'The database needs updating for site contacts: run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts).' : (e.message || String(e)); }
             renderAdminContacts();
         }
         function renderAdminContacts() {
@@ -4428,7 +4425,7 @@ const PR = (() => {
                 await queueSiteChange({ client_id: adminCt.cid, action: 'site_edit', title: `Site contact ${id ? 'updated' : 'added'}: ${name}${row.role ? ' (' + row.role + ')' : ''}` });
                 await loadAdminContacts();
             } catch (e) {
-                alert('Could not save the contact: ' + (/site_contacts|does not exist|schema cache/i.test(e.message || '') ? 'run pestis_client_portal.sql in the Supabase SQL editor first.' : (e.message || e)));
+                alert('Could not save the contact: ' + (/site_contacts|does not exist|schema cache/i.test(e.message || '') ? 'run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts) first.' : (e.message || e)));
                 btn.disabled = false; btn.textContent = 'Save contact';
             }
         }
@@ -4464,7 +4461,7 @@ const PR = (() => {
                 if (document.getElementById('limSite').value !== cid) return;
                 adminLim.list = list.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }));
                 adminLim.stations = stations.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }));
-            } catch (e) { adminLim.error = /site_limits|does not exist|schema cache|limit_id/i.test(e.message || '') ? 'The database needs updating for critical limits: run pestis_client_portal.sql in the Supabase SQL editor.' : (e.message || String(e)); }
+            } catch (e) { adminLim.error = /site_limits|does not exist|schema cache|limit_id/i.test(e.message || '') ? 'The database needs updating for critical limits: run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts).' : (e.message || String(e)); }
             renderAdminLimits();
         }
         function renderAdminLimits() {
@@ -4537,7 +4534,7 @@ const PR = (() => {
                 await queueSiteChange({ client_id: cid, action: 'limit', title: `Critical limit ${id ? 'changed' : 'added'}: ${name}`, detail: rules.map(r => `${r.species} ${r.max}/month`).join(', ') });
                 await loadAdminLimits();
             } catch (e) {
-                alert('Could not save the critical limit: ' + (/site_limits|limit_id|does not exist|schema cache/i.test(e.message || '') ? 'run pestis_client_portal.sql in the Supabase SQL editor first.' : (e.message || e)));
+                alert('Could not save the critical limit: ' + (/site_limits|limit_id|does not exist|schema cache/i.test(e.message || '') ? 'run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts) first.' : (e.message || e)));
                 btn.disabled = false; btn.textContent = 'Save';
             }
         }
@@ -4713,7 +4710,7 @@ const PR = (() => {
                 const { data, error } = await _supabase.from('staff_days').select('*').gte('started_at', new Date(m0.getTime() - 86400000).toISOString()).lt('started_at', m1.toISOString()).order('started_at', { ascending: true });
                 if (error) throw error;
                 dayLog.rows = data || []; dayLog.error = '';
-            } catch (e) { dayLog.rows = []; dayLog.error = /staff_days|does not exist|schema cache/i.test(e.message || '') ? 'The day log needs pestis_client_portal.sql to be run in the Supabase SQL editor.' : (e.message || String(e)); }
+            } catch (e) { dayLog.rows = []; dayLog.error = /staff_days|does not exist|schema cache/i.test(e.message || '') ? 'The day log needs pestis_client_portal.sql to be run on the Pestis server (it updates the database itself when it restarts).' : (e.message || String(e)); }
             renderDayLog();
         }
         function dayLogName(r) { const u = adminProfiles.find(p => p.id === r.user_id); return (u && (u.full_name || u.email)) || r.technician || 'Someone'; }

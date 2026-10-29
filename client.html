@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <script src="config.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Pesties Client Portal</title>
@@ -52,7 +51,7 @@
             if (look) window.applyPestisLook(look.theme, look.size, look.motion);
         } catch (e) {}
     </script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="pestis-db.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         :root { --b400: 251 146 60; --b500: 249 115 22; --b600: 234 88 12; --b700: 194 65 12; }
@@ -670,7 +669,7 @@
             function show() {
                 if (!stuck()) return;
                 var B = window.__boot || { step: '', errors: [] };
-                var lib = typeof window.supabase === 'undefined' ? 'The sign-in library (supabase-js) did not download - check the internet connection or any ad / content blocker.' : '';
+                var lib = typeof window.supabase === 'undefined' ? 'The database connection (pestis-db.js) did not load - check the internet connection.' : '';
                 // the app's own code never ran: the file on the server was cut short (e.g. pasted into GitHub's editor, which stops at 100,000 characters)
                 if (typeof window.init !== 'function' && !lib) lib = 'This page is incomplete: the app code at the end of client.html never loaded (309 KB expected, the server copy is cut short). Re-upload the whole client.html to GitHub with Add file > Upload files - copying and pasting it into the editor cuts it off.';
                 var errs = (lib ? [lib] : []).concat(B.errors || []).slice(-6);
@@ -724,10 +723,8 @@
 //  (pestis_client_portal.sql); this page only shows it.
 // =====================================================================
 const PORTAL_VERSION = '2026.10.23-p32-oci';
-const PESTIS_CFG = (typeof window !== 'undefined' && window.PESTIS_CONFIG) || {};   // config.js, made on the server
-const SUPABASE_URL = String(PESTIS_CFG.url || location.origin).replace(/\/+$/, '');           // your own Supabase (same address as the apps)
-const SUPABASE_ANON_KEY = PESTIS_CFG.anonKey || '';
-if (!SUPABASE_ANON_KEY) document.addEventListener('DOMContentLoaded', () => { const b = document.createElement('div'); b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#b91c1c;color:#fff;font:700 13px system-ui,sans-serif;padding:10px 14px;text-align:center;'; b.textContent = "This copy of Pestis isn't connected to its server yet: config.js is missing on the server (see SETUP.md, step 9)."; document.body.appendChild(b); });
+const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
+const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
 const DOC_BUCKET = 'site-documents';
 const NONE_PREP = 'None - Monitoring Only';
