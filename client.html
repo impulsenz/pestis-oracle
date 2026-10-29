@@ -655,7 +655,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (pestis_client_portal.sql); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.29-p33-oci';
+const PORTAL_VERSION = '2026.10.29-p34-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -1271,6 +1271,8 @@ function renderLiveBadge() { const el = $('liveBadge'); if (el) el.classList.tog
 function onLive(cid, table, p) {
     if (!state.site || String(state.site.id) !== cid || !state.data) return;
     const key = LIVE_MAP[table], type = p.eventType || p.type, row = p.new || {}, old = p.old || {};
+    // a finished visit arrives (its results come with it): the visit is no longer in progress
+    if (table === 'visits' && type === 'INSERT' && String(row.client_id) === cid) state.site.visit_started_at = null;
     const list = state.data[key] || (state.data[key] = []);
     if (table === 'service_logs' || table === 'recommendation_views') {
         // these rows have no simple id: take the new row, or fetch the list again for a change or delete
@@ -1472,7 +1474,8 @@ function renderSiteHeader() {
     if (cover) $('siteCover').src = cover;
     const lastVisit = m.visits[m.visits.length - 1];
     $('siteMeta').innerHTML = esc([s.technician ? 'Your technician: ' + s.technician : '', lastVisit ? 'Last service ' + fmtDate(lastVisit.completed) : ''].filter(Boolean).join(' · '))
-        + ` <span id="liveBadge" class="${live.state === 'live' ? '' : 'hidden'} ml-1 text-[11px] font-bold" style="color:#10b981;" title="Changes from Pesties show here straight away"><span class="live-dot"></span> Live</span>`;
+        + ` <span id="liveBadge" class="${live.state === 'live' ? '' : 'hidden'} ml-1 text-[11px] font-bold" style="color:#10b981;" title="Changes from Pesties show here straight away"><span class="live-dot"></span> Live</span>`
+        + (s.visit_started_at ? `<span class="block mt-1 text-xs font-semibold t-accent">● Your technician is on site now. This visit's results will appear here when the visit is finished.</span>` : '');
     const openRecs = m.recs.filter(r => r.status !== 'complete').length;
     const toReview = (m.sightings || []).filter(x => x.status === 'actioned').length;
     $('siteTabs').innerHTML = TABS.map(([k, l]) => `<button type="button" class="nav-tab ${state.tab === k ? 'active' : ''}" onclick="${k === 'plans' ? "planId = null; planFocus = null; if (state.tab === 'plans') renderPlans(); else " : ''}setTab('${k}')">${l}${k === 'recs' && openRecs ? `<span class="count">${openRecs}</span>` : ''}${k === 'sightings' && toReview ? `<span class="count" title="Actioned by your technician, waiting for your review">${toReview}</span>` : ''}</button>`).join('');
@@ -4545,6 +4548,9 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r74', date: '2026-10-29', v: { cli: '2026.10.29-p34' },
+            cli: ['While your technician is on site, that visit\'s station checks, recommendations and findings appear here once the visit is finished - all together, straight away',
+                  'The site page says when your technician is on site now'] },
         { rev: 'r73', date: '2026-10-29', v: { svc: '2026.10.29-r73', adm: '2026.10.29-a18', cli: '2026.10.29-p33' },
             svc: ['Pest guide and Pest found: the same pests in the same categories - Rodents, Crawling insects, Flying insects, Moths, Stored product pests, Birds and Other pests',
                   'Pests: one "Rat" (covering Norway and ship rats) and "Mouse"',

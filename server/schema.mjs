@@ -57,6 +57,7 @@ export const TABLES = {
       created_at: c('ts', NOW), visit_type: c('text'), image_path: c('text'), services: c('json', { def: [], nn: true }),
       contract_start: c('date'), contract_end: c('date'), contract_notes: c('text'), assigned_to: c('uuid'),
       visit_started_at: c('ts'), visit_started_by: c('uuid'),
+      visit_hold_from: c('ts'),   // set by the server when a visit starts: clients see records from then on once it's finished
     },
   },
   service_logs: {                     // one row per station check

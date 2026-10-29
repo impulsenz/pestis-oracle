@@ -195,11 +195,39 @@ function myName(me) {
   return me.staffName || me.email;
 }
 
+/* ---------- visits in progress: clients see the results once the visit is finished ---------- */
+// While a technician has a visit open at a site, its client logins don't see anything the server received since the
+// visit started (clients.visit_hold_from, the server's own time, so it compares with created_at on the same clock).
+// When the visit is closed it all appears at once (releaseVisitHold).
+const VISIT_HOLD = new Set(['service_logs', 'recommendations', 'recommendation_updates', 'stations', 'site_maps', 'visits']);
+function visitHoldSql(tn) {
+  const t = q(tn);
+  const held = `EXISTS (SELECT 1 FROM "clients" h WHERE CAST(h."id" AS TEXT) = CAST(${t}."client_id" AS TEXT) AND h."visit_hold_from" IS NOT NULL
+    AND ${t}."created_at" >= h."visit_hold_from")`;
+  return tn === 'recommendation_updates' ? `(${t}."by_client" = 1 OR NOT ${held})` : `NOT ${held}`;   // a client's own updates always show
+}
+function heldFromClients(tn, row) {
+  if (!VISIT_HOLD.has(tn) || !row || (tn === 'recommendation_updates' && row.by_client)) return false;
+  const c = db.prepare('SELECT visit_hold_from FROM clients WHERE CAST(id AS TEXT) = ?').get(String(row.client_id));
+  return !!(c && c.visit_hold_from && String(row.created_at) >= c.visit_hold_from);
+}
+// the visit is closed: send what was held back to the client logins watching live
+function releaseVisitHold(cid, from) {
+  if (!from) return;
+  const cut = from;
+  for (const tn of VISIT_HOLD) {
+    for (const row of sys.all(tn, [['client_id', 'eq', tn === 'service_logs' ? Number(cid) : String(cid)], ['created_at', 'gte', cut]])) {
+      if (tn === 'recommendation_updates' && row.by_client) continue;
+      events.push({ table: tn, type: 'INSERT', row, old: null, clientsOnly: true });
+    }
+  }
+}
+
 /* ---------- read rules: which rows someone can see ---------- */
 // returns 'all', 'none' or { sql, params }
 function readRule(tn, me) {
   if (me.system) return 'all';
-  const inSites = () => me.sites.size ? { sql: `CAST("client_id" AS TEXT) IN (${[...me.sites].map(() => '?').join(', ')})`, params: [...me.sites] } : 'none';
+  const inSites = () => me.sites.size ? { sql: `CAST("client_id" AS TEXT) IN (${[...me.sites].map(() => '?').join(', ')})${VISIT_HOLD.has(tn) ? ' AND ' + visitHoldSql(tn) : ''}`, params: [...me.sites] } : 'none';
   switch (tn) {
     case 'profiles': return me.approved ? 'all' : { sql: '"id" = ?', params: [me.uid] };
     case 'allowed_emails': return me.admin ? 'all' : 'none';
@@ -222,7 +250,7 @@ function canRead(tn, row, me) {
     case 'profiles': return row.id === me.uid;
     case 'client_access': return row.email === me.email;
     case 'user_prefs': case 'staff_days': return row.user_id === me.uid;
-    default: return me.sites.has(String(row.client_id));
+    default: return me.sites.has(String(row.client_id)) && !heldFromClients(tn, row);
   }
 }
 
@@ -550,6 +578,13 @@ const TRIGGERS = {
       return row;
     },
     site_contacts: (row, old, me) => siteContactBefore(row, old, me),
+    // a visit starting or ending: the server's own time it started from (only the server sets it)
+    clients: (row, old) => {
+      if (!row.visit_started_at) row.visit_hold_from = null;
+      else if (row.visit_started_at !== old.visit_started_at || !old.visit_started_at) row.visit_hold_from = new Date().toISOString();
+      else row.visit_hold_from = old.visit_hold_from;
+      return row;
+    },
   },
   afterInsert: {
     clients: row => {
@@ -567,6 +602,7 @@ const TRIGGERS = {
     profiles: () => { accessVersion++; }, client_users: () => { accessVersion++; }, client_access: () => { accessVersion++; },
   },
   afterUpdate: {
+    clients: (row, old) => { if (old.visit_hold_from && row.visit_hold_from !== old.visit_hold_from) releaseVisitHold(row.id, old.visit_hold_from); },
     site_contacts: (row, old) => { siteContactAfter(row.client_id); if (old.client_id !== row.client_id) siteContactAfter(old.client_id); },
     client_users: (row, old) => { if (row.email !== old.email) sys.update('client_access', [['email', 'eq', old.email]], { email: row.email }); accessVersion++; },
     profiles: () => { accessVersion++; }, client_access: () => { accessVersion++; },
@@ -648,7 +684,7 @@ const RPC = {
   portal_sites(me) {
     const all = sys.all('clients', []);
     const mine = all.filter(c => me.client ? isSiteClient(me, c.id) : me.approved);
-    const hide = ['Notes', 'notes', 'safety_notes', 'access_notes', 'site_notes', 'contract_notes', 'visit_started_by', 'assigned_to', 'services'];
+    const hide = ['Notes', 'notes', 'safety_notes', 'access_notes', 'site_notes', 'contract_notes', 'visit_started_by', 'visit_hold_from', 'assigned_to', 'services'];
     return mine.map(c => {
       const out = Object.assign({}, c);
       for (const k of hide) delete out[k];
@@ -1160,6 +1196,7 @@ function broadcast(e) {
     try {
       if (l.me.version !== accessVersion) { const fresh = ctxFor(l.uid); if (!fresh) { l.res.end(); listeners.delete(id); continue; } l.me = fresh; }
       const row = e.row || e.old;
+      if (e.clientsOnly && l.me.approved) continue;   // released after a visit: staff already have these
       if (!canRead(e.table, row, l.me)) continue;
       l.res.write(`data: ${JSON.stringify({ schema: 'public', table: e.table, eventType: e.type, commit_timestamp: at, new: e.row || {}, old: e.old || {}, errors: null })}\n\n`);
     } catch {}

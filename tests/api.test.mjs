@@ -268,6 +268,49 @@ try {
   ok(got.tech.length >= 1 && got.tech.some(p => p.eventType === 'UPDATE' && p.new.Address === '2 Main St'), 'staff get site changes', got.tech.length);
   cl.removeChannel(chC); tech.removeChannel(chT);
 
+  // ---------- a visit in progress: the client sees its results only when it's finished ----------
+  const logsBefore = (await cl.from('service_logs').select('id', { count: 'exact', head: true })).count;
+  await tech.from('clients').update({ visit_started_at: new Date().toISOString(), visit_started_by: tech.uid }).eq('id', 1);
+  const held = { cl: [], tech: [] };
+  let subs = 0;
+  const holdTables = ['service_logs', 'recommendations', 'recommendation_updates', 'stations', 'visits'];
+  let chH = cl.channel('portal-site-1-hold');
+  holdTables.forEach(t => { chH = chH.on('postgres_changes', { event: '*', schema: 'public', table: t, filter: 'client_id=eq.1' }, p => held.cl.push(p)); });
+  chH = chH.subscribe(s => { if (s === 'SUBSCRIBED') subs++; });
+  const chH2 = tech.channel('pestis-hold').on('postgres_changes', { event: '*', schema: 'public', table: 'service_logs' }, p => held.tech.push(p)).subscribe(s => { if (s === 'SUBSCRIBED') subs++; });
+  for (let i = 0; i < 40 && subs < 2; i++) await new Promise(r => setTimeout(r, 50));
+  await tech.from('service_logs').insert([{ client_id: 1, barcode_id: 'B1', payload: { activityLevel: 'High' } }]);
+  await tech.from('recommendations').insert([{ id: 'rec-visit', client_id: '1', text: 'Found during the visit' }]);
+  await tech.from('stations').insert([{ id: 's-visit', client_id: '1', barcode: 'NEW-V', name: 'New in visit' }]);
+  r = await cl.rpc('portal_update_recommendation', { p_rec_id: 'rec-a', p_status: 'pending', p_note: 'Client note during visit' });
+  await new Promise(r => setTimeout(r, 300));
+  r = await cl.from('service_logs').select('id', { count: 'exact', head: true });
+  ok(r.count === logsBefore, 'visit in progress: client does not see its station checks', [r.count, logsBefore]);
+  r = await cl.from('recommendations').select('id');
+  ok(!r.data.some(x => x.id === 'rec-visit') && r.data.some(x => x.id === 'rec-a'), 'visit in progress: new recommendation hidden, earlier ones still shown', r.data);
+  r = await cl.from('stations').select('id');
+  ok(!r.data.some(x => x.id === 's-visit') && r.data.some(x => x.id === 's1'), 'visit in progress: new station hidden, existing stations shown', r.data);
+  r = await cl.from('recommendation_updates').select('note');
+  ok(r.data.some(x => x.note === 'Client note during visit'), "visit in progress: the client's own update still shows", r.data);
+  // (the client's own update, and the earlier recommendation it changed, do come through)
+  ok(!held.cl.some(p => p.table !== 'recommendation_updates' && !(p.table === 'recommendations' && p.new.id === 'rec-a')), 'visit in progress: no live updates of its records to the client', held.cl.map(p => [p.table, p.new.id]));
+  ok(held.tech.some(p => p.new.barcode_id === 'B1'), 'staff still see the visit live');
+  r = await tech.from('service_logs').select('id', { count: 'exact', head: true }).eq('client_id', 1);
+  ok(r.count === logsBefore + 1, 'staff see every record', r.count);
+  // the visit is finished
+  held.cl.length = 0;
+  await tech.from('visits').insert([{ id: 'visit-done', client_id: '1', technician: 'tech', visit_type: 'Routine Service' }]);
+  await tech.from('clients').update({ visit_started_at: null, visit_started_by: null }).eq('id', 1);
+  await new Promise(r => setTimeout(r, 400));
+  r = await cl.from('service_logs').select('id', { count: 'exact', head: true });
+  ok(r.count === logsBefore + 1, 'visit finished: client sees its station checks', r.count);
+  r = await cl.from('recommendations').select('id');
+  ok(r.data.some(x => x.id === 'rec-visit'), 'visit finished: client sees the new recommendation');
+  const seenTables = new Set(held.cl.filter(p => p.eventType === 'INSERT').map(p => p.table));
+  ok(['service_logs', 'recommendations', 'stations', 'visits'].every(t => seenTables.has(t)), 'visit finished: everything held back arrives live', [...seenTables]);
+  ok(!held.tech.some(p => p.new.barcode_id === 'B1' && held.tech.filter(x => x.new.barcode_id === 'B1').length > 1), 'staff are not sent the records twice');
+  cl.removeChannel(chH); tech.removeChannel(chH2);
+
   // ---------- emailed sign-in link ----------
   r = await cl.auth.signInWithOtp({ email: 'client@acme.test', options: { emailRedirectTo: BASE + '/client.html' } });
   ok(!r.error, 'ask for a sign-in link', r.error);
