@@ -933,6 +933,8 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r88', date: '2026-10-30', v: { adm: '2026.10.30-a31' },
+            adm: ['The Documents tab no longer shows a number beside it'] },
         { rev: 'r87', date: '2026-10-30', v: { svc: '2026.10.30-r87', adm: '2026.10.30-a30', cli: '2026.10.30-p46' },
             svc: ['Pests: every kind of ant is now just "Ants" (past records too), with its own pest guide page',
                   'Pests: Flesh fly, Fruit (vinegar) fly, Fungus gnat, Green blowfly and Stable fly are off the list (past records keep their names)'],
@@ -2293,7 +2295,8 @@ const PR = (() => {
             document.getElementById('adminPage').scrollTop = 0;
         }
         function adminTabBadge(k) {
-            const n = k === 'team' ? adminProfiles.filter(u => !u.approved && !clientEmailSet().has(String(u.email || '').toLowerCase())).length : k === 'documents' ? adminDocsNeedingAttention().length : 0;
+            // (the Documents tab has no number: the owner removed it)
+            const n = k === 'team' ? adminProfiles.filter(u => !u.approved && !clientEmailSet().has(String(u.email || '').toLowerCase())).length : 0;
             return n ? ` <span class="queue-count ml-0.5" style="background:#dc2626;">${n}</span>` : '';
         }
         let adminTabShown = null;
