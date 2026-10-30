@@ -3,6 +3,15 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r97', date: '2026-10-31', v: { svc: '2026.10.31-r97', adm: '2026.10.31-a39', cli: '2026.10.31-p52' },
+            svc: ['Floor plans: a Heat map tick box colours the plan by pest activity (blue for a little, up to red for the most) - choose the time frame, and tick the pests to show (type to search them)'],
+            adm: ['Sites › each site page: a new Floor plans box shows each plan with its stations and a heat map of pest activity - choose the time frame and tick the pests to show',
+                  'Reports: the station type, station, pest, floor plan, preparation and technician filters are tick-box lists with a search - tick as many as you like (nothing ticked means all)',
+                  'Reports: new Third line breaches report - rodent activity at the internal rodent stations (toxic and non-toxic): every breach, where and when, the busiest stations, and month by month'],
+            cli: ['Reports: the station type, station, pest, floor plan, preparation and technician filters are now tick-box lists with a search - tick as many as you like (nothing ticked means all)',
+                  'Reports: new Third line breaches report - rodent activity at the internal rodent stations (toxic and non-toxic) inside your building: every breach, where and when, and month by month',
+                  'Overview: the pest activity chart filters can also tick several pests, stations or floor plans',
+                  'Floor plans: a Heat map button colours the plan by pest activity (blue for a little, up to red for the most) - choose the time frame, and tick the pests to show'] },
         { rev: 'r96', date: '2026-10-31', v: { svc: '2026.10.31-r96', adm: '2026.10.31-a38', cli: '2026.10.31-p51' },
             svc: ['Fixed: actioning a pest sighting could be refused ("null value in column photos") - it now uploads, including any that were set aside'],
             adm: ['Reports: the "Show" choice says Month by month instead of Over time', 'Fixed: actioning a pest sighting could be refused ("null value in column photos")'],

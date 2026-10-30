@@ -101,6 +101,17 @@
 .pr-combo-opt { text-align: left; font-size: .8rem; font-weight: 600; color: var(--text); background: none; border: 0; border-radius: .45rem; padding: .4rem .55rem; cursor: pointer; }
 .pr-combo-opt:hover, .pr-combo-opt:focus-visible { background: var(--surface2); color: rgb(var(--b500, 249 115 22)); outline: none; }
 .pr-combo-none { font-size: .78rem; color: var(--faint); padding: .5rem; }
+.pr-combo-multi { min-width: max(100%, 16rem); }
+.pr-combo-bar { display: flex; gap: .3rem; margin-bottom: .3rem; }
+.pr-combo-act { font-size: .72rem; font-weight: 700; color: var(--muted, var(--text)); background: var(--surface2); border: 1px solid var(--border); border-radius: .5rem; padding: .3rem .55rem; cursor: pointer; }
+.pr-combo-act:hover { color: var(--text); }
+.pr-combo-done { margin-left: auto; color: #fff; background: rgb(var(--b500, 249 115 22)); border-color: transparent; }
+.pr-combo-done:hover { color: #fff; filter: brightness(1.08); }
+.pr-combo-sum { font-size: .7rem; font-weight: 700; color: var(--faint); padding: .15rem .55rem .3rem; }
+.pr-combo-tick { display: flex; align-items: center; gap: .5rem; }
+.pr-combo-box { flex-shrink: 0; width: 1.05rem; height: 1.05rem; border: 2px solid var(--border); border-radius: .3rem; display: inline-flex; align-items: center; justify-content: center; font-size: .7rem; font-weight: 900; color: #fff; }
+.pr-combo-tick[aria-selected="true"] .pr-combo-box { background: rgb(var(--b500, 249 115 22)); border-color: rgb(var(--b500, 249 115 22)); }
+.pr-combo-on { border-color: rgb(var(--b500, 249 115 22)) !important; box-shadow: 0 0 0 1px rgb(var(--b500, 249 115 22)) inset; }
 .pr-station { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }
 .pr-map-btn { flex-shrink: 0; }
 @media print { .pr-combo-btn { background-image: none; padding-right: .65rem; } .pr-map-btn { display: none; } }

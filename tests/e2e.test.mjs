@@ -312,7 +312,8 @@ try {
   // Breached: Yes shows only the stations that breached; No shows every insect station on a limit
   const cardsNow = () => lc.evaluate(() => Array.from(document.querySelectorAll('.pr-lim > .pr-lim-h > b')).map(b => b.textContent.trim()));
   await lc.evaluate(() => { const b = Array.from(document.querySelectorAll('.pr-combo-btn')).find(x => /Dock ILT/.test(x.textContent)); if (b) b.click(); });
-  await lc.evaluate(() => { const o = Array.from(document.querySelectorAll('.pr-combo-pop button, [role=option]')).find(x => /^All stations/.test(x.textContent.trim())); if (o) o.click(); }); await sleep(500);
+  // the station list is tick boxes: Clear, then Done (nothing ticked = every station)
+  await lc.evaluate(() => { document.querySelector('.pr-combo-pop [data-act=none]').click(); document.querySelector('.pr-combo-pop [data-act=done]').click(); }); await sleep(500);
   const breachedOnly = await cardsNow();
   await lc.evaluate(() => { const s = Array.from(document.querySelectorAll('.pr-f')).find(f => /^Breached/.test(f.textContent.trim())).querySelector('select'); s.value = 'no'; s.dispatchEvent(new Event('change')); }); await sleep(500);
   const every = await cardsNow();
@@ -362,6 +363,95 @@ try {
   const folders = await api(b2)('site_document_folders', { op: 'select', filters: [['client_id', 'eq', sid]] });
   ok((folders.data || []).some(f => f.name === 'Meeting notes') && !(folders.data || []).some(f => f.name === 'Meetings'), 'documents: the Meeting notes folder (not Meetings)', folders);
   ok(lc.errors.length === 0, 'critical limits: no errors', lc.errors);
+
+  // ---------- Tick-box filters, Third line breaches, and the heat map on floor plans (all three apps) ----------
+  r = await api(t2)('clients', { op: 'insert', values: [{ Name: 'Heat Foods', Address: '3 Main St' }], returning: true });
+  const hid = String(r.data[0].id);
+  await ad.evaluate(async hid => {
+    const c = document.createElement('canvas'); c.width = 400; c.height = 300; const g = c.getContext('2d'); g.fillStyle = '#e2e8f0'; g.fillRect(0, 0, 400, 300); g.strokeStyle = '#334155'; g.lineWidth = 6; g.strokeRect(20, 20, 360, 260);
+    const blob = await new Promise(res => c.toBlob(res, 'image/png'));
+    const up = await _supabase.storage.from(PHOTO_BUCKET).upload(hid + '/plan-heat.png', blob, { contentType: 'image/png', upsert: true });
+    if (up.error) throw new Error(up.error.message);
+  }, hid);
+  await api(t2)('site_maps', { op: 'insert', values: [{ id: 'mapH', client_id: hid, name: 'Ground floor', image_path: hid + '/plan-heat.png' }] });
+  const hst = (id, b, name, type, x, y) => ({ id, client_id: hid, barcode: b, name, type, map_id: 'mapH', pin_x: x, pin_y: y });
+  await api(t2)('stations', { op: 'insert', values: [hst('hs1', 'RB-H1', 'Kitchen bait', 'Internal Toxic Rodent Station', .25, .3), hst('hs2', 'RB-H2', 'Store trap', 'Internal Non-Toxic Rodent Station', .7, .6),
+    hst('hs3', 'RB-H3', 'Yard bait', 'External Toxic Rodent Station', .5, .9), hst('hs4', 'ILT-H4', 'Dock ILT', 'Flying Insect Monitoring', .8, .2), hst('hs5', 'RB-H5', 'Office trap', 'Internal Non-Toxic Rodent Station', .1, .8)] });
+  const hlg = (b, name, ty, days, p) => ({ client_id: Number(hid), barcode_id: b, payload: Object.assign({ locationName: name, deviceType: ty, activityLevel: 'None', technician: 'Tina Tech', servicedAt: new Date(Date.now() - days * 86400000).toISOString() }, p) });
+  await api(t2)('service_logs', { op: 'insert', values: [hlg('RB-H1', 'Kitchen bait', 'Internal Toxic Rodent Station', 5, { activityLevel: 'Medium' }),
+    hlg('RB-H2', 'Store trap', 'Internal Non-Toxic Rodent Station', 10, { activityLevel: 'Caught', speciesCaught: 'Rat', pestCount: 2 }),
+    hlg('RB-H2', 'Store trap', 'Internal Non-Toxic Rodent Station', 400, { activityLevel: 'Caught', speciesCaught: 'Mice', pestCount: 1 }),
+    hlg('RB-H3', 'Yard bait', 'External Toxic Rodent Station', 5, { activityLevel: 'High' }),
+    hlg('ILT-H4', 'Dock ILT', 'Flying Insect Monitoring', 5, { activityLevel: 'Caught', speciesCaught: 'House Fly', pestCount: 5 }),
+    hlg('RB-H5', 'Office trap', 'Internal Non-Toxic Rodent Station', 5, {})] });
+  await api(b2)('client_access', { op: 'insert', values: [{ email: 'cara@acme.test', client_id: hid }] });
+  const hp = await newPage(browser, await session('cara@acme.test'), 390);
+  await hp.goto(`${BASE}/client.html#/site/${hid}/reports`); await sleep(3500);
+  const tableStations = () => hp.evaluate(() => Array.from(document.querySelectorAll('.pr-tbl tbody tr')).map(tr => (tr.querySelector('.pr-link b') || {}).textContent).filter(Boolean));
+  // a tick-box list: open it, tick some (type to search), Done
+  const tickIn = (label, values) => hp.evaluate(([label, values]) => {
+    const f = Array.from(document.querySelectorAll('.pr-f')).find(x => x.firstElementChild && x.firstElementChild.textContent.trim() === label);
+    f.querySelector('.pr-combo-btn').click();
+    values.forEach(v => { const o = document.querySelector(`.pr-combo-pop .pr-combo-opt[data-v="${v}"]`); if (o) o.click(); });
+    const btn = f.querySelector('.pr-combo-btn').textContent;
+    document.querySelector('.pr-combo-pop [data-act=done]').click();
+    return btn;
+  }, [label, values]);
+  // Third line breaches: the internal rodent stations only, the ones with rodent activity
+  await hp.evaluate("PR.show(state.prBox, 'third')"); await sleep(600);
+  const third = await hp.evaluate(() => ({ title: (document.querySelector('.pr-h') || {}).textContent, types: (() => { const f = Array.from(document.querySelectorAll('.pr-f')).find(x => /^Station type/.test(x.textContent.trim())); return JSON.parse(f.querySelector('.pr-combo').dataset.items).map(x => x[1]); })(), kpi: (document.querySelector('.pr-kpi-v') || {}).textContent }));
+  const thirdRows = await tableStations();
+  ok(/Third line breaches/.test(third.title) && third.types.length && third.types.every(t => /Internal/.test(t) && /Rodent/.test(t)), 'third line breaches: only the internal rodent station types (toxic and non-toxic)', third);
+  ok(thirdRows.length === 2 && thirdRows.includes('Kitchen bait') && thirdRows.includes('Store trap') && third.kpi === '2', 'third line breaches: the internal stations with activity (not the external one, not a quiet one, not one outside the period)', { thirdRows, third });
+  await tickIn('Rodent', ['Rat']); await sleep(500);
+  ok(JSON.stringify(await tableStations()) === '["Store trap"]', 'third line breaches: ticking Rat shows only the stations that caught a rat', await tableStations());
+  await hp.screenshot({ path: SHOTS + '/third-line.png', fullPage: true });
+  // Pests found: tick two station types (nothing ticked = all)
+  await hp.evaluate("PR.show(state.prBox, 'pests', { pest: [] })"); await sleep(600);
+  const allPestRows = await tableStations();
+  await hp.evaluate(() => { const f = Array.from(document.querySelectorAll('.pr-f')).find(x => /^Station type/.test(x.textContent.trim())); f.querySelector('.pr-combo-btn').click(); });
+  await sleep(200);
+  const pop = await hp.evaluate(() => { const q = document.querySelector('.pr-combo-pop .pr-combo-q'); q.value = 'flying'; q.dispatchEvent(new Event('input')); return { shown: Array.from(document.querySelectorAll('.pr-combo-pop .pr-combo-opt')).map(x => x.textContent.trim()), boxes: document.querySelectorAll('.pr-combo-pop .pr-combo-box').length }; });
+  ok(pop.shown.length >= 1 && pop.shown.every(t => /flying/i.test(t)) && pop.boxes === pop.shown.length, 'tick-box list: a tick box on each, and typing searches it', pop);
+  await hp.screenshot({ path: SHOTS + '/tick-list.png' });
+  await hp.evaluate(() => { document.querySelector('.pr-combo-pop [data-act=done]').click(); });
+  const btnTxt = await tickIn('Station type', ['Flying Insect Monitoring']); await sleep(500);
+  const oneType = await tableStations();
+  await tickIn('Station type', ['Internal Non-Toxic Rodent Station']); await sleep(500);
+  const typed = await tableStations(), label = await hp.evaluate(() => Array.from(document.querySelectorAll('.pr-f')).find(x => /^Station type/.test(x.textContent.trim())).querySelector('.pr-combo-btn').textContent);
+  ok(allPestRows.length === 2 && JSON.stringify(oneType) === '["Dock ILT"]' && typed.length === 2 && typed.includes('Dock ILT') && typed.includes('Store trap') && label === '2 types' && btnTxt === 'All types', 'tick-box list: two station types ticked shows both (and the button says "2 types")', { allPestRows, oneType, typed, label, btnTxt });
+  // the heat map on the Client Portal floor plan
+  await hp.evaluate("setTab('plans')"); await sleep(600);
+  await hp.evaluate("planId = 'mapH'; renderPlans()"); await sleep(1500);
+  await hp.evaluate("togglePlanHeat()"); await sleep(500);
+  const px = (sel, x, y) => hp.evaluate(([sel, x, y]) => { const c = document.querySelector(sel); if (!c) return null; return c.getContext('2d').getImageData(Math.round(x * c.width), Math.round(y * c.height), 1, 1).data[3]; }, [sel, x, y]);
+  const heat1 = await hp.evaluate(() => ({ layer: !!document.querySelector('#planStage canvas.heat-layer'), sum: (document.querySelector('#planHeatBox .heat-sum') || {}).textContent }));
+  ok(heat1.layer && /^4 stations with activity · most at Dock ILT/.test(heat1.sum) && (await px('#planStage .heat-layer', .25, .3)) > 0 && !(await px('#planStage .heat-layer', .1, .8)), 'portal heat map: drawn over the plan, hot where there was activity and not at a quiet station', heat1);
+  await hp.screenshot({ path: SHOTS + '/heat-portal-390.png', fullPage: true });
+  await hp.evaluate("planHeatSet('pest', 'Rat', true)"); await sleep(300);
+  const heat2 = await hp.evaluate(() => (document.querySelector('#planHeatBox .heat-sum') || {}).textContent);
+  ok(/^1 station with activity · most at Store trap/.test(heat2) && (await px('#planStage .heat-layer', .7, .6)) > 0 && !(await px('#planStage .heat-layer', .25, .3)), 'portal heat map: ticking a pest shows only its activity', heat2);
+  await hp.evaluate("planHeatSet('period', '1m')"); await sleep(300);
+  ok(/^1 station/.test(await hp.evaluate(() => document.querySelector('#planHeatBox .heat-sum').textContent)), 'portal heat map: the time frame can be changed');
+  await hp.setViewportSize({ width: 1280, height: 900 }); await sleep(400);
+  await hp.screenshot({ path: SHOTS + '/heat-portal-1280.png', fullPage: true });
+  ok(hp.errors.length === 0, 'tick-box filters and portal heat map: no errors', hp.errors);
+  // Admin: the site page shows its floor plans with the heat map
+  await ad.reload(); await sleep(4000);
+  await ad.evaluate(id => openAdminSite(id), hid); await sleep(3500);
+  const adHeat = await ad.evaluate(() => ({ layer: !!document.querySelector('#asPlanStage canvas.heat-layer'), pins: document.querySelectorAll('#asPlanStage .as-pin').length, sum: (document.querySelector('#asHeatBox .heat-sum') || {}).textContent }));
+  ok(adHeat.layer && adHeat.pins === 5 && /^4 stations with activity/.test(adHeat.sum), 'admin heat map: the site page shows the floor plan, its stations and the heat map', adHeat);
+  await ad.evaluate(() => document.getElementById('asPlans').scrollIntoView()); await ad.screenshot({ path: SHOTS + '/heat-admin.png' });
+  // Service App: the Heat map tick box on the floor plan
+  const hs = await newPage(browser, t2, 390);
+  await hs.goto(BASE + '/index.html'); await hs.waitForSelector(`.site-card[data-id='${hid}']`, { timeout: 20000 }).catch(() => {});
+  await hs.click(`.site-card[data-id='${hid}']`); await hs.waitForSelector('#siteLandingDashboard:not(.hidden)', { timeout: 20000 }); await sleep(2500);
+  await hs.evaluate("openMapModal()"); await sleep(2000);
+  await hs.click('#mapHeatOn'); await sleep(500);
+  const svHeat = await hs.evaluate(() => ({ layer: !!document.querySelector('#mapStage canvas.heat-layer'), sum: (document.querySelector('#mapHeatBox .heat-sum') || {}).textContent, pests: Array.from(document.querySelectorAll('#mapHeatBox .heat-list input')).map(i => i.value) }));
+  ok(svHeat.layer && /^4 stations with activity/.test(svHeat.sum) && svHeat.pests.includes('Rat') && svHeat.pests.includes('House Fly'), 'service app heat map: the Heat map tick box colours the plan, with pests to tick', svHeat);
+  await hs.screenshot({ path: SHOTS + '/heat-service-390.png' });
+  ok(hs.errors.length === 0 && ad.errors.length === 0, 'heat map in Admin and the Service App: no errors', { hs: hs.errors, ad: ad.errors });
 } catch (e) { fails++; console.log('ERROR', e); }
 finally {
   await browser.close();

@@ -260,7 +260,110 @@ const PVR = (() => {
         const d = t(v.completed) ? new Date(t(v.completed)) : new Date();
         doc.save(`${safe(v.siteName)} - Visit report - ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.pdf`);
     }
-    return { build, logo, pestMap, pin, portalLink };
+    // ---------- Heat map: pest activity drawn over a floor plan (the same in all three apps) ----------
+    // Each station's activity in the time frame chosen, for the pests ticked (none ticked = every pest and any activity):
+    // a catch counts its number, a check with only activity counts Low 1, Medium 2, High 3. The busiest station is red.
+    const HEAT_PERIODS = [['1m', 'Last month'], ['3m', 'Last 3 months'], ['6m', 'Last 6 months'], ['12m', 'Last 12 months'], ['ytd', 'This year'], ['ly', 'Last year'], ['all', 'All time']];
+    const heatKey = p => String(p || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/ies$/, 'y').replace(/([^s])s$/, '$1');
+    function heatSpan(period) {
+        const now = new Date(), y = now.getFullYear(), m = now.getMonth(), end = Date.now() + 60000;
+        const back = { '1m': 1, '3m': 3, '6m': 6, '12m': 12 }[period];
+        if (back) return [new Date(y, m - back, now.getDate()).getTime(), end];
+        if (period === 'ytd') return [new Date(y, 0, 1).getTime(), end];
+        if (period === 'ly') return [new Date(y - 1, 0, 1).getTime(), new Date(y, 0, 1).getTime()];
+        return [0, end];
+    }
+    // st = { period, pests: [] }; stations = [{ x, y, name, recs: [{ at, species, count, activity }] }] -> [{ x, y, name, v }]
+    function heatPoints(stations, st) {
+        const [a, b] = heatSpan(st.period), want = (st.pests || []).map(heatKey);
+        const lvl = { Low: 1, Medium: 2, High: 3, Caught: 1 };
+        return stations.filter(x => x.x != null && x.y != null).map(x => {
+            const v = (x.recs || []).filter(r => r.at >= a && r.at < b).reduce((n, r) => {
+                const sp = r.species && r.species !== 'None' ? r.species : '';
+                if (want.length) return n + (sp && want.includes(heatKey(sp)) ? (Number(r.count) > 0 ? Number(r.count) : 1) : 0);
+                return n + (sp ? (Number(r.count) > 0 ? Number(r.count) : 1) : (lvl[r.activity] || 0));
+            }, 0);
+            return { x: x.x, y: x.y, name: x.name, v };
+        });
+    }
+    // the colours, from a little (blue) to the most (red)
+    const HEAT_STOPS = [[0, [37, 99, 235]], [.35, [22, 163, 74]], [.6, [234, 179, 8]], [.8, [234, 88, 12]], [1, [220, 38, 38]]];
+    const heatRgb = t => { for (let i = 1; i < HEAT_STOPS.length; i++) if (t <= HEAT_STOPS[i][0]) { const [t0, c0] = HEAT_STOPS[i - 1], [t1, c1] = HEAT_STOPS[i], f = (t - t0) / (t1 - t0 || 1); return c0.map((c, k) => Math.round(c + (c1[k] - c) * f)); } return HEAT_STOPS[HEAT_STOPS.length - 1][1]; };
+    // the heat as a picture the shape of the plan (w x h, drawn smaller and stretched over it); pts from heatPoints
+    function heatCanvas(w, h, pts) {
+        const k = Math.min(1, 900 / Math.max(w, h, 1)), W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const hot = pts.filter(p => p.v > 0), max = Math.max(1, ...hot.map(p => p.v));
+        if (!hot.length) return c;
+        const g = c.getContext('2d'), r = Math.max(W, H) * .11;
+        hot.forEach(p => {
+            const x = p.x * W, y = p.y * H, gr = g.createRadialGradient(x, y, 0, x, y, r);
+            gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+            g.globalAlpha = .3 + .7 * Math.sqrt(p.v / max);   // any activity shows; the busiest the most
+            g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+        });
+        const img = g.getImageData(0, 0, W, H), d = img.data;
+        for (let i = 0; i < d.length; i += 4) {
+            const t = d[i + 3] / 255; if (!t) continue;
+            const [cr, cg, cb] = heatRgb(Math.min(1, t));
+            d[i] = cr; d[i + 1] = cg; d[i + 2] = cb; d[i + 3] = Math.round(Math.min(1, t * 1.6) * 175);
+        }
+        g.putImageData(img, 0, 0);
+        return c;
+    }
+    // the controls: the time frame, and the pests to tick (type to search). cb is the name of the app's function, called
+    // cb('period', value) and cb('pest', name, ticked) (cb('pests', []) to clear). pts gives the count of stations with activity.
+    let heatCssDone = false;
+    function heatCss() {
+        if (heatCssDone || typeof document === 'undefined') return; heatCssDone = true;
+        const s = document.createElement('style');
+        s.textContent = `.heat-panel{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.6rem .9rem;font-size:12px;color:var(--text,#0f172a);text-align:left}
+.heat-panel select,.heat-panel input[type=search]{font:inherit;font-weight:600;color:var(--text,#0f172a);background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.35rem .5rem}
+.heat-f{display:flex;flex-direction:column;gap:.25rem}.heat-f>span{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#64748b)}
+.heat-pests{min-width:13rem;flex:1 1 13rem;max-width:22rem}.heat-list{max-height:9.5rem;overflow-y:auto;border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.2rem;margin-top:.3rem;background:var(--surface,#fff)}
+.heat-list label{display:flex;align-items:center;gap:.45rem;padding:.25rem .4rem;border-radius:.35rem;cursor:pointer;font-weight:600}.heat-list label:hover{background:var(--surface2,#f1f5f9)}
+.heat-list input{width:15px;height:15px;accent-color:#ea580c}.heat-pest-top{display:flex;gap:.4rem;align-items:center}.heat-pest-top input{flex:1;min-width:0}
+.heat-clear{font:inherit;font-weight:700;font-size:11px;color:var(--muted,#475569);background:none;border:0;text-decoration:underline;cursor:pointer;padding:.2rem}
+.heat-key{display:flex;flex-direction:column;gap:.3rem;min-width:10rem}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
+.heat-bar-l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--faint,#64748b)}.heat-sum{font-weight:700;color:var(--muted,#475569)}
+.heat-layer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+@media (max-width:640px){.heat-panel{gap:.45rem .7rem}.heat-list{max-height:5.4rem}.heat-key{flex:1 1 100%}.heat-key>.heat-f{display:none}}`;
+        document.head.appendChild(s);
+    }
+    function heatPanel(cb, st, pests, pts) {
+        heatCss();
+        const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const on = new Set((st.pests || []).map(heatKey)), hot = (pts || []).filter(p => p.v > 0), top = hot.slice().sort((p, q) => q.v - p.v)[0];
+        return `<div class="heat-panel" data-heat-cb="${esc(cb)}">
+            <label class="heat-f"><span>Time frame</span><select onchange="${esc(cb)}('period', this.value)">${HEAT_PERIODS.map(([v, l]) => `<option value="${v}" ${st.period === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+            <div class="heat-f heat-pests"><span>Pests ${on.size ? `(${on.size} ticked)` : '(all)'}</span>
+                <div class="heat-pest-top"><input type="search" placeholder="Search pests..." aria-label="Search pests" oninput="PVR.heatFilter(this)">${on.size ? `<button type="button" class="heat-clear" onclick="${esc(cb)}('pests', [])">Clear</button>` : ''}</div>
+                <div class="heat-list">${pests.map(p => `<label data-q="${esc(String(p).toLowerCase())}"><input type="checkbox" value="${esc(p)}" ${on.has(heatKey(p)) ? 'checked' : ''} onchange="${esc(cb)}('pest', this.value, this.checked)">${esc(p)}</label>`).join('') || '<div class="heat-bar-l" style="padding:.4rem">No pests recorded yet</div>'}</div></div>
+            <div class="heat-key"><span class="heat-f"><span>Activity</span></span><div class="heat-bar"></div><div class="heat-bar-l"><span>A little</span><span>The most</span></div>
+                <div class="heat-sum">${hot.length ? `${hot.length} station${hot.length === 1 ? '' : 's'} with activity${top ? ` · most at ${esc(top.name)} (${Math.round(top.v * 10) / 10})` : ''}` : 'No activity for this choice'}</div></div>
+        </div>`;
+    }
+    function heatFilter(input) {
+        const q = input.value.trim().toLowerCase(), box = input.closest('.heat-pests');
+        if (box) box.querySelectorAll('.heat-list label').forEach(l => { l.style.display = !q || l.dataset.q.includes(q) ? '' : 'none'; });
+    }
+    // puts the controls in box again, keeping what was typed in the search and where the pest list was scrolled to
+    function heatMount(box, html) {
+        if (!box) return;
+        const old = box.querySelector('.heat-pests input[type=search]'), q = old ? old.value : '', l = box.querySelector('.heat-list'), top = l ? l.scrollTop : 0;
+        box.innerHTML = html;
+        const n = box.querySelector('.heat-pests input[type=search]'); if (n && q) { n.value = q; heatFilter(n); }
+        const l2 = box.querySelector('.heat-list'); if (l2) l2.scrollTop = top;
+    }
+    // the pests ticked, after cb('pest', name, on) / cb('pests', [])
+    function heatTick(st, k, v, on) {
+        if (k === 'period') st.period = v;
+        if (k === 'pests') st.pests = [];
+        if (k === 'pest') { st.pests = (st.pests || []).filter(p => heatKey(p) !== heatKey(v)); if (on) st.pests.push(v); }
+        return st;
+    }
+
+    return { build, logo, pestMap, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatFilter, heatTick, heatMount };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------

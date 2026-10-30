@@ -25,6 +25,13 @@ const PR = (() => {
     const pestKey = p => String(p || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/ies$/, 'y').replace(/([^s])s$/, '$1');
     const PALETTE = ['#2563eb', '#ea580c', '#16a34a', '#9333ea', '#dc2626', '#0891b2', '#ca8a04', '#db2777', '#64748b'];
     const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+    // filters you can tick several of (nothing ticked = all of them)
+    const MULTI = ['type', 'pest', 'station', 'map', 'prep', 'tech'];
+    const arr = v => Array.isArray(v) ? v.filter(x => x !== '' && x != null) : v ? [v] : [];
+    const has = (sel, v) => { const a = arr(sel); return !a.length || a.includes(v); };
+    const pestHas = (sel, v) => { const a = arr(sel); return !a.length || a.some(p => pestKey(p) === pestKey(v)); };
+    const uniq2 = a => Array.from(new Set(a.filter(Boolean)));
+    const chosen = (sel, all) => { const a = arr(sel); return !a.length ? all : a.length <= 2 ? a.join(' and ') : `${a.length} pests`; };
 
     // ---------- the data, in one shape ----------
     function build(raw) {
@@ -95,6 +102,7 @@ const PR = (() => {
         { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'station', 'map', 'gap'] },
         { id: 'preps', icon: '🧪', title: 'Preparations used', blurb: 'What was used on which station, how much, and the batch numbers.', f: ['period', 'type', 'station', 'prep', 'batch'] },
         { id: 'limits', icon: '⚠️', title: 'Critical limits', blurb: 'Which insects breached their critical limit, at which stations and when (the latest first), and each insect month by month in green, amber or red.', f: ['limMonths', 'breached', 'type', 'station', 'pest'] },
+        { id: 'third', icon: '🐀', title: 'Third line breaches', blurb: 'Rodent activity inside the building: every internal rodent station (toxic and non-toxic) that had rodent activity, where and when.', f: ['period', 'type', 'station', 'map', 'pest'] },
         { id: 'recs', icon: '📋', title: 'Recommendations', blurb: 'Raised and completed, by type, and how long they took.', f: ['period'] },
         { id: 'visits', icon: '🗓️', title: 'Service visits', blurb: 'Visits each month, the technician and the time on site.', f: ['period', 'tech'] }
     ];
@@ -145,7 +153,7 @@ const PR = (() => {
     function render(box, data, opts) {
         opts = opts || {};
         let s = ST.get(box);
-        if (!s) { s = { report: null, view: 'time', years: '2', preset: '12m', from: '', to: '', type: '', pest: '', station: '', map: '', prep: '', batch: '', tech: '', gap: '35', breached: 'yes', limFrom: monthKey(Date.now()), limTo: monthKey(Date.now()) }; ST.set(box, s); }
+        if (!s) { s = { report: null, view: 'time', years: '2', preset: '12m', from: '', to: '', type: [], pest: [], station: [], map: [], prep: [], batch: '', tech: [], gap: '35', breached: 'yes', limFrom: monthKey(Date.now()), limTo: monthKey(Date.now()) }; ST.set(box, s); }
         box._pr = { data, opts };
         draw(box);
     }
@@ -153,7 +161,8 @@ const PR = (() => {
         if (k === 'report' && s._linked) { s.station = s._prevStation; s._linked = false; }   // back from a station opened by tapping its name: the other reports aren't left filtered to it
         if (k === 'station') s._linked = false;
         // a new station type: a station of another type is no longer chosen
-        if (k === 'type' && s.station && v) { const d = box._pr && box._pr.data, st = d && d.stations.find(x => x.barcode === s.station); if (st && st.type !== v) s.station = ''; }
+        if (MULTI.includes(k)) v = arr(v);
+        if (k === 'type' && v.length && arr(s.station).length) { const d = box._pr && box._pr.data; s.station = arr(s.station).filter(b => { const st = d && d.stations.find(x => x.barcode === b); return !st || v.includes(st.type); }); }
         s[k] = v; if (k === 'report') window.scrollTo && box.scrollIntoView && box.scrollIntoView({ block: 'start', behavior: 'smooth' }); draw(box); }
     function draw(box) {
         const s = ST.get(box), { data, opts } = box._pr;
@@ -164,7 +173,7 @@ const PR = (() => {
         }
         const R = REPORTS.find(r => r.id === s.report);
         // a report only uses the filters it shows (a station picked in one report doesn't quietly filter another)
-        const sx = Object.assign({}, s, R.f.includes('type') ? {} : { type: '' }, R.f.includes('station') ? {} : { station: '' });
+        const sx = Object.assign({}, s, R.f.includes('type') ? {} : { type: [] }, R.f.includes('station') ? {} : { station: [] });
         const out = BUILD[R.id](data, sx, opts);
         if (R.id === 'station') s.station = sx.station;   // the station it settled on
         box._pr.csv = out.csv;
@@ -178,6 +187,7 @@ const PR = (() => {
     function opt(v, l, cur) { return `<option value="${e(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${e(l)}</option>`; }
     function filtersHtml(R, d, s) {
         const cmb = (k, label, list, all) => combo({ k, label, list: list.map(x => Array.isArray(x) ? x : [x, x]), cur: s[k], all, cb: 'PR.set' });
+        const tick = (k, label, list, all, noun) => combo({ k, label, list: list.map(x => Array.isArray(x) ? x : [x, x]), cur: arr(s[k]), all, cb: 'PR.set', multi: true, noun });
         const sel = (k, label, list, all) => `<label class="pr-f"><span>${e(label)}</span><select onchange="PR.set(this, '${k}', this.value)">${all ? opt('', all, s[k]) : ''}${list.map(x => Array.isArray(x) ? opt(x[0], x[1], s[k]) : opt(x, x, s[k])).join('')}</select></label>`;
         const uniq = a => Array.from(new Set(a.filter(Boolean))).sort((x, y) => String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }));
         const parts = [];
@@ -190,14 +200,18 @@ const PR = (() => {
                 if (s.preset === 'custom') parts.push(`<label class="pr-f"><span>From</span><input type="date" value="${e(s.from)}" onchange="PR.set(this, 'from', this.value)"></label><label class="pr-f"><span>To</span><input type="date" value="${e(s.to)}" onchange="PR.set(this, 'to', this.value)"></label>`);
             }
             // critical limits are for insects only: just the flying and crawling insect types, stations and pests
-            if (f === 'type') parts.push(sel('type', 'Station type', (d.types || uniq(d.stations.map(x => x.type))).filter(t => R.id !== 'limits' || isInsect(t)), R.id === 'limits' ? 'All insect stations' : 'All types'));
-            if (f === 'pest' && R.id === 'limits') { parts.push(cmb('pest', 'Insect', uniq([].concat(...d.limits.map(l => l.rules.map(x => x.species)))), 'All insects')); return; }
-            if (f === 'pest') { const st = R.id === 'station' ? d.stations.find(x => x.barcode === s.station) : null; if (!(st && isActivity(st))) parts.push(cmb('pest', 'Pest', st ? uniq(st.entries.map(x => x.species)) : uniq(d.species || d.entries.map(x => x.species)), 'All pests')); }
-            if (f === 'map') parts.push(cmb('map', 'Floor plan', uniq(d.stations.map(x => x.map)), 'All floor plans'));
-            if (f === 'prep') parts.push(cmb('prep', 'Preparation', uniq(d.entries.map(x => x.prep)), 'All preparations'));
-            if (f === 'tech') parts.push(sel('tech', 'Technician', uniq(d.visits.map(x => x.tech).concat(d.entries.map(x => x.tech))), 'Everyone'));
-            // the stations of the chosen type (type to search a long list)
-            if (f === 'station') parts.push(cmb('station', s.type ? `Station (${s.type})` : 'Station', stationsOfType(d, s).filter(x => R.id !== 'limits' || isInsect(x.type)).map(x => [x.barcode, x.name + (x.type && !s.type ? ' · ' + x.type : '')]), R.id === 'station' ? null : (s.type ? 'All ' + s.type : 'All stations')));
+            // tick as many as you like (type to search); critical limits are for insects only, third line breaches for the internal rodent stations
+            const typeIn = t => R.id === 'limits' ? isInsect(t) : R.id === 'third' ? isThird(t) : true;
+            if (f === 'type') parts.push(tick('type', 'Station type', (d.types || uniq(d.stations.map(x => x.type))).filter(typeIn), R.id === 'limits' ? 'All insect stations' : R.id === 'third' ? 'All internal rodent stations' : 'All types', 'types'));
+            if (f === 'pest' && R.id === 'limits') { parts.push(tick('pest', 'Insect', uniq([].concat(...d.limits.map(l => l.rules.map(x => x.species)))), 'All insects', 'insects')); return; }
+            if (f === 'pest' && R.id === 'third') { parts.push(tick('pest', 'Rodent', uniq((d.species || []).concat(d.entries.map(x => x.species)).filter(isRodent)), 'Any rodent activity', 'rodents')); return; }
+            if (f === 'pest') { const st = R.id === 'station' ? d.stations.find(x => x.barcode === arr(s.station)[0]) : null; if (!(st && isActivity(st))) parts.push(tick('pest', 'Pest', st ? uniq(st.entries.map(x => x.species)) : uniq(d.species || d.entries.map(x => x.species)), 'All pests', 'pests')); }
+            if (f === 'map') parts.push(tick('map', 'Floor plan', uniq(d.stations.filter(x => typeIn(x.type)).map(x => x.map)), 'All floor plans', 'floor plans'));
+            if (f === 'prep') parts.push(tick('prep', 'Preparation', uniq(d.entries.map(x => x.prep)), 'All preparations', 'preparations'));
+            if (f === 'tech') parts.push(tick('tech', 'Technician', uniq(d.visits.map(x => x.tech).concat(d.entries.map(x => x.tech))), 'Everyone', 'technicians'));
+            // the stations of the chosen types (One station: pick one)
+            if (f === 'station') { const ts = arr(s.type), lbl = ts.length === 1 ? `Station (${ts[0]})` : 'Station', list = stationsOfType(d, s).filter(x => typeIn(x.type)).map(x => [x.barcode, x.name + (x.type && ts.length !== 1 ? ' · ' + x.type : '')]);
+                parts.push(R.id === 'station' ? combo({ k: 'station', label: lbl, list, cur: arr(s.station)[0] || '', cb: 'PR.set' }) : tick('station', lbl, list, ts.length === 1 ? 'All ' + ts[0] : 'All stations', 'stations')); }
             if (f === 'batch') parts.push(`<label class="pr-f"><span>Batch number</span><input type="search" value="${e(s.batch)}" placeholder="Any" onchange="PR.set(this, 'batch', this.value.trim())"></label>`);
             // critical limits: the months to look at (this month to start with; From and To for several months), and breached stations only or all
             if (f === 'limMonths') { const ms = months(Date.now() - 3 * 365 * DAY, Date.now()).reverse().map(k => [k, monthLong(k)]); parts.push(sel('limFrom', 'From', ms), sel('limTo', 'To', ms)); }
@@ -207,17 +221,20 @@ const PR = (() => {
         return parts.join('');
     }
     // the stations a report can pick from: those of the chosen station type
-    const stationsOfType = (d, s) => d.stations.filter(x => !s.type || x.type === s.type);
+    const stationsOfType = (d, s) => d.stations.filter(x => has(s.type, x.type));
     // the records a report looks at (the chosen station type, and station)
     function pick(d, s, extra) {
         const [a, b] = range(s);
-        return d.entries.filter(x => x.at >= a && x.at <= b && (!s.type || x.type === s.type) && (!s.station || x.barcode === s.station) && (!extra || extra(x)));
+        return d.entries.filter(x => x.at >= a && x.at <= b && has(s.type, x.type) && has(s.station, x.barcode) && (!extra || extra(x)));
     }
     const color = (opts, type) => (opts.colorOf ? opts.colorOf(type) : null) || '#64748b';
     const dot = (opts, type) => `<span class="pr-dot" style="background:${color(opts, type)}"></span>`;
 
     // external toxic (bait) stations are read by their activity: None, Low, Medium, High
     const LEVELS = ['None', 'Low', 'Medium', 'High'];
+    // the third line (inside the building): internal rodent stations, toxic and non-toxic
+    const isRodent = t => /rodent|\brats?\b|mouse|mice/i.test(t || '');
+    const isThird = t => /rodent|\brat|mouse|mice|bait/i.test(t || '') && /internal|inside|indoor|third/i.test(t || '');
     const isActivity = st => /external/i.test(st.type || '') && /toxic|bait/i.test(st.type || '');
     // flying and crawling insect stations (critical limits are for insects, not rodents)
     const isInsect = t => /insect|fly|flies|flying|crawl|cockroach/i.test(t || '') && !/rodent|\brat|mouse|mice/i.test(t || '');
@@ -244,18 +261,18 @@ const PR = (() => {
     const BUILD = {
         trend(d, s) {
             if (s.view === 'yoy') {
-                const list = d.entries.filter(x => x.species && (!s.type || x.type === s.type) && (!s.station || x.barcode === s.station) && (!s.pest || x.species === s.pest));
+                const list = d.entries.filter(x => x.species && has(s.type, x.type) && has(s.station, x.barcode) && has(s.pest, x.species));
                 const years = yearsOf(s, d, list);
                 const series = yoySeries(years, (yr, m) => list.filter(x => inYM(x, yr, m)).reduce((n, x) => n + x.count, 0));
                 const head = [{ t: 'Month' }].concat(years.map(yr => ({ t: String(yr), num: true })));
                 return {
-                    html: kpis(years.slice().reverse().slice(0, 3).map(yr => ({ v: list.filter(x => new Date(x.at).getFullYear() === yr).reduce((n, x) => n + x.count, 0), l: `${s.pest || 'captures'} in ${yr}${yr === new Date().getFullYear() ? ' so far' : ''}` })))
-                        + `<div class="pr-chart"><div class="pr-cap">${e(s.pest || 'All pests')}: captures each month, one line per year</div>${lineChart(series, MONTHS12, { lbl: monShort, label: 'Captures per month, year on year' })}</div>`
+                    html: kpis(years.slice().reverse().slice(0, 3).map(yr => ({ v: list.filter(x => new Date(x.at).getFullYear() === yr).reduce((n, x) => n + x.count, 0), l: `${chosen(s.pest, 'captures')} in ${yr}${yr === new Date().getFullYear() ? ' so far' : ''}` })))
+                        + `<div class="pr-chart"><div class="pr-cap">${e(chosen(s.pest, 'All pests'))}: captures each month, one line per year</div>${lineChart(series, MONTHS12, { lbl: monShort, label: 'Captures per month, year on year' })}</div>`
                         + table(head, MONTHS12.map(m => ({ cells: [e(monShort(m))].concat(series.map(x => x.vals[m] == null ? '' : x.vals[m])) }))),
                     csv: [head.map(h => h.t)].concat(MONTHS12.map(m => [monShort(m)].concat(series.map(x => x.vals[m] == null ? '' : x.vals[m]))))
                 };
             }
-            const [a, b] = range(s), list = pick(d, s, x => x.species && (!s.pest || x.species === s.pest));
+            const [a, b] = range(s), list = pick(d, s, x => x.species && has(s.pest, x.species));
             const ks = months(a || (d.entries[0] ? d.entries[0].at : Date.now()), b);
             const tot = new Map(); list.forEach(x => tot.set(x.species, (tot.get(x.species) || 0) + x.count));
             const top = Array.from(tot.entries()).sort((p, q) => q[1] - p[1]);
@@ -274,7 +291,7 @@ const PR = (() => {
             };
         },
         pests(d, s, opts) {
-            const list = pick(d, s, x => x.species && (!s.station || x.barcode === s.station) && (!s.pest || x.species === s.pest));
+            const list = pick(d, s, x => x.species && has(s.pest, x.species));
             // each pest, and each station it was recorded on
             const tot = new Map(), by = new Map();
             list.forEach(x => {
@@ -295,7 +312,7 @@ const PR = (() => {
             };
         },
         stations(d, s, opts) {
-            const list = pick(d, s, x => x.species && (!s.pest || x.species === s.pest));
+            const list = pick(d, s, x => x.species && has(s.pest, x.species));
             const by = new Map();
             list.forEach(x => { const o = by.get(x.barcode) || { st: x.stationObj, n: 0, recs: 0, last: 0, pests: new Map() }; o.n += x.count; o.recs++; o.last = Math.max(o.last, x.at); o.pests.set(x.species, (o.pests.get(x.species) || 0) + x.count); by.set(x.barcode, o); });
             const rows = Array.from(by.values()).sort((p, q) => q.n - p.n);
@@ -310,19 +327,20 @@ const PR = (() => {
         },
         station(d, s, opts) {
             const ofType = stationsOfType(d, s);
-            if (!s.station || !ofType.some(x => x.barcode === s.station)) s.station = ofType[0] ? ofType[0].barcode : '';
-            if (!s.station) return { html: `<div class="pr-empty">${s.type ? `No ${e(s.type)} stations on this site.` : 'This site has no stations yet.'}</div>`, csv: [] };
-            const stn = d.stations.find(x => x.barcode === s.station);
+            if (!ofType.some(x => x.barcode === arr(s.station)[0])) s.station = ofType[0] ? [ofType[0].barcode] : [];
+            if (!arr(s.station).length) return { html: `<div class="pr-empty">${arr(s.type).length ? `No ${e(arr(s.type).join(' or '))} stations on this site.` : 'This site has no stations yet.'}</div>`, csv: [] };
+            s.station = [arr(s.station)[0]];
+            const stn = d.stations.find(x => x.barcode === s.station[0]);
             if (!stn) return { html: '<div class="pr-empty">This site has no stations yet.</div>', csv: [] };
             const act = isActivity(stn);
-            if (act || (s.pest && !stn.entries.some(x => x.species === s.pest))) s.pest = '';
+            s.pest = act ? [] : arr(s.pest).filter(p => stn.entries.some(x => x.species === p));
             const years = yearsOf(s, d, stn.entries), from = new Date(years[0], 0, 1).getTime();
             const list = stn.entries.filter(x => x.at >= from);
-            const caught = list.filter(x => x.species && (!s.pest || x.species === s.pest));
+            const caught = list.filter(x => x.species && has(s.pest, x.species));
             let chart, cap;
             if (s.view === 'yoy') {
                 const series = yoySeries(years, (yr, m) => { const inM = list.filter(x => inYM(x, yr, m)); return act ? (levelOf(inM) || 0) : caught.filter(x => inYM(x, yr, m)).reduce((n, x) => n + x.count, 0); });
-                cap = act ? 'Activity each month (the highest found), one line per year' : `${s.pest || 'All pests'}: caught each month, one line per year`;
+                cap = act ? 'Activity each month (the highest found), one line per year' : `${chosen(s.pest, 'All pests')}: caught each month, one line per year`;
                 chart = lineChart(series, MONTHS12, Object.assign({ lbl: monShort, label: cap }, act ? ACT_CHART : {}));
             } else {
                 const ks = months(from, Date.now());
@@ -335,7 +353,7 @@ const PR = (() => {
                     const series = sp.slice(0, 8).map((name, i) => ({ name, color: PALETTE[i], vals: ks.map(k => caught.filter(x => x.species === name && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)) }));
                     if (sp.length > 8) series.push({ name: `Other (${sp.length - 8})`, color: PALETTE[8], vals: ks.map(k => caught.filter(x => sp.slice(8).includes(x.species) && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)) });
                     cap = series.length ? 'Caught each month, one line per pest' : 'Caught each month (nothing caught at this station in this time)';
-                    chart = lineChart(series.length ? series : [{ name: s.pest || 'Pests caught', color: color(opts, stn.type), vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: cap });
+                    chart = lineChart(series.length ? series : [{ name: chosen(s.pest, 'Pests caught'), color: color(opts, stn.type), vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: cap });
                 }
             }
             const head = [{ t: 'Date' }, { t: 'Activity' }, { t: 'Pest' }, { t: 'Number', num: true }, { t: 'Preparation' }, { t: 'Batch' }, { t: 'Technician' }, { t: 'Notes' }];
@@ -343,7 +361,7 @@ const PR = (() => {
             const mapBtn = stn.map && opts.onMap ? `<button type="button" class="pr-btn pr-map-btn" data-b="${e(stn.barcode)}" onclick="PR.mapGo(this, this.dataset.b)">📍 Show on floor plan</button>` : '';
             return {
                 html: `<div class="pr-station"><span>${dot(opts, stn.type)}<b>${e(stn.name)}</b> <span>${e(stn.type)}${stn.map ? ' · 📍 ' + e(stn.map) : ''} · ${e(stn.barcode)}</span></span>${mapBtn}</div>`
-                    + kpis([{ v: list.length, l: 'checks' }, act ? { v: list.length ? LEVELS[levelOf(list)] : '-', l: 'highest activity' } : { v: caught.reduce((n, x) => n + x.count, 0), l: s.pest ? s.pest + ' caught' : 'caught' }, { v: stn.lastAt ? fmtDTS(stn.lastAt) : 'Never', l: 'last scanned' }])
+                    + kpis([{ v: list.length, l: 'checks' }, act ? { v: list.length ? LEVELS[levelOf(list)] : '-', l: 'highest activity' } : { v: caught.reduce((n, x) => n + x.count, 0), l: arr(s.pest).length ? chosen(s.pest) + ' caught' : 'caught' }, { v: stn.lastAt ? fmtDTS(stn.lastAt) : 'Never', l: 'last scanned' }])
                     + `<div class="pr-chart"><div class="pr-cap">${e(cap)}</div>${chart}</div>`
                     + table(head, rows.map(x => ({ cells: [e(fmtDT(x.at)), e(x.activity), e(x.species || '-'), x.count || '', prepLink(opts, x.prep || '') + (x.qty != null ? ` <span class="pr-faint">${e(x.qty)} ${e(x.unit)}</span>` : ''), `<span class="pr-mono">${e(x.batch)}</span>`, e(x.tech), e(x.notes)] }))),
                 csv: [head.map(h => h.t)].concat(rows.map(x => [fmtDT(x.at), x.activity, x.species, x.count || '', x.prep, x.batch, x.tech, x.notes]))
@@ -351,7 +369,7 @@ const PR = (() => {
         },
         scanned(d, s, opts) {
             const gap = Number(s.gap) || 35, now = Date.now();
-            const list = d.stations.filter(x => (!s.type || x.type === s.type) && (!s.station || x.barcode === s.station) && (!s.map || x.map === s.map))
+            const list = d.stations.filter(x => has(s.type, x.type) && has(s.station, x.barcode) && has(s.map, x.map))
                 .map(x => Object.assign({ days: x.lastAt ? Math.floor((now - x.lastAt) / DAY) : null }, { x })).sort((p, q) => (q.days == null ? 1e9 : q.days) - (p.days == null ? 1e9 : p.days));
             const late = list.filter(o => o.days == null || o.days > gap);
             const head = [{ t: 'Station' }, { t: 'Type' }, { t: 'Floor plan' }, { t: 'Last scanned' }, { t: 'Days ago', num: true }, { t: 'Last result' }, { t: 'By' }];
@@ -363,7 +381,7 @@ const PR = (() => {
         },
         preps(d, s, opts) {
             const q = String(s.batch || '').toLowerCase();
-            const list = pick(d, s, x => x.prep && (!s.prep || x.prep === s.prep) && (!s.station || x.barcode === s.station) && (!q || String(x.batch).toLowerCase().includes(q))).reverse();
+            const list = pick(d, s, x => x.prep && has(s.prep, x.prep) && (!q || String(x.batch).toLowerCase().includes(q))).reverse();
             const byPrep = new Map();
             list.forEach(x => { const k = x.prep + '|' + x.unit; const o = byPrep.get(k) || { prep: x.prep, unit: x.unit, qty: 0, n: 0, batches: new Set(), stations: new Set() }; o.qty += x.qty || 0; o.n++; if (x.batch) o.batches.add(x.batch); o.stations.add(x.barcode); byPrep.set(k, o); });
             const sums = Array.from(byPrep.values()).sort((p, q2) => q2.n - p.n);
@@ -399,13 +417,13 @@ const PR = (() => {
             const RANK = { red: 0, amber: 1, green: 2 };
             const COL = { red: '#dc2626', amber: '#d97706', green: '#16a34a' }, WORD = { red: 'Over the limit', amber: 'Close to the limit', green: 'Under the limit' };
             const worst = list => list.reduce((w, h) => RANK[h.status] < RANK[w] ? h.status : w, 'green');
-            const typeOk = s.type && isInsect(s.type) ? s.type : '';
+            const typeOk = arr(s.type).filter(isInsect);
             const onlyBreached = s.breached !== 'no';
-            const stations = d.stations.filter(st => limById.has(String(st.limitId)) && isInsect(st.type) && (!typeOk || st.type === typeOk) && (!s.station || st.barcode === s.station));
+            const stations = d.stations.filter(st => limById.has(String(st.limitId)) && isInsect(st.type) && (!typeOk.length || typeOk.includes(st.type)) && has(s.station, st.barcode));
             // each station, and each insect on its limit (the worst first)
             let rows = stations.map(st => {
                 const l = limById.get(String(st.limitId));
-                const pests = l.rules.filter(rule => !s.pest || pestKey(rule.species) === pestKey(s.pest)).map(rule => {
+                const pests = l.rules.filter(rule => pestHas(s.pest, rule.species)).map(rule => {
                     const hist = ks.map(mk => monthOf(st, rule, mk)), picked = hist.filter(h => inPick(h.mk));
                     const over = picked.filter(h => h.status === 'red'), last = over.length ? over[over.length - 1] : null;
                     // the month to show the numbers for: the latest breach, else the latest month chosen
@@ -488,6 +506,37 @@ const PR = (() => {
                 csv
             };
         },
+        // Third line breaches: rodent activity at the internal rodent stations (toxic and non-toxic), the latest first.
+        // A breach is a check that found a rodent, or any activity (Low, Medium, High) at one of these stations.
+        third(d, s, opts) {
+            const sts = d.stations.filter(x => isThird(x.type) && has(s.type, x.type) && has(s.station, x.barcode) && has(s.map, x.map));
+            if (!d.stations.some(x => isThird(x.type))) return { html: '<div class="pr-empty">This site has no internal rodent stations (the third line).</div>', csv: [] };
+            const ids = new Set(sts.map(x => x.barcode)), [a, b] = range(s);
+            const checks = d.entries.filter(x => ids.has(x.barcode) && x.at >= a && x.at <= b);
+            const isBreach = x => arr(s.pest).length ? !!x.species && pestHas(s.pest, x.species) : !!x.species || level(x.activity) > 0 || x.activity === 'Caught';
+            const list = checks.filter(isBreach);
+            const ks = months(a || (list[0] ? list[0].at : Date.now()), b);
+            const tps = uniq2(sts.map(x => x.type));
+            const series = tps.map((t, i) => ({ name: t, color: color(opts, t) || PALETTE[i], vals: ks.map(k => list.filter(x => x.type === t && monthKey(x.at) === k).length) }));
+            const by = new Map();
+            list.forEach(x => { const o = by.get(x.barcode) || { st: x.stationObj, n: 0, caught: 0, last: 0 }; o.n++; o.caught += x.count; o.last = Math.max(o.last, x.at); by.set(x.barcode, o); });
+            const busiest = Array.from(by.values()).sort((p, q) => q.n - p.n || q.last - p.last);
+            const last = list[list.length - 1];
+            const found = x => x.species ? `${x.species}${x.count > 1 ? ' × ' + x.count : ''}${level(x.activity) > 0 ? ' · ' + x.activity + ' activity' : ''}` : `${x.activity} activity`;
+            const head = [{ t: 'Date' }, { t: 'Station' }, { t: 'Station type' }, { t: 'Floor plan' }, { t: 'Found' }, { t: 'Technician' }, { t: 'Notes' }];
+            const rows = list.slice().reverse();
+            const recent = list.filter(x => Date.now() - x.at < 30 * DAY);
+            return {
+                html: kpis([{ v: list.length, l: 'breaches', c: list.length ? '#dc2626' : '#16a34a' }, { v: `${by.size} of ${sts.length}`, l: 'internal rodent stations with activity', c: by.size ? '#dc2626' : '' },
+                        { v: new Set(list.map(x => monthKey(x.at))).size, l: 'months with a breach' }, { v: last ? fmtD(last.at) : 'None', l: 'latest breach' }])
+                    + (recent.length ? `<div class="pr-alert"><b>⚠ ${plural(recent.length, 'breach')} in the last 30 days</b><div class="pr-alert-st">At: ${uniq2(recent.map(x => x.barcode)).map(bc => stLink(opts, d.stations.find(z => z.barcode === bc) || { barcode: bc, name: bc })).join(', ')}</div></div>`
+                        : `<div class="pr-alert pr-alert-ok"><b>✓ No rodent activity at the third line in the last 30 days.</b></div>`)
+                    + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Breaches each month${tps.length > 1 ? ', by station type' : ''}</div>${lineChart(series.length ? series : [{ name: 'Breaches', color: '#dc2626', vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: 'Third line breaches per month' })}</div>`
+                    + `<div class="pr-chart"><div class="pr-cap">Stations with the most breaches</div>${barChart(busiest.slice(0, 12).map(o => ({ l: o.st.name, v: o.n, c: color(opts, o.st.type) })))}</div></div>`
+                    + table(head, rows.map(x => ({ _cls: 'pr-late', cells: [e(fmtDT(x.at)), stLink(opts, x.stationObj), e(x.type), e(x.map || '-'), e(found(x)), e(x.tech), e(x.notes)] })), { empty: 'No rodent activity at the third line for this choice. 🎉' }),
+                csv: [head.map(h => h.t)].concat(rows.map(x => [fmtDT(x.at), x.station, x.type, x.map, found(x), x.tech, x.notes]))
+            };
+        },
         recs(d, s, opts) {
             const [a, b] = range(s), list = d.recs.filter(r => r.raisedAt >= a && r.raisedAt <= b);
             const done = list.filter(r => r.status === 'complete' && r.completedAt);
@@ -505,7 +554,7 @@ const PR = (() => {
             };
         },
         visits(d, s) {
-            const [a, b] = range(s), list = d.visits.filter(v => v.at >= a && v.at <= b && (!s.tech || v.tech === s.tech));
+            const [a, b] = range(s), list = d.visits.filter(v => v.at >= a && v.at <= b && has(s.tech, v.tech));
             const ks = months(a || (list[0] ? list[0].at : Date.now()), b);
             const mins = v => v.start && v.end && v.end > v.start ? Math.round((v.end - v.start) / 60000) : null;
             const timed = list.map(mins).filter(x => x != null);
@@ -550,44 +599,62 @@ const PR = (() => {
         const o = box._pr.opts || {};
         if (o.onStation) { o.onStation(barcode); return; }
         if (!s._linked) s._prevStation = s.station;
-        s._linked = true; s.station = barcode; s.report = 'station';
-        { const d = box._pr && box._pr.data, st = d && d.stations.find(x => x.barcode === barcode); if (st && s.type && st.type !== s.type) s.type = st.type; }
+        s._linked = true; s.station = [barcode]; s.report = 'station';
+        { const d = box._pr && box._pr.data, st = d && d.stations.find(x => x.barcode === barcode); if (st && !has(s.type, st.type)) s.type = []; }
         box.scrollIntoView && box.scrollIntoView({ block: 'start', behavior: 'smooth' });
         draw(box);
     }
     // A drop-down you can type in: tap it, type part of a name, pick. cb(el, key, value) is called with the choice.
+    // With o.multi, it's a list of tick boxes (o.cur is the ticked values; none ticked = o.all) and cb gets the ticked values when it closes.
     function combo(o) {
+        if (o.multi) {
+            const cur = arr(o.cur).map(String), names = o.list.filter(x => cur.includes(String(x[0]))).map(x => x[1]);
+            const txt = !names.length ? (o.all || 'All') : names.length === 1 ? names[0] : `${names.length} ${o.noun || 'chosen'}`;
+            return `<label class="pr-f ${o.cls || ''}">${o.label ? `<span>${e(o.label)}</span>` : ''}<span class="pr-combo" data-k="${e(o.k)}" data-cb="${e(o.cb)}" data-multi="1" data-all="${e(o.all || 'All')}" data-cur="${e(JSON.stringify(cur))}" data-items="${e(JSON.stringify(o.list))}">`
+                + `<button type="button" class="pr-combo-btn ${names.length ? 'pr-combo-on' : ''}" onclick="PR.comboOpen(this)" aria-haspopup="listbox" title="${e(names.join(', ') || txt)}">${e(txt)}</button></span></label>`;
+        }
         const items = (o.all != null ? [['', o.all]] : []).concat(o.list);
         const cur = items.find(x => String(x[0]) === String(o.cur == null ? '' : o.cur)) || items[0] || ['', ''];
         return `<label class="pr-f ${o.cls || ''}">${o.label ? `<span>${e(o.label)}</span>` : ''}<span class="pr-combo" data-k="${e(o.k)}" data-cb="${e(o.cb)}" data-items="${e(JSON.stringify(items))}">`
             + `<button type="button" class="pr-combo-btn" onclick="PR.comboOpen(this)" aria-haspopup="listbox" title="${e(cur[1])}">${e(cur[1])}</button></span></label>`;
     }
-    function comboClose() { document.querySelectorAll('.pr-combo-pop').forEach(x => x.remove()); }
+    // closing a tick-box list applies what was ticked
+    function comboClose() { document.querySelectorAll('.pr-combo-pop').forEach(x => { const done = x._done; x.remove(); if (done) done(); }); }
+    const comboCb = wrap => { const name = String(wrap.dataset.cb || ''); return name === 'PR.set' ? set : name.split('.').reduce((o, k) => o && o[k], window); };   // PR itself isn't on window
     function comboOpen(btn) {
         const wrap = btn.closest('.pr-combo'), had = wrap.querySelector('.pr-combo-pop');
         comboClose();
         if (had) return;
-        const items = JSON.parse(wrap.dataset.items || '[]');
+        const items = JSON.parse(wrap.dataset.items || '[]'), multi = !!wrap.dataset.multi;
         const pop = document.createElement('div');
-        pop.className = 'pr-combo-pop';
-        pop.innerHTML = `<input type="search" class="pr-combo-q" placeholder="Type to search..." autocomplete="off" aria-label="Search"><div class="pr-combo-list" role="listbox"></div>`;
+        pop.className = 'pr-combo-pop' + (multi ? ' pr-combo-multi' : '');
+        pop.innerHTML = `<input type="search" class="pr-combo-q" placeholder="Type to search..." autocomplete="off" aria-label="Search">`
+            + (multi ? `<div class="pr-combo-bar"><button type="button" class="pr-combo-act" data-act="all">Tick all shown</button><button type="button" class="pr-combo-act" data-act="none">Clear</button><button type="button" class="pr-combo-act pr-combo-done" data-act="done">Done</button></div>` : '')
+            + `<div class="pr-combo-list" role="listbox" ${multi ? 'aria-multiselectable="true"' : ''}></div>`;
         wrap.appendChild(pop);
+        // a tap on the list mustn't count as a tap on the filter's label (which would close it)
+        pop.addEventListener('click', ev => { if (ev.target !== q) ev.preventDefault(); });
         const q = pop.querySelector('input'), box = pop.querySelector('.pr-combo-list');
+        const ticked = new Set(multi ? JSON.parse(wrap.dataset.cur || '[]') : []), start = JSON.stringify(Array.from(ticked).sort());
+        const shown = () => { const t = q.value.trim().toLowerCase(); return items.filter(x => !t || String(x[1]).toLowerCase().includes(t)).slice(0, 400); };
         const draw = () => {
-            const t = q.value.trim().toLowerCase();
-            const hit = items.filter(x => !t || String(x[1]).toLowerCase().includes(t)).slice(0, 400);
-            box.innerHTML = hit.map(x => `<button type="button" role="option" class="pr-combo-opt" data-v="${e(x[0])}">${e(x[1])}</button>`).join('') || '<div class="pr-combo-none">No matches</div>';
+            const hit = shown();
+            box.innerHTML = (multi ? `<div class="pr-combo-sum">${ticked.size ? `${ticked.size} ticked` : e(wrap.dataset.all || 'All')}</div>` : '')
+                + (hit.map(x => multi ? `<button type="button" role="option" aria-selected="${ticked.has(String(x[0]))}" class="pr-combo-opt pr-combo-tick" data-v="${e(x[0])}"><span class="pr-combo-box">${ticked.has(String(x[0])) ? '✓' : ''}</span>${e(x[1])}</button>`
+                    : `<button type="button" role="option" class="pr-combo-opt" data-v="${e(x[0])}">${e(x[1])}</button>`).join('') || '<div class="pr-combo-none">No matches</div>');
         };
-        const pickV = v => {
-            comboClose();
-            const name = String(wrap.dataset.cb || ''), fn = name === 'PR.set' ? set : name.split('.').reduce((o, k) => o && o[k], window);   // PR itself isn't on window
-            if (typeof fn === 'function') fn(btn, wrap.dataset.k, v);
-        };
-        box.addEventListener('click', ev => { const b = ev.target.closest('.pr-combo-opt'); if (b) pickV(b.dataset.v); });
+        const pickV = v => { comboClose(); const fn = comboCb(wrap); if (typeof fn === 'function') fn(btn, wrap.dataset.k, v); };
+        if (multi) pop._done = () => { const v = Array.from(ticked); if (JSON.stringify(v.slice().sort()) === start) return; const fn = comboCb(wrap); if (typeof fn === 'function') fn(btn, wrap.dataset.k, v); };
+        const toggle = v => { const b = box.querySelector(`.pr-combo-opt[data-v="${CSS.escape(v)}"]`); if (ticked.has(v)) ticked.delete(v); else ticked.add(v); draw(); const n = box.querySelector(`.pr-combo-opt[data-v="${CSS.escape(v)}"]`); if (b && n) n.focus(); };
+        box.addEventListener('click', ev => { const b = ev.target.closest('.pr-combo-opt'); if (b) multi ? toggle(b.dataset.v) : pickV(b.dataset.v); });
+        pop.addEventListener('click', ev => { const a = ev.target.closest('.pr-combo-act'); if (!a) return;
+            if (a.dataset.act === 'all') { shown().forEach(x => ticked.add(String(x[0]))); draw(); }
+            if (a.dataset.act === 'none') { ticked.clear(); draw(); }
+            if (a.dataset.act === 'done') { comboClose(); btn.focus(); } });
         q.addEventListener('input', draw);
         q.addEventListener('keydown', ev => {
             if (ev.key === 'Escape') { comboClose(); btn.focus(); }
-            if (ev.key === 'Enter') { ev.preventDefault(); const f = box.querySelector('.pr-combo-opt'); if (f) pickV(f.dataset.v); }
+            if (ev.key === 'Enter') { ev.preventDefault(); const f = box.querySelector('.pr-combo-opt'); if (f) multi ? toggle(f.dataset.v) : pickV(f.dataset.v); }
             if (ev.key === 'ArrowDown') { ev.preventDefault(); const f = box.querySelector('.pr-combo-opt'); if (f) f.focus(); }
         });
         box.addEventListener('keydown', ev => {
@@ -608,6 +675,7 @@ const PR = (() => {
         const s = ST.get(box);
         if (!s || !box._pr) return;
         Object.assign(s, { report }, patch || {});
+        MULTI.forEach(k => { s[k] = arr(s[k]); });
         draw(box);
     }
     return { build, render, set, download, print, station, sds, rec, mapGo, combo, comboOpen, comboClose, show, REPORTS };
