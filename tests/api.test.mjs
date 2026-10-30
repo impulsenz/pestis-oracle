@@ -131,8 +131,9 @@ try {
   ok(sp.some(x => x.label === 'Rat') && sp.some(x => x.label === 'Mouse') && !sp.some(x => /norway|ship rat|house mouse/i.test(x.label)), 'one Rat and Mouse; the Norway/ship rats and house mouse merged', sp.map(x => x.label));
   ok(sp.filter(x => x.label === 'Rat').length === 1 && sp.find(x => x.label === 'Rat').category === 'Rodents', 'Rat is a rodent');
   ok(sp.some(x => x.label === 'Gisborne cockroach' && x.subcategory === 'Cockroaches'), 'Gisborne cockroach added');
-  ok(['Argentine ant', "Darwin's ant", 'White-footed house ant', 'Black house ant', 'Coastal brown ant'].every(l => sp.some(x => x.label === l && x.subcategory === 'Ants')), 'the five common ants', sp.filter(x => x.subcategory === 'Ants').map(x => x.label));
-  ok(sp.filter(x => x.subcategory === 'Flies').length === 11 && sp.some(x => x.label === 'Midge'), 'ten flies and the midge', sp.filter(x => x.subcategory === 'Flies').map(x => x.label));
+  ok(sp.filter(x => x.subcategory === 'Ants' || /\bants?\b/i.test(x.label)).map(x => x.label).join() === 'Ants', 'one pest for every kind of ant: Ants', sp.filter(x => x.subcategory === 'Ants' || /\bants?\b/i.test(x.label)).map(x => x.label));
+  const flies = sp.filter(x => x.subcategory === 'Flies').map(x => x.label).sort();
+  ok(flies.join() === 'Blowfly,Cluster fly,Drain fly,House Fly,Lesser house fly,Midge', 'the flies: no flesh fly, vinegar fly, fungus gnat, green blowfly or stable fly', flies);
   ok(spIn('Moths').length === 10, 'Moths category with ten moths', spIn('Moths'));
   ok(spIn('Stored product pests').length === 15, 'fifteen stored product pests', spIn('Stored product pests'));
   ok(new Set(sp.map(x => x.label.toLowerCase())).size === sp.length, 'no pest twice');
@@ -395,10 +396,15 @@ try {
   // ---------- a restart: old pest names in records are matched to the pest list ----------
   const techR = await as('tech@example.com');
   r = await techR.from('service_logs').insert([{ client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'House Mouse' } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'norway rat' } },
-    { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'german cockroach' } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Unicorn beetle' } }]);
+    { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'german cockroach' } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Unicorn beetle' } },
+    { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Argentine ant', morePests: [{ species: 'Black house ant', count: 2 }] } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Flesh fly' } }]);
   ok(!r.error, 'records with old pest names added', r.error);
-  r = await (await as('boss@example.com')).from('app_settings').upsert({ key: 'pest_names_version', value: 0 });
+  const bossR = await as('boss@example.com');
+  r = await bossR.from('app_settings').upsert({ key: 'pest_names_version', value: 0 });
   ok(!r.error, 'the tidy is set to run again', r.error);
+  // an old list with two kinds of ant and a fly that's now gone
+  await bossR.from('species').insert([{ id: 'ant-x', label: "Darwin's ant", category: 'Crawling insects', subcategory: 'Ants' }, { id: 'fly-x', label: 'Stable fly', category: 'Flying insects', subcategory: 'Flies' }]);
+  await bossR.from('app_settings').upsert({ key: 'pest_trim_version', value: 0 });
   srv.stop(); await new Promise(res => setTimeout(res, 500));
   srv = await start({ port: PORT, dataDir: tmpDir('api'), keep: true });
   const tech2 = await as('tech@example.com');
@@ -407,6 +413,10 @@ try {
   const names = (r.data || []).map(x => x.payload.speciesCaught);
   ok(names.includes('Mouse') && names.includes('Rat') && names.includes('German Cockroach') && !names.some(n => /house mouse|norway|^german cockroach$/.test(n)) && names.includes('Unicorn beetle'),
     'on restart, old pest names are matched to the list (a name with no match is left alone)', names);
+  const antRec = (r.data || []).find(x => x.payload.morePests && x.payload.morePests.length);
+  ok(antRec && antRec.payload.speciesCaught === 'Ants' && antRec.payload.morePests[0].species === 'Ants' && names.includes('Flesh fly'), 'every kind of ant in past records is now Ants; a removed fly keeps its name in records', (r.data || []).map(x => x.payload));
+  const sp2 = ((await tech2.from('species').select('label')).data || []).map(x => x.label);
+  ok(sp2.filter(l => /\bants?\b/i.test(l)).join() === 'Ants' && !sp2.includes('Stable fly'), 'the list has one Ants and no Stable fly', sp2);
 } catch (e) { fails++; console.log('ERROR', e); }
 finally {
   srv.stop();

@@ -833,25 +833,18 @@ transaction(() => {
 // Each existing pest goes to the first pattern it matches (the same order as the apps' PEST_LIBRARY); missing ones are added
 // with just their name and category, and Admin fills in their pictures and guide.
 const PEST_LIST_V = 1;
+// every kind of ant is just "Ants" (the owner keeps it simple)
+const ANT_RE = /\bants?\b|linepithema|technomyrmex|ochetellus|pheidole|doleromyrma|darwin|tapinoma|monomorium|pharaoh/i;
 const PEST_LIST = [
   ['Rat', 'Rodents', null, /\brats?\b|norway|brown rat|sewer rat|ship rat|roof rat|black rat|rattus/i],
   ['Mouse', 'Rodents', null, /house mouse|\bmice\b|\bmouse\b|mus musculus/i],
   ['Gisborne cockroach', 'Crawling insects', 'Cockroaches', /gisborne|drymaplaneta/i],
-  ['Argentine ant', 'Crawling insects', 'Ants', /argentine ant|linepithema/i],
-  ['White-footed house ant', 'Crawling insects', 'Ants', /white.?footed|technomyrmex/i],
-  ['Black house ant', 'Crawling insects', 'Ants', /black house ant|ochetellus/i],
-  ['Coastal brown ant', 'Crawling insects', 'Ants', /coastal brown|big.?headed|pheidole/i],
-  ["Darwin's ant", 'Crawling insects', 'Ants', /darwin|doleromyrma/i],
+  ['Ants', 'Crawling insects', 'Ants', ANT_RE],
   ['Lesser house fly', 'Flying insects', 'Flies', /lesser house ?fly|fannia/i],
   ['House fly', 'Flying insects', 'Flies', /house ?fly|musca/i],
-  ['Green blowfly', 'Flying insects', 'Flies', /green ?bottle|green blow ?fly|lucilia/i],
   ['Blowfly', 'Flying insects', 'Flies', /blow ?fly|bluebottle|calliphor/i],
-  ['Flesh fly', 'Flying insects', 'Flies', /flesh fly|sarcophag/i],
-  ['Stable fly', 'Flying insects', 'Flies', /stable fly|stomoxys/i],
-  ['Fruit (vinegar) fly', 'Flying insects', 'Flies', /fruit fly|drosophila|vinegar fly/i],
   ['Drain fly', 'Flying insects', 'Flies', /drain fly|moth fly|psychod/i],
   ['Cluster fly', 'Flying insects', 'Flies', /cluster fly|pollenia/i],
-  ['Fungus gnat', 'Flying insects', 'Flies', /fungus gnat|sciarid/i],
   ['Case-bearing clothes moth', 'Moths', 'Fabric moths', /case.?bearing|tinea pellionella/i],
   ['Webbing clothes moth', 'Moths', 'Fabric moths', /clothes moth|tineola|tinea/i],
   ['Brown house moth', 'Moths', 'Fabric moths', /brown house moth|hofmannophila/i],
@@ -1018,6 +1011,37 @@ function addMorePests() {
   else sys.insert('app_settings', { key: 'more_pests_version', value: MORE_PESTS_V, updated_by: 'Server' });
 }
 transaction(addMorePests);
+
+// Once: every kind of ant becomes one pest, "Ants" (past records and critical limits too), and five flies leave the
+// list (Flesh fly, Fruit (vinegar) fly, Fungus gnat, Green blowfly, Stable fly - past records keep their names)
+const PEST_TRIM_V = 1;
+const DROPPED_PESTS = /flesh fly|sarcophag|fruit fly|vinegar fly|drosophila|fungus gnat|sciarid|green ?bottle|green blow ?fly|lucilia|stable fly|stomoxys/i;
+function trimPestList() {
+  const done = sys.one('app_settings', [['key', 'eq', 'pest_trim_version']]);
+  if (done && Number(done.value) >= PEST_TRIM_V) return;
+  const rows = sys.all('species', []);
+  const isAnt = r => r.subcategory === 'Ants' || ANT_RE.test(String(r.label || ''));
+  const ants = rows.filter(isAnt);
+  let keep = ants.find(r => /^ants$/i.test(String(r.label || '').trim()));
+  if (keep) sys.update('species', [['id', 'eq', keep.id]], { label: 'Ants', category: 'Crawling insects', subcategory: 'Ants' });
+  else {
+    keep = { id: crypto.randomUUID() };
+    sys.insert('species', { id: keep.id, label: 'Ants', sort: Math.min(...rows.filter(isAnt).map(r => r.sort || 0), Math.max(0, ...rows.map(r => r.sort || 0)) + 1), category: 'Crawling insects', subcategory: 'Ants' });
+  }
+  for (const r of ants) if (r.id !== keep.id) { renamePestEverywhere(r.label, 'Ants'); sys.delete('species', [['id', 'eq', r.id]]); }
+  // records naming an ant that was never on the list
+  const names = new Set();
+  db.prepare(`SELECT DISTINCT trim(json_extract(payload, '$.speciesCaught')) AS n FROM service_logs WHERE json_extract(payload, '$.speciesCaught') IS NOT NULL`).all().forEach(r => names.add(r.n));
+  for (const r of db.prepare(`SELECT payload FROM service_logs WHERE json_extract(payload, '$.morePests') IS NOT NULL`).all()) {
+    try { (JSON.parse(r.payload).morePests || []).forEach(x => x && x.species && names.add(String(x.species).trim())); } catch {}
+  }
+  db.prepare('SELECT DISTINCT trim(pest) AS n FROM pest_sightings').all().forEach(r => names.add(r.n));
+  for (const n of names) if (n && ANT_RE.test(n) && n !== 'Ants') renamePestEverywhere(n, 'Ants');
+  for (const r of rows) if (!isAnt(r) && DROPPED_PESTS.test(String(r.label || ''))) sys.delete('species', [['id', 'eq', r.id]]);
+  if (done) sys.update('app_settings', [['key', 'eq', 'pest_trim_version']], { value: PEST_TRIM_V, updated_by: 'Server' });
+  else sys.insert('app_settings', { key: 'pest_trim_version', value: PEST_TRIM_V, updated_by: 'Server' });
+}
+transaction(trimPestList);
 
 /* =====================================================================================
    Sign-in

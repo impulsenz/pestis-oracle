@@ -3,6 +3,11 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r87', date: '2026-10-30', v: { svc: '2026.10.30-r87', adm: '2026.10.30-a30', cli: '2026.10.30-p46' },
+            svc: ['Pests: every kind of ant is now just "Ants" (past records too), with its own pest guide page',
+                  'Pests: Flesh fly, Fruit (vinegar) fly, Fungus gnat, Green blowfly and Stable fly are off the list (past records keep their names)'],
+            adm: ['Pest list: every kind of ant is now just "Ants" (past records and critical limits too). Flesh fly, Fruit (vinegar) fly, Fungus gnat, Green blowfly and Stable fly are off the list'],
+            cli: ['Pests: every kind of ant is now shown simply as "Ants" in your records and reports'] },
         { rev: 'r86', date: '2026-10-30', v: { svc: '2026.10.30-r86', adm: '2026.10.30-a29', cli: '2026.10.30-p45' },
             svc: ['No more automatic sign-out: the app stays signed in until you tap Sign out',
                   'Closing a visit: if this visit took a critical limit over, a red box at the top of "Customer review & sign" shows it, so the customer sees it before signing',

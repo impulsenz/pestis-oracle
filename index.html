@@ -2260,7 +2260,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r86-oci';
+        const APP_VERSION = '2026.10.30-r87-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -13979,6 +13979,11 @@
               about: 'The black cockroach, often called the Māori bug or stinky cockroach, is a native, glossy black, wingless cockroach about 20-25 mm long. It lives outdoors in leaf litter, under loose bark, in rotten wood, firewood and among stones, and feeds on decaying plant material. When disturbed it gives off a strong, unpleasant smell. It usually does not establish itself in homes, but is brought in with firewood or wanders in.',
               breeding: 'Females produce egg cases that are left in sheltered spots under bark and logs. Nymphs look like small adults and mature outdoors over a year or more. It does not breed indoors.',
               control: 'Identify it correctly - it is a native outdoor species, not an indoor infestation. Keep firewood stacks, timber and leaf litter away from the building, and check firewood before bringing it in. Seal gaps under doors and around cladding. Remove individuals by hand or vacuum. Where they keep coming in, apply a residual perimeter treatment to entry points and foundations.' },
+            // every kind of ant is recorded as just "Ants"
+            { m: /^\s*ants?\s*$/i, name: 'Ants', cat: 'Crawling insects', sub: 'Ants', sci: 'Formicidae', wiki: 'Ant', signs: ["ant trail", "ant nest", "ants in kitchen"],
+              about: 'Several ants invade buildings in New Zealand, among them the Argentine ant, white-footed house ant, black house ant, coastal brown ant and Darwin\'s ant. Most are small (2-4 mm) and come inside in trails looking for sugar, protein and water, nesting in wall cavities, under paving, in garden beds and around the building.',
+              breeding: 'Colonies are led by one or more egg-laying queens and grow quickly in warm months. Many household ants have several queens and spread by budding - a queen walks off with workers to start a new nest nearby - so a problem can move around a site.',
+              control: 'Follow trails back to where they enter and to the nest. Use slow-acting ant gel or granular baits that workers carry back to the queens, and avoid spraying trails, which scatters the colony. Treat the outside of the building with a non-repellent residual, seal entry points, clean up food and sugary spills, and trim plants touching the building.' },
             { m: /argentine ant|linepithema/i, name: 'Argentine ant', cat: 'Crawling insects', sub: 'Ants', sci: 'Linepithema humile', wiki: 'Argentine_ant', signs: ["ant trail", "Linepithema humile trail", "ant nest"],
               about: 'The Argentine ant is a small (2-3 mm), light-brown ant that forms huge "super-colonies" with many queens. It is aggressive, displaces other ants, invades buildings in long trails, and farms aphids and scale insects on plants. It is an unwanted organism in New Zealand.',
               breeding: 'Each colony has many queens laying eggs all year, and new nests form by budding - queens walk off with workers to start a new nest nearby, so they spread steadily from site to site.',
@@ -14827,6 +14832,11 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r87', date: '2026-10-30', v: { svc: '2026.10.30-r87', adm: '2026.10.30-a30', cli: '2026.10.30-p46' },
+            svc: ['Pests: every kind of ant is now just "Ants" (past records too), with its own pest guide page',
+                  'Pests: Flesh fly, Fruit (vinegar) fly, Fungus gnat, Green blowfly and Stable fly are off the list (past records keep their names)'],
+            adm: ['Pest list: every kind of ant is now just "Ants" (past records and critical limits too). Flesh fly, Fruit (vinegar) fly, Fungus gnat, Green blowfly and Stable fly are off the list'],
+            cli: ['Pests: every kind of ant is now shown simply as "Ants" in your records and reports'] },
         { rev: 'r86', date: '2026-10-30', v: { svc: '2026.10.30-r86', adm: '2026.10.30-a29', cli: '2026.10.30-p45' },
             svc: ['No more automatic sign-out: the app stays signed in until you tap Sign out',
                   'Closing a visit: if this visit took a critical limit over, a red box at the top of "Customer review & sign" shows it, so the customer sees it before signing',
