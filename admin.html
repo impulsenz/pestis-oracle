@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.30-a23-oci
+    Version 2026.10.30-a24-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -3115,73 +3115,99 @@ const PVR = (() => {
     }
     // d = { image (an <img> or canvas of the plan), pins: [{ x, y (shares of the plan), name, type, color, overdue }], labels,
     //       types: [{ type, color }] (every station type, so the legend always shows them all), siteName, address, planName, madeBy, created, updated, by, app }
-    // A white A4 page: the site and the Pesties logo across the top, the plan as big as the free space allows (with an even
-    // margin), then the legend (every station type) and the map details, with "Floor plan not to scale".
+    // One A4 page: the navy header with the site and the Pesties logo, the plan as big as the page allows, then the legend
+    // (every station type, "Floor plan not to scale") and the map details in a card along the bottom.
+    // the plan without the blank (white) border around it, so the plan itself fills the page; pins are moved to match
+    function trimmed(img, pins) {
+        const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+        try {
+            const k = Math.min(1, 600 / Math.max(iw, ih)), w = Math.max(1, Math.round(iw * k)), h = Math.max(1, Math.round(ih * k));
+            const t = document.createElement('canvas'); t.width = w; t.height = h;
+            const tg = t.getContext('2d'); tg.fillStyle = '#fff'; tg.fillRect(0, 0, w, h); tg.drawImage(img, 0, 0, w, h);
+            const px = tg.getImageData(0, 0, w, h).data, blank = i => px[i] > 244 && px[i + 1] > 244 && px[i + 2] > 244;
+            let x0 = w, y0 = h, x1 = -1, y1 = -1;
+            for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (!blank((y * w + x) * 4)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+            // keep every pin inside, and a little space round the edge
+            pins.forEach(p => { const x = p.x * w, y = p.y * h; x0 = Math.min(x0, x - 3); x1 = Math.max(x1, x + 3); y0 = Math.min(y0, y - 6); y1 = Math.max(y1, y + 2); });
+            if (x1 < 0) return { img, iw, ih, pins };
+            const pad = Math.round(Math.max(w, h) * .015);
+            x0 = Math.max(0, Math.floor(x0 - pad)); y0 = Math.max(0, Math.floor(y0 - pad)); x1 = Math.min(w, Math.ceil(x1 + pad)); y1 = Math.min(h, Math.ceil(y1 + pad));
+            if ((x1 - x0) * (y1 - y0) > w * h * .96) return { img, iw, ih, pins };   // nothing worth trimming
+            const sx = x0 / k, sy = y0 / k, sw = (x1 - x0) / k, sh = (y1 - y0) / k;
+            const c = document.createElement('canvas'); c.width = Math.round(sw); c.height = Math.round(sh);
+            const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+            return { img: c, iw: c.width, ih: c.height, pins: pins.map(p => Object.assign({}, p, { x: (p.x * iw - sx) / sw, y: (p.y * ih - sy) / sh })) };
+        } catch (e) { return { img, iw, ih, pins }; }   // a picture that can't be read: as it is
+    }
     async function pestMap(d) {
         const { jsPDF } = window.jspdf;
-        const iw = d.image.naturalWidth || d.image.width, ih = d.image.naturalHeight || d.image.height;
+        const tr = trimmed(d.image, d.pins), iw = tr.iw, ih = tr.ih, pins = tr.pins;
         const land = iw >= ih;
         const W = land ? 3508 : 2480, H = land ? 2480 : 3508;   // A4 at 300 dpi
         const c = document.createElement('canvas'); c.width = W; c.height = H;
         const g = c.getContext('2d');
-        const M = 120, gap = 70;   // the page margin (about 10 mm) and the space between parts
+        const M = 70, gap = 40;   // a slim page margin, so the plan gets the room
         const font = (w, px) => `${w} ${px}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif`;
+        const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
         const fit = (t, max) => { t = String(t); if (g.measureText(t).width <= max) return t; while (t.length > 1 && g.measureText(t + '…').width > max) t = t.slice(0, -1); return t + '…'; };
         g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
         // the legend: every station type (how many are on this plan, or a dash), and overdue
-        const count = new Map(); d.pins.forEach(x => count.set(x.type, (count.get(x.type) || 0) + 1));
+        const count = new Map(); pins.forEach(x => count.set(x.type, (count.get(x.type) || 0) + 1));
         const all = (d.types || []).slice();
-        d.pins.forEach(x => { if (!all.some(t => t.type === x.type)) all.push({ type: x.type, color: x.color }); });
-        const overdue = d.pins.filter(x => x.overdue).length;
+        pins.forEach(x => { if (!all.some(t => t.type === x.type)) all.push({ type: x.type, color: x.color }); });
+        const overdue = pins.filter(x => x.overdue).length;
         const legItems = all.map(t => ({ t: t.type, n: count.get(t.type) || 0, color: t.color })).concat([{ t: 'Overdue for service', n: overdue, ring: true }]);
-        const details = [['Client', d.siteName || '-'], ['Site address', d.address || '-'], ['Floor plan', d.planName || '-'], ['Stations on this plan', String(d.pins.length)],
+        const details = [['Client', d.siteName || '-'], ['Site address', d.address || '-'], ['Floor plan', d.planName || '-'], ['Stations on this plan', String(pins.length)],
             ['Map made by', d.madeBy || 'Pesties'], ['Last updated', day(d.updated || d.created) || '-'], ['Generated', `${day(Date.now())}${d.by ? ' by ' + d.by : ''}`]];
-        const legCols = land ? 2 : 2, rowH = 64, legRows = Math.ceil(legItems.length / legCols);
-        const dCols = land ? 2 : 2, dRows = Math.ceil(details.length / dCols);
-        const legH = 70 + Math.max(legRows * rowH, dRows * 84) + 60;
-        // header: the site and plan on the left, the Pesties logo on the right, a thin orange line under it
-        const headH = 230, lg = await logo();
+        const legCols = land ? 3 : 2, rowH = 56, legRows = Math.ceil(legItems.length / legCols);
+        const dCols = land ? 2 : 2, dRowH = 76, dRows = Math.ceil(details.length / dCols);
+        const legH = 100 + Math.max(legRows * rowH, dRows * dRowH) + 20;
+        // header: navy, an orange line under it, the Pesties logo on the right
+        const headH = 200;
+        const grd = g.createLinearGradient(0, 0, W, headH); grd.addColorStop(0, '#0b1530'); grd.addColorStop(1, '#16244a');
+        g.fillStyle = grd; g.fillRect(0, 0, W, headH);
+        g.fillStyle = '#f97316'; g.fillRect(0, headH - 12, W, 12);
+        const lg = await logo();
         let logoW = 0;
-        if (lg) { const lh = 170, lw = lh * lg.k; logoW = lw + 50; g.drawImage(lg.img, W - M - lw, M - 10, lw, lh); }
+        if (lg) { const lh = 140, lw = lh * lg.k; logoW = lw + 50; g.drawImage(lg.img, W - M - lw, (headH - 12 - lh) / 2, lw, lh); }
         g.textBaseline = 'alphabetic';
-        g.fillStyle = '#f97316'; g.font = font(800, 34); g.fillText('PEST MAP', M, M + 30);
-        g.fillStyle = '#0b1530'; g.font = font(900, 72); g.fillText(fit(d.siteName || 'Site', W - M * 2 - logoW), M, M + 112);
-        g.fillStyle = '#475569'; g.font = font(600, 34); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - M * 2 - logoW), M, M + 165);
-        g.fillStyle = '#f97316'; g.fillRect(M, M + headH - 20, W - M * 2, 6);
-        // the plan: as big as the space between the header and the legend allows, centred, with the margin all round
-        const top = M + headH + gap, bottom = H - M - legH - gap, boxW = W - M * 2, boxH = bottom - top;
+        g.fillStyle = '#f97316'; g.font = font(800, 30); g.fillText('PEST MAP', M, 58);
+        g.fillStyle = '#ffffff'; g.font = font(900, 64); g.fillText(fit(d.siteName || 'Site', W - M * 2 - logoW), M, 128);
+        g.fillStyle = '#9db0d1'; g.font = font(600, 32); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - M * 2 - logoW), M, 172);
+        // the plan: as big as the space between the header and the legend allows (keeping its shape), centred
+        const top = headH + gap, bottom = H - M - legH - gap, boxW = W - M * 2, boxH = bottom - top;
         const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = M + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
-        g.drawImage(d.image, mx, my, mw, mh);
-        const r = Math.max(14, Math.min(34, Math.min(mw, mh) / 55));
-        d.pins.forEach(x => pin(g, mx + x.x * mw, my + x.y * mh, r, x.color, x.overdue));
+        g.drawImage(tr.img, mx, my, mw, mh);
+        const r = Math.max(15, Math.min(36, Math.min(mw, mh) / 50));
+        pins.forEach(x => pin(g, mx + x.x * mw, my + x.y * mh, r, x.color, x.overdue));
         if (d.labels) {
             g.font = font(700, Math.round(r * 1.15)); g.textBaseline = 'middle';
-            d.pins.forEach(x => {
+            pins.forEach(x => {
                 const px = mx + x.x * mw + r * 1.3, py = my + x.y * mh - r * Math.SQRT2, tw = g.measureText(x.name).width;
-                g.fillStyle = 'rgba(2,6,23,.82)'; g.beginPath(); g.roundRect ? g.roundRect(px, py - r * .85, tw + r * 1.1, r * 1.7, r * .4) : g.rect(px, py - r * .85, tw + r * 1.1, r * 1.7); g.fill();
+                g.fillStyle = 'rgba(2,6,23,.82)'; rr(px, py - r * .85, tw + r * 1.1, r * 1.7, r * .4); g.fill();
                 g.fillStyle = '#fff'; g.fillText(x.name, px + r * .55, py);
             });
             g.textBaseline = 'alphabetic';
         }
-        // legend and map details: on the white page, a thin line above them
-        const ly = H - M - legH, splitX = M + boxW * .55;
-        g.fillStyle = '#e2e8f0'; g.fillRect(M, ly, boxW, 4);
-        g.fillStyle = '#f97316'; g.font = font(800, 30); g.fillText('LEGEND', M, ly + 66); g.fillText('MAP DETAILS', splitX + 40, ly + 66);
-        g.fillStyle = '#64748b'; g.font = font(700, 26); g.textAlign = 'right'; g.fillText('Floor plan not to scale', splitX - 40, ly + 66); g.textAlign = 'left';
-        const lcW = (splitX - M - 40) / legCols;
+        // the legend and map details card along the bottom
+        const ly = H - M - legH, splitX = M + boxW * (land ? .6 : .55);
+        g.fillStyle = '#f8fafc'; rr(M, ly, boxW, legH, 22); g.fill(); g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; rr(M, ly, boxW, legH, 22); g.stroke();
+        g.fillStyle = '#f97316'; g.font = font(800, 28); g.fillText('LEGEND', M + 44, ly + 62); g.fillText('MAP DETAILS', splitX + 44, ly + 62);
+        g.fillStyle = '#64748b'; g.font = font(700, 24); g.textAlign = 'right'; g.fillText('Floor plan not to scale', splitX - 40, ly + 62); g.textAlign = 'left';
+        g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; g.beginPath(); g.moveTo(splitX, ly + 30); g.lineTo(splitX, ly + legH - 30); g.stroke();
+        const lcW = (splitX - M - 70) / legCols;
         legItems.forEach((it, i) => {
-            const x = M + (i % legCols) * lcW, y = ly + 132 + Math.floor(i / legCols) * rowH;
-            if (it.ring) { g.beginPath(); g.arc(x + 18, y - 12, 17, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 6; g.stroke(); }
-            else pin(g, x + 18, y + 8, 16, it.color, false);
-            g.fillStyle = it.n ? '#0b1530' : '#94a3b8'; g.font = font(700, 28); g.fillText(fit(it.t, lcW - 130), x + 52, y);
-            g.fillStyle = '#64748b'; g.font = font(800, 28); g.textAlign = 'right'; g.fillText(it.n ? String(it.n) : '-', x + lcW - 30, y); g.textAlign = 'left';
+            const x = M + 44 + (i % legCols) * lcW, y = ly + 122 + Math.floor(i / legCols) * rowH;
+            if (it.ring) { g.beginPath(); g.arc(x + 16, y - 10, 15, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 5; g.stroke(); }
+            else pin(g, x + 16, y + 8, 14, it.color, false);
+            g.fillStyle = it.n ? '#0b1530' : '#94a3b8'; g.font = font(700, 25); g.fillText(fit(it.t, lcW - 110), x + 46, y);
+            g.fillStyle = '#64748b'; g.font = font(800, 25); g.textAlign = 'right'; g.fillText(it.n ? String(it.n) : '-', x + lcW - 24, y); g.textAlign = 'left';
         });
-        g.fillStyle = '#e2e8f0'; g.fillRect(splitX, ly + 30, 3, legH - 60);
-        const dW = (M + boxW - splitX - 40) / dCols;
+        const dW = (M + boxW - splitX - 80) / dCols;
         details.forEach(([key, val], i) => {
-            const x = splitX + 40 + (i % dCols) * dW, y = ly + 124 + Math.floor(i / dCols) * 84;
-            g.fillStyle = '#64748b'; g.font = font(800, 21); g.fillText(key.toUpperCase(), x, y);
-            g.fillStyle = '#0b1530'; g.font = font(700, 29); g.fillText(fit(val, dW - 24), x, y + 38);
+            const x = splitX + 44 + (i % dCols) * dW, y = ly + 116 + Math.floor(i / dCols) * dRowH;
+            g.fillStyle = '#64748b'; g.font = font(800, 19); g.fillText(key.toUpperCase(), x, y);
+            g.fillStyle = '#0b1530'; g.font = font(700, 27); g.fillText(fit(val, dW - 20), x, y + 34);
         });
         // one A4 page, edge to edge
         const doc = new jsPDF({ orientation: land ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
@@ -3302,23 +3328,31 @@ const PVR = (() => {
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------
 // BOARD.attach(el, key, defaults): el's children with data-box="<id>" become boxes; defaults = { <id>: <width as a share of the row, e.g. .6667> }.
-// Each person's layout is kept in this browser under key. On a phone the boxes are full width and as tall as they need.
+// On a computer the boxes sit in a grid of 12 columns and fill any space above them (a short box doesn't leave a gap under
+// it - the boxes after it move up into the space). Each person's layout is kept in this browser under key.
+// On a phone the boxes are one under the other, full width and as tall as they need.
 const BOARD = (() => {
-    const GAP = 20, MINH = 160;
+    const GAP = 20, ROW = 4, MINH = 160;
+    const wide = () => window.innerWidth >= 1024;
     function css() {
         if (document.getElementById('bdCss')) return;
         const st = document.createElement('style'); st.id = 'bdCss';
-        st.textContent = '.bd-board{display:flex;flex-wrap:wrap;gap:' + GAP + 'px;align-items:flex-start}.bd-board>.bd-box{flex:0 0 auto;width:100%;min-width:0;position:relative}'
-            + '.bd-box>:not(.bd-resize):not(.bd-move){height:100%}.bd-box>:not(.bd-resize):not(.bd-move)>.card{min-height:100%}@media (min-width:1024px){.bd-board>.bd-box{width:calc((100% + ' + GAP + 'px) * var(--bd-f,.5) - ' + GAP + 'px)}.bd-board>.bd-box.bd-hset{height:var(--bd-h)}.bd-board>.bd-box.bd-hset>:not(.bd-resize):not(.bd-move){overflow:auto}}'
+        const inner = '>:not(.bd-resize):not(.bd-move)';
+        st.textContent = '.bd-board{display:flex;flex-direction:column;gap:' + GAP + 'px}.bd-board>.bd-box{position:relative;min-width:0}'
+            + '@media (min-width:1024px){.bd-board{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));grid-auto-rows:' + ROW + 'px;grid-auto-flow:row dense;column-gap:' + GAP + 'px;row-gap:0;align-items:start}'
+            + '.bd-board>.bd-box{grid-column:span var(--bd-c,6);grid-row:span var(--bd-r,40);padding-bottom:' + GAP + 'px}'
+            + '.bd-board>.bd-box.bd-hset' + inner + '{height:var(--bd-h);overflow:auto}.bd-board>.bd-box.bd-hset' + inner + '>.card{min-height:100%}'
+            + '.bd-board>.bd-box>.bd-resize{bottom:' + (GAP + 5) + 'px}}'
             + '.bd-resize{position:absolute;right:5px;bottom:5px;width:16px;height:16px;cursor:nwse-resize;touch-action:none;opacity:.45;z-index:3;border-radius:0 0 .6rem 0;background:linear-gradient(135deg,transparent 0 55%,currentColor 55% 62%,transparent 62% 72%,currentColor 72% 79%,transparent 79%)}'
             + '.bd-resize:hover{opacity:1}.bd-move{cursor:grab;touch-action:none;user-select:none;opacity:.5;font-size:15px;line-height:1;padding:2px 4px;border-radius:6px;position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:3}.bd-move:hover{opacity:1;background:rgba(127,127,127,.15)}'
-            + '.bd-box.bd-drag{outline:2px dashed rgb(var(--b500,249 115 22));outline-offset:3px;opacity:.85}.bd-box.bd-sizing{outline:2px solid rgb(var(--b500,249 115 22) / .6);outline-offset:3px}'
+            + '.bd-box.bd-drag' + inner + '{outline:2px dashed rgb(var(--b500,249 115 22));outline-offset:3px;opacity:.85}.bd-box.bd-sizing' + inner + '{outline:2px solid rgb(var(--b500,249 115 22) / .6);outline-offset:3px}'
             + '@media (max-width:1023px){.bd-resize,.bd-move{display:none}}';
         document.head.appendChild(st);
     }
     const load = key => { try { return JSON.parse(localStorage.getItem(key) || 'null') || {}; } catch (e) { return {}; } };
     const save = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} };
-    const snapF = f => Math.min(1, Math.max(.25, Math.round(f * 12) / 12));
+    const cols = f => Math.min(12, Math.max(3, Math.round(f * 12)));   // a quarter of the width up to all of it
+    const innerOf = b => Array.from(b.children).find(c => !c.classList.contains('bd-resize') && !c.classList.contains('bd-move'));
     function attach(el, key, defaults) {
         if (!el) return;
         css();
@@ -3332,13 +3366,29 @@ const BOARD = (() => {
         boxes().forEach(b => {
             b.classList.add('bd-box');
             const s = (lay.boxes || {})[b.dataset.box] || {};
-            b.style.setProperty('--bd-f', String(s.f || (defaults && defaults[b.dataset.box]) || .5));
+            b.dataset.f = String(s.f || (defaults && defaults[b.dataset.box]) || .5);
+            b.style.setProperty('--bd-c', String(cols(Number(b.dataset.f))));
             if (s.h) { b.style.setProperty('--bd-h', s.h + 'px'); b.classList.add('bd-hset'); }
-            if (!b.querySelector(':scope > .bd-resize')) b.insertAdjacentHTML('beforeend', '<span class="bd-resize" title="Drag to resize" aria-hidden="true"></span><span class="bd-move" title="Drag to move this box" aria-hidden="true">⠿</span>');
+            if (!b.querySelector(':scope > .bd-resize')) b.insertAdjacentHTML('beforeend', '<span class="bd-resize" title="Drag to resize · double-click for its own height" aria-hidden="true"></span><span class="bd-move" title="Drag to move this box" aria-hidden="true">⠿</span>');
         });
+        // each box takes as many grid rows as it is tall
+        let queued = false;
+        const layout = () => {
+            queued = false;
+            if (!el.isConnected) return;
+            boxes().forEach(b => {
+                if (!wide()) { b.style.removeProperty('--bd-r'); return; }
+                const inner = innerOf(b), h = inner ? inner.getBoundingClientRect().height : 0;
+                b.style.setProperty('--bd-r', String(Math.max(1, Math.ceil((h + GAP) / ROW))));
+            });
+        };
+        const relayout = () => { if (!queued) { queued = true; requestAnimationFrame(layout); } };
+        layout();
+        if (window.ResizeObserver) { const ro = new ResizeObserver(relayout); boxes().forEach(b => { const i = innerOf(b); if (i) ro.observe(i); }); }
+        window.addEventListener('resize', relayout);
         const store = () => {
             const v = { order: boxes().map(b => b.dataset.box), boxes: {} };
-            boxes().forEach(b => { v.boxes[b.dataset.box] = { f: Number(b.style.getPropertyValue('--bd-f')) || .5, h: b.classList.contains('bd-hset') ? parseInt(b.style.getPropertyValue('--bd-h'), 10) || null : null }; });
+            boxes().forEach(b => { v.boxes[b.dataset.box] = { f: Number(b.dataset.f) || .5, h: b.classList.contains('bd-hset') ? parseInt(b.style.getPropertyValue('--bd-h'), 10) || null : null }; });
             save(key, v);
         };
         if (el._bdBound) return;
@@ -3348,25 +3398,28 @@ const BOARD = (() => {
             if (!handle || !el.contains(handle)) return;
             const box = handle.closest('.bd-box');
             e.preventDefault();
-            const W = el.getBoundingClientRect().width, r0 = box.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+            const W = el.getBoundingClientRect().width, inner = innerOf(box), r0 = (inner || box).getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
             const sizing = handle.classList.contains('bd-resize');
             box.classList.add(sizing ? 'bd-sizing' : 'bd-drag');
             const move = ev => {
                 if (sizing) {
-                    box.style.setProperty('--bd-f', String(snapF((r0.width + ev.clientX - x0 + GAP) / (W + GAP))));
+                    const c = cols((r0.width + ev.clientX - x0 + GAP) / (W + GAP));
+                    box.dataset.f = String(c / 12); box.style.setProperty('--bd-c', String(c));
                     box.style.setProperty('--bd-h', Math.max(MINH, Math.round(r0.height + ev.clientY - y0)) + 'px'); box.classList.add('bd-hset');
+                    relayout();
                 } else {
                     const over = document.elementFromPoint(ev.clientX, ev.clientY), target = over && over.closest('.bd-box');
                     if (!target || target === box || target.parentElement !== el) return;
                     const r = target.getBoundingClientRect(), after = ev.clientX > r.left + r.width / 2 || ev.clientY > r.bottom - 10;
                     el.insertBefore(box, after ? target.nextSibling : target);
+                    relayout();
                 }
             };
-            const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); box.classList.remove('bd-sizing', 'bd-drag'); store(); window.dispatchEvent(new Event('resize')); };
+            const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); box.classList.remove('bd-sizing', 'bd-drag'); store(); relayout(); window.dispatchEvent(new Event('resize')); };
             window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
         });
         // double-click the corner: back to its own height
-        el.addEventListener('dblclick', e => { const h = e.target.closest('.bd-resize'); if (!h) return; const b = h.closest('.bd-box'); b.classList.remove('bd-hset'); b.style.removeProperty('--bd-h'); store(); });
+        el.addEventListener('dblclick', e => { const h = e.target.closest('.bd-resize'); if (!h) return; const b = h.closest('.bd-box'); b.classList.remove('bd-hset'); b.style.removeProperty('--bd-h'); store(); relayout(); });
     }
     function reset(key) { try { localStorage.removeItem(key); } catch (e) {} }
     return { attach, reset };
@@ -3453,6 +3506,12 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r81', date: '2026-10-30', v: { svc: '2026.10.30-r81', adm: '2026.10.30-a24', cli: '2026.10.30-p40' },
+            svc: ['Pest map (A4 PDF): the navy header and the legend card are back, and the floor plan is much bigger - blank space around the plan is trimmed off so the plan itself fills the page'],
+            adm: ['Overview: the boxes fill any space above them - a short box no longer leaves a gap, so you can arrange them however you like'],
+            cli: ['Pest map (A4 PDF): the navy header and the legend card are back, and the floor plan is much bigger - blank space around the plan is trimmed off so the plan itself fills the page',
+                  'Recommendations: ones you haven\'t opened yet have an orange outline and "New" on the card',
+                  'Overview: the boxes fill any space above them - a short box no longer leaves a gap, so you can arrange them however you like'] },
         { rev: 'r80', date: '2026-10-30', v: { svc: '2026.10.30-r80', adm: '2026.10.30-a23', cli: '2026.10.30-p39' },
             svc: ['Pest map (A4 PDF): a plain white page with the floor plan as big as it can be (with a margin), every station type in the legend, "Floor plan not to scale", and no line of small print at the bottom'],
             adm: ['Reports: choose the station type, then the station - the station list only shows stations of that type, and you can type to search it. Every station type is listed, even ones with no records yet',
@@ -4166,7 +4225,7 @@ const PR = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a23-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a24-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');

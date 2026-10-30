@@ -3,6 +3,12 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r81', date: '2026-10-30', v: { svc: '2026.10.30-r81', adm: '2026.10.30-a24', cli: '2026.10.30-p40' },
+            svc: ['Pest map (A4 PDF): the navy header and the legend card are back, and the floor plan is much bigger - blank space around the plan is trimmed off so the plan itself fills the page'],
+            adm: ['Overview: the boxes fill any space above them - a short box no longer leaves a gap, so you can arrange them however you like'],
+            cli: ['Pest map (A4 PDF): the navy header and the legend card are back, and the floor plan is much bigger - blank space around the plan is trimmed off so the plan itself fills the page',
+                  'Recommendations: ones you haven\'t opened yet have an orange outline and "New" on the card',
+                  'Overview: the boxes fill any space above them - a short box no longer leaves a gap, so you can arrange them however you like'] },
         { rev: 'r80', date: '2026-10-30', v: { svc: '2026.10.30-r80', adm: '2026.10.30-a23', cli: '2026.10.30-p39' },
             svc: ['Pest map (A4 PDF): a plain white page with the floor plan as big as it can be (with a margin), every station type in the legend, "Floor plan not to scale", and no line of small print at the bottom'],
             adm: ['Reports: choose the station type, then the station - the station list only shows stations of that type, and you can type to search it. Every station type is listed, even ones with no records yet',
