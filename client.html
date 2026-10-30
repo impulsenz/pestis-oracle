@@ -190,6 +190,7 @@
         .plan-pin { position: absolute; transform: translate(-50%, -100%); cursor: pointer; background: none; border: 0; padding: 0; }
         .plan-pin span { display: block; width: 20px; height: 20px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 3px 8px -2px rgba(0, 0, 0, .6); }
         .plan-pin.overdue span { outline: 3px solid #dc2626; outline-offset: 1px; }
+        .viewer-arrow { position: fixed; top: 50%; transform: translateY(-50%); z-index: 2; width: 3rem; height: 3rem; font-size: 1.6rem; }
         .plan-pin-label { position: absolute; left: calc(100% + 4px); top: 0; white-space: nowrap; font-style: normal; font-size: 11px; font-weight: 700; line-height: 1; color: #fff; background: rgba(2, 6, 23, .82); border-radius: 5px; padding: 3px 6px; pointer-events: none; }
         /* clickable tiles */
         button.stat { text-align: left; cursor: pointer; transition: border-color .15s, transform .15s; width: 100%; }
@@ -639,12 +640,13 @@
     <!-- Full screen photo / video -->
     <div id="viewer" class="hidden fixed inset-0 z-[80] flex flex-col items-center justify-center gap-3 p-4" style="background: rgba(2, 6, 23, .94);" onclick="if (event.target === this) closeViewer()">
         <button type="button" onclick="closeViewer()" class="absolute top-4 right-4 icon-btn" aria-label="Close">✕</button>
-        <div class="flex items-center gap-3 w-full justify-center">
-            <button type="button" id="viewerPrev" onclick="stepViewer(-1)" class="rec-nav-btn shrink-0" aria-label="Previous photo">‹</button>
+        <div class="flex items-center gap-3 w-full justify-center px-12 sm:px-20">
             <img id="viewerImg" alt="" class="max-w-full max-h-[80vh] rounded-xl object-contain">
             <video id="viewerVideo" controls playsinline class="hidden max-w-full max-h-[80vh] rounded-xl"></video>
-            <button type="button" id="viewerNext" onclick="stepViewer(1)" class="rec-nav-btn shrink-0" aria-label="Next photo">›</button>
         </div>
+        <!-- the arrows sit at the sides of the screen, so they stay in the same place whatever the size of the picture -->
+        <button type="button" id="viewerPrev" onclick="stepViewer(-1)" class="rec-nav-btn viewer-arrow left-2 sm:left-5" aria-label="Previous photo">‹</button>
+        <button type="button" id="viewerNext" onclick="stepViewer(1)" class="rec-nav-btn viewer-arrow right-2 sm:right-5" aria-label="Next photo">›</button>
         <div id="viewerCaption" class="text-xs text-white/80 text-center max-w-xl"></div>
     </div>
 
@@ -656,7 +658,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (pestis_client_portal.sql); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.30-p36-oci';
+const PORTAL_VERSION = '2026.10.30-p37-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -1004,8 +1006,12 @@ function renderBell() {
 }
 function toggleBell() { renderBell(); $('bellPanel').classList.toggle('hidden'); keepOnScreen($('bellPanel')); }
 function goToDocs(cid) { location.hash = `#/site/${encodeURIComponent(cid)}/documents`; }
+// the web address of a station, recommendation or visit in the Client Portal (for the links in downloaded reports)
+function portalLink(cid, kind, id) { return `${location.origin}/client.html#/site/${encodeURIComponent(cid)}/${{ station: 'overview', rec: 'recs', visit: 'visits' }[kind]}/${kind}/${encodeURIComponent(id)}`; }
 
 async function init() {
+    // a link to a station, recommendation or visit is remembered, in case signing in takes the address away
+    if (/^#\/site\/[^/]+\/[a-z]+\/(station|rec|visit)\//.test(location.hash)) { try { localStorage.setItem('pestis-portal-after-login', location.hash); } catch (e) {} }
     // a sign-in link that failed or expired comes back with an error in the address
     const hashErr = new URLSearchParams(location.hash.replace(/^#/, '')).get('error_description') || new URLSearchParams(location.search).get('error_description');
     let session = null;
@@ -1098,6 +1104,8 @@ async function loadSites() {
         showMessage('🏢', 'No sites yet', "No sites have been shared with your account yet. Ask Pesties to add your site.", [['Sign out', 'signOut()']]);
         return;
     }
+    // a link opened before signing in (e.g. from a downloaded report): go there now
+    try { const after = localStorage.getItem('pestis-portal-after-login'); localStorage.removeItem('pestis-portal-after-login'); if (after && !/^#\/site\//.test(location.hash)) { history.replaceState(null, '', portalUrl() + after); } } catch (e) {}
     route();
 }
 async function loadCovers() {
@@ -1111,10 +1119,20 @@ async function loadCovers() {
     if (state.site) renderSiteHeader();
 }
 
+// #/site/<id>/<tab>, or straight to one thing on it: #/site/<id>/<tab>/<station|rec|visit>/<its id> (links in downloaded reports)
 function route() {
-    const m = location.hash.match(/^#\/site\/([^/]+)(?:\/([a-z]+))?/);
+    const m = location.hash.match(/^#\/site\/([^/]+)(?:\/([a-z]+))?(?:\/(station|rec|visit)\/([^/?#]+))?/);
     const site = m && state.sites.find(s => String(s.id) === decodeURIComponent(m[1]));
-    if (site) { openSite(site.id, m[2] || startTab(), true); return; }
+    if (site) {
+        const kind = m[3], id = m[4] ? decodeURIComponent(m[4]) : null;
+        openSite(site.id, m[2] || startTab(), true).then(() => {
+            if (!kind || !state.model || !state.site || String(state.site.id) !== String(site.id)) return;
+            if (kind === 'station' && state.model.stations.some(x => x.barcode === id)) showStation(id);
+            else if (kind === 'rec' && state.model.recs.some(x => x.id === id)) openRec(id, 'none');
+            else if (kind === 'visit' && state.model.visits.some(x => x.id === id)) openVisit(id);
+        });
+        return;
+    }
     if (state.sites.length === 1) { openSite(state.sites[0].id, startTab(), true); return; }
     showPicker();
 }
@@ -1632,30 +1650,29 @@ function renderOverview() {
             ${tile(m.stations.length && lastVisit ? Math.round(lastStations / m.stations.length * 100) + '%' : '-', 'Checked last visit', lastVisit ? `${lastStations} of ${m.stations.length} stations` : '', lastVisit ? 'showLastVisitCoverage()' : '', '#10b981')}
             ${tile(openRecs.length, 'Outstanding recommendations', openRecs.length ? `${openRecs.filter(r => r.status === 'open').length} open · ${openRecs.filter(r => r.status === 'pending').length} pending` : 'Nothing outstanding', "setTab('recs')", openRecs.length ? 'var(--accent-text)' : '')}
         </div>
-        <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
-            <div class="xl:col-span-2 space-y-5">
-                <div id="ovRecsCard">${sectionCard('Outstanding recommendations', '#f97316', `<div id="ovRecsBox" class="ov-scroll scroll-thin">${ovRecsHtml(openRecs)}</div>`, `<span class="flex flex-wrap items-center justify-end gap-2">${ovViewToolsHtml()}<button type="button" class="link-btn !no-underline" onclick="setTab('recs')">All recommendations</button></span>`)}</div>
-                ${sectionCard('Pest activity', '#2a78d6', `
+        <div class="flex justify-end -mb-2"><button type="button" class="link-btn !text-[11px]" onclick="BOARD.reset(OV_BOARD_KEY()); renderOverview()" title="Put the boxes back to how they started">Reset layout</button></div>
+        <div id="ovBoard">
+                <div data-box="recs"><div id="ovRecsCard">${sectionCard('Outstanding recommendations', '#f97316', `<div id="ovRecsBox" class="ov-scroll scroll-thin">${ovRecsHtml(openRecs)}</div>`, `<span class="flex flex-wrap items-center justify-end gap-2">${ovViewToolsHtml()}<button type="button" class="link-btn !no-underline" onclick="setTab('recs')">All recommendations</button></span>`)}</div></div>
+                <div data-box="contacts"><div id="contactsCard">${contactsCardHtml()}</div></div>
+                <div data-box="chart">${sectionCard('Pest activity', '#2a78d6', `
                     <div class="flex flex-wrap gap-2">
                         <select class="field !w-auto !py-1.5 !text-xs" aria-label="Period" onchange="OV.months = Number(this.value); renderOverviewChart();">${[[3, 'Last 3 months'], [6, 'Last 6 months'], [12, 'Last 12 months'], [24, 'Last 2 years'], [0, 'All records']].map(([v, l]) => `<option value="${v}" ${OV.months === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
                         <span id="ovCombos" class="flex flex-wrap items-start gap-2">${ovCombosHtml()}</span>
                     </div>
-                    <div id="overviewChart"></div>`, `<button type="button" class="link-btn !no-underline" onclick="setTab('reports')">More reports</button>`)}
-                ${m.stations.length ? sectionCard('Your stations', '#16a34a', `<div id="ovStations" class="rec-grid ov-cards" style="--ov-w:${OV_SIZES[ovPrefs().size]}rem">${ovStationCards()}</div>`, `<button type="button" class="link-btn !no-underline" onclick="showStationList()">All ${m.stations.length}</button>`) : ''}
-            </div>
-            <div class="space-y-5">
-                <div id="contactsCard">${contactsCardHtml()}</div>
-                ${s.Address ? sectionCard('Location', '#16a34a', `<div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);"><iframe title="Map of ${esc(s.Address)}" class="w-full h-56 block" style="border:0;" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${encodeURIComponent(s.Address)}&z=16&hl=en&output=embed"></iframe></div>`, `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.Address)}" target="_blank" rel="noopener" class="link-btn !no-underline">Open in Google Maps ↗</a>`) : ''}
-                <div id="servicesCard">${sectionCard('Services & schedule', '#10b981', (s.services || []).length ? s.services.map(x => `
+                    <div id="overviewChart"></div>`, `<button type="button" class="link-btn !no-underline" onclick="setTab('reports')">More reports</button>`)}</div>
+                ${s.Address ? `<div data-box="location">${sectionCard('Location', '#16a34a', `<div class="rounded-xl overflow-hidden" style="border:1px solid var(--border);"><iframe title="Map of ${esc(s.Address)}" class="w-full h-56 block" style="border:0;" loading="lazy" referrerpolicy="no-referrer-when-downgrade" src="https://maps.google.com/maps?q=${encodeURIComponent(s.Address)}&z=16&hl=en&output=embed"></iframe></div>`, `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(s.Address)}" target="_blank" rel="noopener" class="link-btn !no-underline">Open in Google Maps ↗</a>`)}</div>` : ''}
+                ${m.stations.length ? `<div data-box="stations">${sectionCard('Your stations', '#16a34a', `<div id="ovStations" class="rec-grid ov-cards" style="--ov-w:${OV_SIZES[ovPrefs().size]}rem">${ovStationCards()}</div>`, `<button type="button" class="link-btn !no-underline" onclick="showStationList()">All ${m.stations.length}</button>`)}</div>` : ''}
+                <div data-box="services"><div id="servicesCard">${sectionCard('Services & schedule', '#10b981', (s.services || []).length ? s.services.map(x => `
                     <div class="row-item p-3 space-y-0.5 text-xs">
                         <div class="font-bold t-strong text-sm">${esc(x.type)}</div>
                         <div class="t-muted">${esc(freqLabel(x.frequency))}</div>
                         <div class="t-muted">Last done: <b class="t-strong">${fmtDay(x.lastDone)}</b> · Next due: <b class="t-strong">${x.nextDue ? fmtDay(x.nextDue) : '-'}</b></div>
-                    </div>`).join('') : emptyNote('No scheduled services listed.'))}</div>
-                ${sectionCard('Recent visits', '#7c3aed', m.visits.length ? m.visits.slice(-4).reverse().map(v => visitRowHtml(v)).join('') : emptyNote('No visits recorded yet.'), `<button type="button" class="link-btn !no-underline" onclick="setTab('visits')">All visits</button>`)}
-                ${soonDocs.length ? sectionCard('Documents expiring soon', '#d97706', soonDocs.map(d => docRowHtml(d)).join('')) : ''}
-            </div>
+                    </div>`).join('') : emptyNote('No scheduled services listed.'))}</div></div>
+                <div data-box="visits">${sectionCard('Recent visits', '#7c3aed', m.visits.length ? m.visits.slice(-4).reverse().map(v => visitRowHtml(v)).join('') : emptyNote('No visits recorded yet.'), `<button type="button" class="link-btn !no-underline" onclick="setTab('visits')">All visits</button>`)}</div>
+                ${soonDocs.length ? `<div data-box="docs">${sectionCard('Documents expiring soon', '#d97706', soonDocs.map(d => docRowHtml(d)).join(''))}</div>` : ''}
         </div>`;
+    // the boxes can be dragged into a new order and resized (kept for this person on this device)
+    BOARD.attach($('ovBoard'), OV_BOARD_KEY(), { recs: 2 / 3, contacts: 1 / 3, chart: 2 / 3, location: 1 / 3, stations: 2 / 3, services: 1 / 3, visits: 1 / 3, docs: 1 / 3 });
     if ($('ovRecs')) fillRecMedia($('ovRecs'));
     syncOvHeights();
     if ($('ovStations')) fillStationCardPhotos($('ovStations'));
@@ -1806,9 +1823,12 @@ function renderOvCards() {
     syncOvHeights();
 }
 // the site contacts box is as tall as the recommendations box beside it (and scrolls)
+const OV_BOARD_KEY = () => 'pestis-portal-overview-board:' + ((state.me && state.me.email) || '');
 function syncOvHeights() {
     const r = $('ovRecsCard'), c = $('contactsCard');
     if (!r || !c || !c.firstElementChild || !r.firstElementChild) return;
+    // a box someone has resized keeps its own height
+    if (r.parentElement.classList.contains('bd-hset') || c.parentElement.classList.contains('bd-hset')) { c.firstElementChild.style.height = ''; return; }
     c.firstElementChild.style.height = window.innerWidth >= 1280 ? r.firstElementChild.getBoundingClientRect().height + 'px' : '';
 }
 window.addEventListener('resize', () => { clearTimeout(window.__ovT); window.__ovT = setTimeout(syncOvHeights, 120); });
@@ -2282,19 +2302,28 @@ function galleryHtml(paths, links, caption) {
         ? `<div class="thumb" role="button" tabindex="0" onclick="openViewer('${key}', ${i + 1})">${isVideo(p) ? `<video src="${esc(links[i + 1])}" muted preload="metadata"></video><span class="play">▶</span>` : `<img src="${esc(links[i + 1])}" alt="" loading="lazy">`}</div>`
         : '<div class="thumb flex items-center justify-center text-[10px] t-faint text-center p-1">Unavailable</div>').join('')}</div>` : ''}`;
 }
+// every time someone opened it (newest first): who, when and in which app - or, until that's loaded, one line per person
 function seenByHtml(r) {
+    if (r.viewLog && r.viewLog.length) {
+        const people = new Set(r.viewLog.map(v => v.viewer_key)).size;
+        return `<div class="text-[11px] t-faint">Opened ${plural(r.viewLog.length, 'time')} by ${people} ${people === 1 ? 'person' : 'people'}</div>
+            <div class="space-y-1.5 max-h-56 overflow-y-auto scroll-thin pr-1">${r.viewLog.map(v => `<div class="flex flex-wrap justify-between gap-2 text-xs"><span class="t-strong font-semibold">👁 ${esc(v.viewer_name || 'Someone')}${v.is_client ? '' : ' <span class="chip chip-blue !py-0">Pesties</span>'}</span>
+                <span class="t-faint">${fmtDateTime(v.at)}${v.app ? ' · ' + esc(v.app) : ''}</span></div>`).join('')}</div>`;
+    }
     if (!r.views.length) return '<div class="text-xs t-faint">Not opened by anyone yet.</div>';
     return r.views.map(v => `<div class="flex flex-wrap justify-between gap-2 text-xs"><span class="t-strong font-semibold">👁 ${esc(v.viewer_name || 'Someone')}${v.is_client ? '' : ' <span class="chip chip-blue !py-0">Pesties</span>'}</span>
         <span class="t-faint">first ${fmtDateTime(v.first_seen_at)}${v.view_count > 1 ? ` · last ${fmtDateTime(v.last_seen_at)} · ${v.view_count} times` : ''}</span></div>`).join('');
 }
-// opening a recommendation is recorded (who and when), then the "Seen by" list is refreshed
+// opening a recommendation is recorded (who, when, which app), then the "Seen by" list is refreshed
 async function markRecViewed(r) {
     try {
-        await sb.rpc('pestis_mark_rec_viewed', { p_rec_id: r.id });
-        const { data } = await sb.from('recommendation_views').select('*').eq('rec_id', r.id);
+        await sb.rpc('pestis_mark_rec_viewed', { p_rec_id: r.id, p_app: 'Client Portal' });
+        const [{ data }, log] = await Promise.all([sb.from('recommendation_views').select('*').eq('rec_id', r.id),
+            sb.from('recommendation_view_log').select('*').eq('rec_id', r.id).order('at', { ascending: false }).limit(200)]);
         if (!data) return;
         state.data.views = (state.data.views || []).filter(v => v.rec_id !== r.id).concat(data);
         r.views = data.slice().sort((a, b) => String(b.last_seen_at).localeCompare(String(a.last_seen_at)));
+        r.viewLog = (log && log.data) || null;
         if (modalNav && modalNav.current === r.id && $('recSeenBy')) $('recSeenBy').innerHTML = seenByHtml(r);
         renderBell();
     } catch (e) {}
@@ -3377,10 +3406,48 @@ function docRowHtml(d) {
     return `<div class="row-item clickable p-3 flex flex-wrap items-center gap-x-3 gap-y-2" tabindex="0" role="button" onclick="openDoc('${esc(d.id)}')" onkeydown="if (event.key === 'Enter') this.click()">
         <span class="doc-icon" style="background:${c}">${k}</span>
         <div class="min-w-[10rem] flex-1"><div class="font-bold t-strong text-sm">${esc(d.title)}</div>
-        <div class="text-[11px] t-muted">${esc(d.category || 'Other')}${size ? ' · ' + size : ''} · added ${fmtDate(d.created_at)}${d.notes ? ' · ' + esc(d.notes) : ''}</div></div>
-        <div class="flex flex-wrap items-center gap-2 justify-end ml-auto">${expiryChip(d)}<span class="link-btn !no-underline">Open ↗</span></div></div>`;
+        <div class="text-[11px] t-muted">${esc(d.category || 'Other')}${size ? ' · ' + size : ''} · added ${fmtDate(d.created_at)}${d.uploaded_by && /\(client\)$/.test(d.uploaded_by) ? ' by ' + esc(d.uploaded_by.replace(/ \(client\)$/, '')) : ''}${d.notes ? ' · ' + esc(d.notes) : ''}</div></div>
+        <div class="flex flex-wrap items-center gap-2 justify-end ml-auto">${expiryChip(d)}${d.uploaded_by && d.uploaded_by_id && state.me && d.uploaded_by_id === state.me.uid ? `<button type="button" class="link-btn !no-underline" style="color:#dc2626;" data-id="${esc(d.id)}" onclick="event.stopPropagation(); removeMeetingFile(this.dataset.id)">Remove</button>` : ''}<span class="link-btn !no-underline">Open ↗</span></div></div>`;
 }
 let openFolder = null;
+const isMeetingsFolder = f => /^meetings$/i.test(String(f || '').trim());
+// a client adds their own files to the Meetings folder (only that folder; they can remove only what they added)
+async function uploadMeetingFiles(input) {
+    const files = Array.from(input.files || []);
+    input.value = '';
+    if (!files.length || !state.site) return;
+    const cid = String(state.site.id), note = $('meetingUploadNote');
+    let n = 0, failed = [];
+    for (const f of files) {
+        if (note) { note.classList.remove('hidden'); note.textContent = `Uploading ${++n} of ${files.length}: ${f.name}...`; }
+        const ext = ((f.name.match(/\.([a-z0-9]{1,8})$/i) || [, 'bin'])[1]).toLowerCase();
+        const path = `${cid}/CLIENT_MEETING_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        try {
+            const up = await sb.storage.from(DOC_BUCKET).upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false });
+            if (up.error) throw up.error;
+            const { error } = await sb.from('site_documents').insert([{ client_id: cid, title: f.name.replace(/\.[^.]+$/, '') || 'Meeting file', file_path: path, file_name: f.name,
+                mime_type: f.type || null, size_bytes: f.size, folder: openFolder, category: 'Meetings' }]);
+            if (error) { sb.storage.from(DOC_BUCKET).remove([path]).catch(() => {}); throw error; }
+        } catch (e) { failed.push(`${f.name} (${e.message || e})`); }
+    }
+    if (note) note.textContent = failed.length ? `Couldn't add: ${failed.join(', ')}` : `${plural(files.length, 'file')} added.`;
+    await refreshDocs();
+}
+async function removeMeetingFile(id) {
+    const d = state.model.docs.find(x => x.id === id);
+    if (!d || !confirm(`Remove "${d.title}"? It can't be brought back.`)) return;
+    const { error } = await sb.from('site_documents').delete().eq('id', id);
+    if (error) { alert('Could not remove it: ' + error.message); return; }
+    sb.storage.from(DOC_BUCKET).remove([d.file_path]).catch(() => {});
+    await refreshDocs();
+}
+// the site's documents again, after adding or removing one
+async function refreshDocs() {
+    if (!state.site) return;
+    try { state.data.docs = await fetchAll('site_documents', String(state.site.id)); } catch (e) {}
+    state.model = buildModel(state.site, state.data);
+    if (state.tab === 'documents') renderDocuments();
+}
 const isMapsFolder = f => /^maps?$/i.test(String(f || '').trim());
 // a floor plan, listed in the Maps folder automatically (opens on the Floor plans tab)
 function planDocRowHtml(p) {
@@ -3400,9 +3467,12 @@ function renderDocuments() {
     if (openFolder) {
         const inside = docs.filter(d => docFolderOf(d) === openFolder);
         const plans = isMapsFolder(openFolder) ? m.maps.map(planDocRowHtml).join('') : /^sds$/i.test(openFolder) ? sitePreps().map(sdsRowHtml).join('') : '';
+        const canAdd = isMeetingsFolder(openFolder) && state.me && state.me.client;
         $('tabBody').innerHTML = `<div class="card p-5 space-y-3">
             <div class="flex flex-wrap items-center gap-2"><button type="button" class="btn btn-secondary !px-3" onclick="openFolder = null; renderDocuments();">← All documents</button><h3 class="font-black t-strong">📁 ${esc(openFolder)}</h3>
-                ${plans || inside.length ? `<button type="button" class="btn btn-primary !px-3 !py-2 ml-auto" data-folder="${esc(openFolder)}" onclick="downloadFolder(this.dataset.folder, this)" title="Download everything in this folder as one zip file">⬇ Download all</button>` : ''}</div>
+                <span class="flex flex-wrap gap-2 ml-auto">${canAdd ? `<button type="button" class="btn btn-primary !px-3 !py-2" onclick="$('meetingFiles').click()" title="Add your meeting notes, minutes or other files">➕ Add files</button><input type="file" id="meetingFiles" multiple class="hidden" onchange="uploadMeetingFiles(this)">` : ''}
+                ${plans || inside.length ? `<button type="button" class="btn ${canAdd ? 'btn-secondary' : 'btn-primary'} !px-3 !py-2" data-folder="${esc(openFolder)}" onclick="downloadFolder(this.dataset.folder, this)" title="Download everything in this folder as one zip file">⬇ Download all</button>` : ''}</span></div>
+            ${canAdd ? '<p class="text-xs t-muted">Add your own meeting notes, minutes and other files here. Pesties can see them; you can remove the ones you added.</p><div id="meetingUploadNote" class="hidden text-xs font-semibold t-accent"></div>' : ''}
             ${(plans + inside.map(docRowHtml).join('')) || emptyNote('This folder is empty.')}</div>`;
         return;
     }
@@ -3716,7 +3786,8 @@ const EXPORTS = {
     },
     visits: () => ({
         title: 'Visits', cols: [['Date', 22], ['Visit type', 28], ['Technician', 28], ['Arrived', 16], ['Left', 16], ['Stations', 14], ['Recs', 10], ['Notes', 60]],
-        rows: visitList().map(v => [fmtDate(v.completed), v.type, v.tech, v.start ? fmtTime(v.start) : '', fmtTime(v.end), new Set(v.entries.map(e => e.barcode)).size, v.recs.length, v.notes])
+        rows: visitList().map(v => [fmtDate(v.completed), v.type, v.tech, v.start ? fmtTime(v.start) : '', fmtTime(v.end), new Set(v.entries.map(e => e.barcode)).size, v.recs.length, v.notes]),
+        ids: visitList().map(v => v.id)
     })
 };
 // while critical limits are off, the column is left out of every download
@@ -3733,7 +3804,7 @@ function exportTab(kind) {
     if (kind === 'xlsx' || kind === 'csv') { xlsxDownload(fileBase(t.title), t.cols, t.rows, t.title); return; }
     const pdf = newPdf(t.title);
     if (t.chart) pdf.chart(t.chart, t.metric || activityMetric);
-    pdf.table(t.cols, t.rows);
+    pdf.table(t.cols, t.rows, t.ids);
     pdf.save(fileBase(t.title));
 }
 function recExportRows(list) {
@@ -3784,9 +3855,21 @@ function newPdf(title, subtitle) {
             });
             y += 19;
         },
-        table(cols, rows) {
+        // ids: (optional) a visit id for each row, linking its first cell; stations and recommendations are linked by themselves
+        table(cols, rows, ids) {
             const total = cols.reduce((a, c) => a + c[1], 0), scale = (W - 2 * M) / total;
             const widths = cols.map(c => c[1] * scale);
+            const col = n => cols.findIndex(c => c[0] === n), bi = col('Barcode'), si = col('Station'), ni = col('No.'), ri0 = col('Recommendation');
+            const cid = state.site && state.site.id, m = state.model;
+            const linksFor = (r, idx) => {
+                const out = {};
+                const b = bi >= 0 && r[bi] && m && m.stations.some(s => s.barcode === r[bi]) ? PVR.portalLink(cid, 'station', r[bi]) : null;
+                if (b) { out[bi] = b; if (si >= 0) out[si] = b; }
+                const rec = ni >= 0 && r[ni] && m ? m.recs.find(x => fmtRecNo(x.no) === r[ni]) : null;
+                if (rec) { out[ni] = PVR.portalLink(cid, 'rec', rec.id); if (ri0 >= 0) out[ri0] = out[ni]; }
+                if (ids && ids[idx]) out[0] = PVR.portalLink(cid, 'visit', ids[idx]);
+                return out;
+            };
             const drawHead = () => {
                 doc.setFillColor(226, 232, 240); doc.rect(M, y, W - 2 * M, 7, 'F');
                 doc.setFont('helvetica', 'bold'); doc.setFontSize(7); doc.setTextColor(51, 65, 85);
@@ -3801,8 +3884,13 @@ function newPdf(title, subtitle) {
                 const h = Math.max(...cells.map(c => c.length)) * 3.4 + 2.6;
                 if (y + h > H - 12) { api.newPage(); drawHead(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
                 if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
-                doc.setTextColor(15, 23, 42);
-                let x0 = M; cells.forEach((c, i) => { doc.text(c, x0 + 1.5, y + 3.9); x0 += widths[i]; });
+                const links = linksFor(r, ri);
+                let x0 = M; cells.forEach((c, i) => {
+                    if (links[i]) doc.setTextColor(37, 99, 235); else doc.setTextColor(15, 23, 42);
+                    doc.text(c, x0 + 1.5, y + 3.9);
+                    if (links[i]) { try { doc.link(x0, y, widths[i], h, { url: links[i] }); } catch (e) {} }
+                    x0 += widths[i];
+                });
                 y += h;
             });
             y += 5;
@@ -3874,12 +3962,12 @@ async function downloadVisitPdf(id) {
     if (v.signaturePath) { try { const [u] = await signPaths([v.signaturePath]); if (u) signature = await imgDataUrl(u); } catch (e) {} }
     try {
         await PVR.build({
-            siteName: siteName(state.site), address: state.site.Address || '', completed: v.completed, type: v.type, tech: v.tech, start: v.start, end: v.end,
+            siteId: state.site.id, id: v.id, siteName: siteName(state.site), address: state.site.Address || '', completed: v.completed, type: v.type, tech: v.tech, start: v.start, end: v.end,
             stationsChecked: new Set(v.entries.map(e => e.barcode)).size, services: v.services, notes: v.notes,
             breaches: visitBreaches(v).map(x => `${x.limit.zone} · ${limitPest(x.limit)}: ${x.total} recorded in ${monthLabel(x.month || v.completed)}, limit ${x.limit.max} a month (${x.total - x.limit.max} over). Caught at: ${breachStations(x).map(b => `${b.name} (${b.n})`).join(', ')}`),
             entries: v.entries.map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, pests: e.species ? e.species + (e.count ? ' x' + e.count : '') : '',
                 prep: e.prep ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '', notes: e.notes })),
-            recs: v.recs.map(r => ({ no: fmtRecNo(r.no), status: STATUS[r.status] ? STATUS[r.status].label : r.status, raised: r.raisedAt, station: r.station, barcode: r.barcode, text: r.text,
+            recs: v.recs.map(r => ({ id: r.id, no: fmtRecNo(r.no), status: STATUS[r.status] ? STATUS[r.status].label : r.status, raised: r.raisedAt, station: r.station, barcode: r.barcode, text: r.text,
                 closed: r.status === 'complete' ? (r.completedAt || r.lastChange) : null, note: r.updates.length ? r.updates[r.updates.length - 1].note : '' })),
             signedBy: v.signedBy, signedAt: v.signedAt, noSignatureReason: v.noSignatureReason, signature,
             by: state.me.name || state.me.email, app: 'Client Portal'
@@ -3950,7 +4038,7 @@ async function buildAuditPack() {
             if (state.site.technician) pdf.para('Assigned technician: ' + state.site.technician);
         }
         const section = (key, title, fn) => { if (!parts.has(key)) return; pdf.newPage(title); fn(); };
-        section('visits', 'Visits', () => { const t = EXPORTS.visits(); pdf.table(t.cols, t.rows); });
+        section('visits', 'Visits', () => { const t = EXPORTS.visits(); pdf.table(t.cols, t.rows, t.ids); });
         section('stations', 'Station register', () => { const t = stripLimitCols(EXPORTS.stations()); if (m.interval) pdf.para(`Stations should be checked at least every ${m.interval} days. "Overdue" means not checked for more than ${m.interval + OVERDUE_GRACE_DAYS} days.`); pdf.table(t.cols, t.rows); });
         section('chemicals', 'Preparations log', () => {
             const byPrep = new Map();
@@ -4509,6 +4597,20 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r77', date: '2026-10-30', v: { svc: '2026.10.30-r77', adm: '2026.10.30-a21', cli: '2026.10.30-p37' },
+            svc: ['Photos and videos: the ‹ › arrows stay at the sides of the screen, so they don\'t move when the next picture is a different size',
+                  'Recommendations: "Seen by" lists every time anyone opened it - who (staff or client), when, and in which app',
+                  'Visit report PDF: tap a station, a recommendation or the visit to open it in the Client Portal',
+                  'Thumbnails of photos and videos are kept on this device, so they show straight away the next time'],
+            adm: ['Overview: drag the boxes into a new order (⠿) and resize them from the corner; "Reset layout" puts them back',
+                  'Photos and videos: the ‹ › arrows stay at the sides of the screen',
+                  'Thumbnails of photos and videos are kept on this device, so they show straight away the next time'],
+            cli: ['Overview: drag the boxes into a new order (⠿) and resize them from the corner; "Reset layout" puts them back',
+                  'Photos and videos: the ‹ › arrows stay at the sides of the screen, so they don\'t move when the next picture is a different size',
+                  'Recommendations: "Seen by" lists every time anyone opened it, and when',
+                  'Documents › Meetings: add your own meeting notes and files (and remove the ones you added)',
+                  'Downloaded PDFs: tap a station, a recommendation or a visit to open it here',
+                  'Thumbnails of photos and videos are kept on this device, so they show straight away the next time'] },
         { rev: 'r76', date: '2026-10-30', v: { svc: '2026.10.30-r76', adm: '2026.10.30-a20', cli: '2026.10.30-p36' },
             svc: ['Visit report: the downloaded PDF is now exactly the same as the one customers download from the Client Portal, with the Pesties logo in the top right',
                   'Floor plans: "Download pest map" makes one A4 page (PDF) with the plan filling the page, the same pins as on screen, the legend and the site details - the same as from the Client Portal. Station names are included when the Names switch is on'],
@@ -4673,9 +4775,10 @@ const WN = (() => {
 <script id="pestisVisitPdf">
 /* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
 // Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
-//   { siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
+//   { siteId, id (the visit's, if it has reached the server), siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
 //     breaches: ['line', ..], entries: [{ name, barcode, type, activity, pests, prep, notes }],
-//     recs: [{ no, status, raised, station, barcode, text, closed, note }],
+//     recs: [{ id, no, status, raised, station, barcode, text, closed, note }],
+//   Stations, recommendations and the visit link to the Client Portal.
 //     signedBy, signedAt, noSignatureReason, signature (picture data URL or null), by (who downloaded it), app ('Service App' | 'Client Portal') }
 // Times are milliseconds (or ISO text); text is already worded for the customer.
 const PVR = (() => {
@@ -4686,6 +4789,8 @@ const PVR = (() => {
     const dur = (a, b) => { const ms = t(b) - t(a); if (!t(a) || !t(b) || !(ms > 0)) return '-'; const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
     const safe = s => String(s || 'Site').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
     const ENTRY_COLS = [['Station', 34], ['Barcode', 18], ['Type', 30], ['Activity', 16], ['Pests', 24], ['Preparation', 50], ['Notes', 50]];
+    // where a station, recommendation or visit opens in the Client Portal (reports link back to it)
+    const portalLink = (cid, kind, id) => cid == null || id == null ? null : `${location.origin}/client.html#/site/${encodeURIComponent(cid)}/${{ station: 'overview', rec: 'recs', visit: 'visits' }[kind]}/${kind}/${encodeURIComponent(id)}`;
     const REC_COLS = [['No.', 16], ['Status', 18], ['Raised', 20], ['Station', 30], ['Barcode', 18], ['Recommendation', 70], ['Closed', 20], ['Latest note', 50]];
 
     // the Pesties logo, made small enough for a PDF (loaded once)
@@ -4831,7 +4936,8 @@ const PVR = (() => {
             });
             y += 19;
         };
-        const table = (cols, rows) => {
+        // links: for each row, { column number: web address } - those cells are blue and open the address when clicked
+        const table = (cols, rows, links) => {
             const total = cols.reduce((a, c) => a + c[1], 0), scale = (W - 2 * M) / total, widths = cols.map(c => c[1] * scale);
             const head = () => {
                 doc.setFillColor(226, 232, 240); doc.rect(M, y, W - 2 * M, 7, 'F');
@@ -4847,8 +4953,13 @@ const PVR = (() => {
                 const h = Math.max(...cells.map(c => c.length)) * 3.4 + 2.6;
                 if (y + h > H - 12) { newPage(); head(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
                 if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
-                doc.setTextColor(15, 23, 42);
-                let x0 = M; cells.forEach((c, i) => { doc.text(c, x0 + 1.5, y + 3.9); x0 += widths[i]; });
+                let x0 = M; cells.forEach((c, i) => {
+                    const url = links && links[ri] && links[ri][i];
+                    if (url) doc.setTextColor(37, 99, 235); else doc.setTextColor(15, 23, 42);
+                    doc.text(c, x0 + 1.5, y + 3.9);
+                    if (url) { try { doc.link(x0, y, widths[i], h, { url }); } catch (e) {} }
+                    x0 += widths[i];
+                });
                 y += h;
             });
             y += 5;
@@ -4871,10 +4982,19 @@ const PVR = (() => {
         if ((v.services || []).length) para('Services completed: ' + v.services.join(', '));
         heading("Technician's notes"); para(v.notes || 'No notes provided');
         heading('Station records');
-        table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']));
+        const stLink = b => portalLink(v.siteId, 'station', b);
+        table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']),
+            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })));
         if ((v.recs || []).length) {
             heading('Recommendations raised');
-            table(REC_COLS, v.recs.map(r => [r.no || '', r.status || '', day(r.raised), r.station || '', r.barcode || '', r.text || '', r.closed ? day(r.closed) : '', r.note || '']));
+            table(REC_COLS, v.recs.map(r => [r.no || '', r.status || '', day(r.raised), r.station || '', r.barcode || '', r.text || '', r.closed ? day(r.closed) : '', r.note || '']),
+                v.recs.map(r => ({ 0: portalLink(v.siteId, 'rec', r.id), 5: portalLink(v.siteId, 'rec', r.id), 3: r.barcode ? stLink(r.barcode) : null })));
+        }
+        if (v.siteId != null && v.id) {   // the whole visit, in the Client Portal
+            room(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(37, 99, 235);
+            const txt = 'Open this visit report in the Pesties Client Portal';
+            try { doc.textWithLink(txt, M, y, { url: portalLink(v.siteId, 'visit', v.id) }); } catch (e) { doc.text(txt, M, y); }
+            y += 7;
         }
         if (v.signedBy || v.noSignatureReason) {
             heading('Customer sign-off');
@@ -4890,7 +5010,154 @@ const PVR = (() => {
         const d = t(v.completed) ? new Date(t(v.completed)) : new Date();
         doc.save(`${safe(v.siteName)} - Visit report - ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.pdf`);
     }
-    return { build, logo, pestMap, pin };
+    return { build, logo, pestMap, pin, portalLink };
+})();
+
+// ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------
+// BOARD.attach(el, key, defaults): el's children with data-box="<id>" become boxes; defaults = { <id>: <width as a share of the row, e.g. .6667> }.
+// Each person's layout is kept in this browser under key. On a phone the boxes are full width and as tall as they need.
+const BOARD = (() => {
+    const GAP = 20, MINH = 160;
+    function css() {
+        if (document.getElementById('bdCss')) return;
+        const st = document.createElement('style'); st.id = 'bdCss';
+        st.textContent = '.bd-board{display:flex;flex-wrap:wrap;gap:' + GAP + 'px;align-items:flex-start}.bd-board>.bd-box{flex:0 0 auto;width:100%;min-width:0;position:relative}'
+            + '.bd-box>:not(.bd-resize):not(.bd-move){height:100%}.bd-box>:not(.bd-resize):not(.bd-move)>.card{min-height:100%}@media (min-width:1024px){.bd-board>.bd-box{width:calc((100% + ' + GAP + 'px) * var(--bd-f,.5) - ' + GAP + 'px)}.bd-board>.bd-box.bd-hset{height:var(--bd-h)}.bd-board>.bd-box.bd-hset>:not(.bd-resize):not(.bd-move){overflow:auto}}'
+            + '.bd-resize{position:absolute;right:5px;bottom:5px;width:16px;height:16px;cursor:nwse-resize;touch-action:none;opacity:.45;z-index:3;border-radius:0 0 .6rem 0;background:linear-gradient(135deg,transparent 0 55%,currentColor 55% 62%,transparent 62% 72%,currentColor 72% 79%,transparent 79%)}'
+            + '.bd-resize:hover{opacity:1}.bd-move{cursor:grab;touch-action:none;user-select:none;opacity:.5;font-size:15px;line-height:1;padding:2px 4px;border-radius:6px;position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:3}.bd-move:hover{opacity:1;background:rgba(127,127,127,.15)}'
+            + '.bd-box.bd-drag{outline:2px dashed rgb(var(--b500,249 115 22));outline-offset:3px;opacity:.85}.bd-box.bd-sizing{outline:2px solid rgb(var(--b500,249 115 22) / .6);outline-offset:3px}'
+            + '@media (max-width:1023px){.bd-resize,.bd-move{display:none}}';
+        document.head.appendChild(st);
+    }
+    const load = key => { try { return JSON.parse(localStorage.getItem(key) || 'null') || {}; } catch (e) { return {}; } };
+    const save = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} };
+    const snapF = f => Math.min(1, Math.max(.25, Math.round(f * 12) / 12));
+    function attach(el, key, defaults) {
+        if (!el) return;
+        css();
+        el.classList.add('bd-board');
+        const boxes = () => Array.from(el.children).filter(c => c.dataset && c.dataset.box);
+        const lay = load(key);
+        // the saved order (new boxes go where they are), then each box's size
+        const order = (lay.order || []).filter(id => boxes().some(b => b.dataset.box === id));
+        boxes().forEach(b => { if (!order.includes(b.dataset.box)) order.splice(Math.min(order.length, boxes().indexOf(b)), 0, b.dataset.box); });
+        order.forEach(id => { const b = boxes().find(x => x.dataset.box === id); if (b) el.appendChild(b); });
+        boxes().forEach(b => {
+            b.classList.add('bd-box');
+            const s = (lay.boxes || {})[b.dataset.box] || {};
+            b.style.setProperty('--bd-f', String(s.f || (defaults && defaults[b.dataset.box]) || .5));
+            if (s.h) { b.style.setProperty('--bd-h', s.h + 'px'); b.classList.add('bd-hset'); }
+            if (!b.querySelector(':scope > .bd-resize')) b.insertAdjacentHTML('beforeend', '<span class="bd-resize" title="Drag to resize" aria-hidden="true"></span><span class="bd-move" title="Drag to move this box" aria-hidden="true">⠿</span>');
+        });
+        const store = () => {
+            const v = { order: boxes().map(b => b.dataset.box), boxes: {} };
+            boxes().forEach(b => { v.boxes[b.dataset.box] = { f: Number(b.style.getPropertyValue('--bd-f')) || .5, h: b.classList.contains('bd-hset') ? parseInt(b.style.getPropertyValue('--bd-h'), 10) || null : null }; });
+            save(key, v);
+        };
+        if (el._bdBound) return;
+        el._bdBound = true;
+        el.addEventListener('pointerdown', e => {
+            const handle = e.target.closest('.bd-resize, .bd-move');
+            if (!handle || !el.contains(handle)) return;
+            const box = handle.closest('.bd-box');
+            e.preventDefault();
+            const W = el.getBoundingClientRect().width, r0 = box.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+            const sizing = handle.classList.contains('bd-resize');
+            box.classList.add(sizing ? 'bd-sizing' : 'bd-drag');
+            const move = ev => {
+                if (sizing) {
+                    box.style.setProperty('--bd-f', String(snapF((r0.width + ev.clientX - x0 + GAP) / (W + GAP))));
+                    box.style.setProperty('--bd-h', Math.max(MINH, Math.round(r0.height + ev.clientY - y0)) + 'px'); box.classList.add('bd-hset');
+                } else {
+                    const over = document.elementFromPoint(ev.clientX, ev.clientY), target = over && over.closest('.bd-box');
+                    if (!target || target === box || target.parentElement !== el) return;
+                    const r = target.getBoundingClientRect(), after = ev.clientX > r.left + r.width / 2 || ev.clientY > r.bottom - 10;
+                    el.insertBefore(box, after ? target.nextSibling : target);
+                }
+            };
+            const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); box.classList.remove('bd-sizing', 'bd-drag'); store(); window.dispatchEvent(new Event('resize')); };
+            window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+        });
+        // double-click the corner: back to its own height
+        el.addEventListener('dblclick', e => { const h = e.target.closest('.bd-resize'); if (!h) return; const b = h.closest('.bd-box'); b.classList.remove('bd-hset'); b.style.removeProperty('--bd-h'); store(); });
+    }
+    function reset(key) { try { localStorage.removeItem(key); } catch (e) {} }
+    return { attach, reset };
+})();
+
+// ---------- Thumbnails kept on this device: photos and videos shown small load straight away the next time ----------
+// Any picture or video from the server (/api/files/...) shown as a thumbnail (in a card, a gallery strip, a station box)
+// is made into a small JPEG the first time it loads and saved in this browser; after that the saved one is shown at once,
+// and a video thumbnail shows its saved first frame instead of loading the video. Full-size viewers are left alone.
+const THUMBS = (() => {
+    const SMALL = '[class*="thumb"], .rec-media, .rec-card, .nf-card, .station-photo-box, .map-pop-photo, .plan-card';
+    const FULL = '#viewer, #imageModal, .rec-hero, .pest-hero, #zoomStage';
+    const MAX = 360, KEEP = 3000;
+    let dbP = null;
+    const db = () => dbP || (dbP = new Promise((res, rej) => {
+        const r = indexedDB.open('pestis-thumbs', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('t');
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    }).catch(() => null));
+    const tx = async (mode, fn) => { const d = await db(); if (!d) return null; return await new Promise(res => { try { const s = d.transaction('t', mode).objectStore('t'); const q = fn(s); q.onsuccess = () => res(q.result); q.onerror = () => res(null); } catch (e) { res(null); } }); };
+    const get = key => tx('readonly', s => s.get(key));
+    const put = (key, val) => tx('readwrite', s => s.put(val, key));
+    // the file a link points at, without the signature that changes each time
+    const keyOf = src => { const m = /\/api\/files\/([^?#]+)/.exec(String(src || '')); return m ? decodeURIComponent(m[1]) : null; };
+    const urls = new Map();   // key -> object URL made this session
+    async function saved(key) {
+        if (urls.has(key)) return urls.get(key);
+        const v = await get(key);
+        if (!v || !v.blob) return null;
+        const u = URL.createObjectURL(v.blob); urls.set(key, u);
+        return u;
+    }
+    function shrink(el, w, h) {
+        const k = Math.min(1, MAX / Math.max(w, h)), c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+        c.getContext('2d').drawImage(el, 0, 0, c.width, c.height);
+        return new Promise(res => { try { c.toBlob(b => res(b), 'image/jpeg', .78); } catch (e) { res(null); } });
+    }
+    async function store(key, blob) {
+        if (!blob) return;
+        await put(key, { blob, at: Date.now() });
+        if (Math.random() < .05) prune();
+    }
+    async function prune() {   // keep the newest few thousand
+        const d = await db(); if (!d) return;
+        const all = []; await new Promise(res => { const c = d.transaction('t').objectStore('t').openCursor(); c.onsuccess = () => { const cur = c.result; if (!cur) return res(); all.push([cur.key, cur.value.at || 0]); cur.continue(); }; c.onerror = res; });
+        if (all.length <= KEEP) return;
+        all.sort((a, b) => a[1] - b[1]);
+        const s = d.transaction('t', 'readwrite').objectStore('t');
+        all.slice(0, all.length - KEEP).forEach(([k]) => s.delete(k));
+    }
+    async function handle(el) {
+        if (el.dataset.thumbDone) return;
+        const src = el.currentSrc || el.getAttribute('src') || '', key = keyOf(src);
+        if (!key || !el.closest(SMALL) || el.closest(FULL)) return;
+        el.dataset.thumbDone = '1';
+        const have = await saved(key);
+        if (el.tagName === 'IMG') {
+            if (have) { el.src = have; return; }
+            const done = async () => { if (el.naturalWidth) store(key, await shrink(el, el.naturalWidth, el.naturalHeight)); };
+            if (el.complete && el.naturalWidth) done(); else el.addEventListener('load', done, { once: true });
+        } else if (el.tagName === 'VIDEO') {
+            if (have) { el.poster = have; el.preload = 'none'; return; }
+            const grab = async () => { if (el.videoWidth) store(key, await shrink(el, el.videoWidth, el.videoHeight)); };
+            if (el.readyState >= 2) grab(); else el.addEventListener('loadeddata', grab, { once: true });
+        }
+    }
+    function scan(root) { (root.querySelectorAll ? root.querySelectorAll('img, video') : []).forEach(handle); if (root.tagName === 'IMG' || root.tagName === 'VIDEO') handle(root); }
+    function start() {
+        if (!window.indexedDB || !window.MutationObserver || !document.body) return;
+        new MutationObserver(list => list.forEach(m => {
+            if (m.type === 'attributes') { m.target.dataset.thumbDone = ''; handle(m.target); }
+            else m.addedNodes.forEach(n => { if (n.nodeType === 1) scan(n); });
+        })).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+        scan(document.body);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+    return { keyOf, saved };
 })();
 /* PESTIS-VISITPDF:END */
 </script>

@@ -1,8 +1,9 @@
 /* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
 // Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
-//   { siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
+//   { siteId, id (the visit's, if it has reached the server), siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
 //     breaches: ['line', ..], entries: [{ name, barcode, type, activity, pests, prep, notes }],
-//     recs: [{ no, status, raised, station, barcode, text, closed, note }],
+//     recs: [{ id, no, status, raised, station, barcode, text, closed, note }],
+//   Stations, recommendations and the visit link to the Client Portal.
 //     signedBy, signedAt, noSignatureReason, signature (picture data URL or null), by (who downloaded it), app ('Service App' | 'Client Portal') }
 // Times are milliseconds (or ISO text); text is already worded for the customer.
 const PVR = (() => {
@@ -13,6 +14,8 @@ const PVR = (() => {
     const dur = (a, b) => { const ms = t(b) - t(a); if (!t(a) || !t(b) || !(ms > 0)) return '-'; const m = Math.round(ms / 60000); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`; };
     const safe = s => String(s || 'Site').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
     const ENTRY_COLS = [['Station', 34], ['Barcode', 18], ['Type', 30], ['Activity', 16], ['Pests', 24], ['Preparation', 50], ['Notes', 50]];
+    // where a station, recommendation or visit opens in the Client Portal (reports link back to it)
+    const portalLink = (cid, kind, id) => cid == null || id == null ? null : `${location.origin}/client.html#/site/${encodeURIComponent(cid)}/${{ station: 'overview', rec: 'recs', visit: 'visits' }[kind]}/${kind}/${encodeURIComponent(id)}`;
     const REC_COLS = [['No.', 16], ['Status', 18], ['Raised', 20], ['Station', 30], ['Barcode', 18], ['Recommendation', 70], ['Closed', 20], ['Latest note', 50]];
 
     // the Pesties logo, made small enough for a PDF (loaded once)
@@ -158,7 +161,8 @@ const PVR = (() => {
             });
             y += 19;
         };
-        const table = (cols, rows) => {
+        // links: for each row, { column number: web address } - those cells are blue and open the address when clicked
+        const table = (cols, rows, links) => {
             const total = cols.reduce((a, c) => a + c[1], 0), scale = (W - 2 * M) / total, widths = cols.map(c => c[1] * scale);
             const head = () => {
                 doc.setFillColor(226, 232, 240); doc.rect(M, y, W - 2 * M, 7, 'F');
@@ -174,8 +178,13 @@ const PVR = (() => {
                 const h = Math.max(...cells.map(c => c.length)) * 3.4 + 2.6;
                 if (y + h > H - 12) { newPage(); head(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
                 if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
-                doc.setTextColor(15, 23, 42);
-                let x0 = M; cells.forEach((c, i) => { doc.text(c, x0 + 1.5, y + 3.9); x0 += widths[i]; });
+                let x0 = M; cells.forEach((c, i) => {
+                    const url = links && links[ri] && links[ri][i];
+                    if (url) doc.setTextColor(37, 99, 235); else doc.setTextColor(15, 23, 42);
+                    doc.text(c, x0 + 1.5, y + 3.9);
+                    if (url) { try { doc.link(x0, y, widths[i], h, { url }); } catch (e) {} }
+                    x0 += widths[i];
+                });
                 y += h;
             });
             y += 5;
@@ -198,10 +207,19 @@ const PVR = (() => {
         if ((v.services || []).length) para('Services completed: ' + v.services.join(', '));
         heading("Technician's notes"); para(v.notes || 'No notes provided');
         heading('Station records');
-        table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']));
+        const stLink = b => portalLink(v.siteId, 'station', b);
+        table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']),
+            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })));
         if ((v.recs || []).length) {
             heading('Recommendations raised');
-            table(REC_COLS, v.recs.map(r => [r.no || '', r.status || '', day(r.raised), r.station || '', r.barcode || '', r.text || '', r.closed ? day(r.closed) : '', r.note || '']));
+            table(REC_COLS, v.recs.map(r => [r.no || '', r.status || '', day(r.raised), r.station || '', r.barcode || '', r.text || '', r.closed ? day(r.closed) : '', r.note || '']),
+                v.recs.map(r => ({ 0: portalLink(v.siteId, 'rec', r.id), 5: portalLink(v.siteId, 'rec', r.id), 3: r.barcode ? stLink(r.barcode) : null })));
+        }
+        if (v.siteId != null && v.id) {   // the whole visit, in the Client Portal
+            room(8); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(37, 99, 235);
+            const txt = 'Open this visit report in the Pesties Client Portal';
+            try { doc.textWithLink(txt, M, y, { url: portalLink(v.siteId, 'visit', v.id) }); } catch (e) { doc.text(txt, M, y); }
+            y += 7;
         }
         if (v.signedBy || v.noSignatureReason) {
             heading('Customer sign-off');
@@ -217,6 +235,153 @@ const PVR = (() => {
         const d = t(v.completed) ? new Date(t(v.completed)) : new Date();
         doc.save(`${safe(v.siteName)} - Visit report - ${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}.pdf`);
     }
-    return { build, logo, pestMap, pin };
+    return { build, logo, pestMap, pin, portalLink };
+})();
+
+// ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------
+// BOARD.attach(el, key, defaults): el's children with data-box="<id>" become boxes; defaults = { <id>: <width as a share of the row, e.g. .6667> }.
+// Each person's layout is kept in this browser under key. On a phone the boxes are full width and as tall as they need.
+const BOARD = (() => {
+    const GAP = 20, MINH = 160;
+    function css() {
+        if (document.getElementById('bdCss')) return;
+        const st = document.createElement('style'); st.id = 'bdCss';
+        st.textContent = '.bd-board{display:flex;flex-wrap:wrap;gap:' + GAP + 'px;align-items:flex-start}.bd-board>.bd-box{flex:0 0 auto;width:100%;min-width:0;position:relative}'
+            + '.bd-box>:not(.bd-resize):not(.bd-move){height:100%}.bd-box>:not(.bd-resize):not(.bd-move)>.card{min-height:100%}@media (min-width:1024px){.bd-board>.bd-box{width:calc((100% + ' + GAP + 'px) * var(--bd-f,.5) - ' + GAP + 'px)}.bd-board>.bd-box.bd-hset{height:var(--bd-h)}.bd-board>.bd-box.bd-hset>:not(.bd-resize):not(.bd-move){overflow:auto}}'
+            + '.bd-resize{position:absolute;right:5px;bottom:5px;width:16px;height:16px;cursor:nwse-resize;touch-action:none;opacity:.45;z-index:3;border-radius:0 0 .6rem 0;background:linear-gradient(135deg,transparent 0 55%,currentColor 55% 62%,transparent 62% 72%,currentColor 72% 79%,transparent 79%)}'
+            + '.bd-resize:hover{opacity:1}.bd-move{cursor:grab;touch-action:none;user-select:none;opacity:.5;font-size:15px;line-height:1;padding:2px 4px;border-radius:6px;position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:3}.bd-move:hover{opacity:1;background:rgba(127,127,127,.15)}'
+            + '.bd-box.bd-drag{outline:2px dashed rgb(var(--b500,249 115 22));outline-offset:3px;opacity:.85}.bd-box.bd-sizing{outline:2px solid rgb(var(--b500,249 115 22) / .6);outline-offset:3px}'
+            + '@media (max-width:1023px){.bd-resize,.bd-move{display:none}}';
+        document.head.appendChild(st);
+    }
+    const load = key => { try { return JSON.parse(localStorage.getItem(key) || 'null') || {}; } catch (e) { return {}; } };
+    const save = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch (e) {} };
+    const snapF = f => Math.min(1, Math.max(.25, Math.round(f * 12) / 12));
+    function attach(el, key, defaults) {
+        if (!el) return;
+        css();
+        el.classList.add('bd-board');
+        const boxes = () => Array.from(el.children).filter(c => c.dataset && c.dataset.box);
+        const lay = load(key);
+        // the saved order (new boxes go where they are), then each box's size
+        const order = (lay.order || []).filter(id => boxes().some(b => b.dataset.box === id));
+        boxes().forEach(b => { if (!order.includes(b.dataset.box)) order.splice(Math.min(order.length, boxes().indexOf(b)), 0, b.dataset.box); });
+        order.forEach(id => { const b = boxes().find(x => x.dataset.box === id); if (b) el.appendChild(b); });
+        boxes().forEach(b => {
+            b.classList.add('bd-box');
+            const s = (lay.boxes || {})[b.dataset.box] || {};
+            b.style.setProperty('--bd-f', String(s.f || (defaults && defaults[b.dataset.box]) || .5));
+            if (s.h) { b.style.setProperty('--bd-h', s.h + 'px'); b.classList.add('bd-hset'); }
+            if (!b.querySelector(':scope > .bd-resize')) b.insertAdjacentHTML('beforeend', '<span class="bd-resize" title="Drag to resize" aria-hidden="true"></span><span class="bd-move" title="Drag to move this box" aria-hidden="true">⠿</span>');
+        });
+        const store = () => {
+            const v = { order: boxes().map(b => b.dataset.box), boxes: {} };
+            boxes().forEach(b => { v.boxes[b.dataset.box] = { f: Number(b.style.getPropertyValue('--bd-f')) || .5, h: b.classList.contains('bd-hset') ? parseInt(b.style.getPropertyValue('--bd-h'), 10) || null : null }; });
+            save(key, v);
+        };
+        if (el._bdBound) return;
+        el._bdBound = true;
+        el.addEventListener('pointerdown', e => {
+            const handle = e.target.closest('.bd-resize, .bd-move');
+            if (!handle || !el.contains(handle)) return;
+            const box = handle.closest('.bd-box');
+            e.preventDefault();
+            const W = el.getBoundingClientRect().width, r0 = box.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+            const sizing = handle.classList.contains('bd-resize');
+            box.classList.add(sizing ? 'bd-sizing' : 'bd-drag');
+            const move = ev => {
+                if (sizing) {
+                    box.style.setProperty('--bd-f', String(snapF((r0.width + ev.clientX - x0 + GAP) / (W + GAP))));
+                    box.style.setProperty('--bd-h', Math.max(MINH, Math.round(r0.height + ev.clientY - y0)) + 'px'); box.classList.add('bd-hset');
+                } else {
+                    const over = document.elementFromPoint(ev.clientX, ev.clientY), target = over && over.closest('.bd-box');
+                    if (!target || target === box || target.parentElement !== el) return;
+                    const r = target.getBoundingClientRect(), after = ev.clientX > r.left + r.width / 2 || ev.clientY > r.bottom - 10;
+                    el.insertBefore(box, after ? target.nextSibling : target);
+                }
+            };
+            const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); box.classList.remove('bd-sizing', 'bd-drag'); store(); window.dispatchEvent(new Event('resize')); };
+            window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+        });
+        // double-click the corner: back to its own height
+        el.addEventListener('dblclick', e => { const h = e.target.closest('.bd-resize'); if (!h) return; const b = h.closest('.bd-box'); b.classList.remove('bd-hset'); b.style.removeProperty('--bd-h'); store(); });
+    }
+    function reset(key) { try { localStorage.removeItem(key); } catch (e) {} }
+    return { attach, reset };
+})();
+
+// ---------- Thumbnails kept on this device: photos and videos shown small load straight away the next time ----------
+// Any picture or video from the server (/api/files/...) shown as a thumbnail (in a card, a gallery strip, a station box)
+// is made into a small JPEG the first time it loads and saved in this browser; after that the saved one is shown at once,
+// and a video thumbnail shows its saved first frame instead of loading the video. Full-size viewers are left alone.
+const THUMBS = (() => {
+    const SMALL = '[class*="thumb"], .rec-media, .rec-card, .nf-card, .station-photo-box, .map-pop-photo, .plan-card';
+    const FULL = '#viewer, #imageModal, .rec-hero, .pest-hero, #zoomStage';
+    const MAX = 360, KEEP = 3000;
+    let dbP = null;
+    const db = () => dbP || (dbP = new Promise((res, rej) => {
+        const r = indexedDB.open('pestis-thumbs', 1);
+        r.onupgradeneeded = () => r.result.createObjectStore('t');
+        r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    }).catch(() => null));
+    const tx = async (mode, fn) => { const d = await db(); if (!d) return null; return await new Promise(res => { try { const s = d.transaction('t', mode).objectStore('t'); const q = fn(s); q.onsuccess = () => res(q.result); q.onerror = () => res(null); } catch (e) { res(null); } }); };
+    const get = key => tx('readonly', s => s.get(key));
+    const put = (key, val) => tx('readwrite', s => s.put(val, key));
+    // the file a link points at, without the signature that changes each time
+    const keyOf = src => { const m = /\/api\/files\/([^?#]+)/.exec(String(src || '')); return m ? decodeURIComponent(m[1]) : null; };
+    const urls = new Map();   // key -> object URL made this session
+    async function saved(key) {
+        if (urls.has(key)) return urls.get(key);
+        const v = await get(key);
+        if (!v || !v.blob) return null;
+        const u = URL.createObjectURL(v.blob); urls.set(key, u);
+        return u;
+    }
+    function shrink(el, w, h) {
+        const k = Math.min(1, MAX / Math.max(w, h)), c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+        c.getContext('2d').drawImage(el, 0, 0, c.width, c.height);
+        return new Promise(res => { try { c.toBlob(b => res(b), 'image/jpeg', .78); } catch (e) { res(null); } });
+    }
+    async function store(key, blob) {
+        if (!blob) return;
+        await put(key, { blob, at: Date.now() });
+        if (Math.random() < .05) prune();
+    }
+    async function prune() {   // keep the newest few thousand
+        const d = await db(); if (!d) return;
+        const all = []; await new Promise(res => { const c = d.transaction('t').objectStore('t').openCursor(); c.onsuccess = () => { const cur = c.result; if (!cur) return res(); all.push([cur.key, cur.value.at || 0]); cur.continue(); }; c.onerror = res; });
+        if (all.length <= KEEP) return;
+        all.sort((a, b) => a[1] - b[1]);
+        const s = d.transaction('t', 'readwrite').objectStore('t');
+        all.slice(0, all.length - KEEP).forEach(([k]) => s.delete(k));
+    }
+    async function handle(el) {
+        if (el.dataset.thumbDone) return;
+        const src = el.currentSrc || el.getAttribute('src') || '', key = keyOf(src);
+        if (!key || !el.closest(SMALL) || el.closest(FULL)) return;
+        el.dataset.thumbDone = '1';
+        const have = await saved(key);
+        if (el.tagName === 'IMG') {
+            if (have) { el.src = have; return; }
+            const done = async () => { if (el.naturalWidth) store(key, await shrink(el, el.naturalWidth, el.naturalHeight)); };
+            if (el.complete && el.naturalWidth) done(); else el.addEventListener('load', done, { once: true });
+        } else if (el.tagName === 'VIDEO') {
+            if (have) { el.poster = have; el.preload = 'none'; return; }
+            const grab = async () => { if (el.videoWidth) store(key, await shrink(el, el.videoWidth, el.videoHeight)); };
+            if (el.readyState >= 2) grab(); else el.addEventListener('loadeddata', grab, { once: true });
+        }
+    }
+    function scan(root) { (root.querySelectorAll ? root.querySelectorAll('img, video') : []).forEach(handle); if (root.tagName === 'IMG' || root.tagName === 'VIDEO') handle(root); }
+    function start() {
+        if (!window.indexedDB || !window.MutationObserver || !document.body) return;
+        new MutationObserver(list => list.forEach(m => {
+            if (m.type === 'attributes') { m.target.dataset.thumbDone = ''; handle(m.target); }
+            else m.addedNodes.forEach(n => { if (n.nodeType === 1) scan(n); });
+        })).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
+        scan(document.body);
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+    return { keyOf, saved };
 })();
 /* PESTIS-VISITPDF:END */

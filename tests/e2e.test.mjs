@@ -187,9 +187,28 @@ try {
   await cp.goto(BASE + '/client.html#/site/1/overview'); await sleep(3000);
   const otext = await cp.textContent('body');
   ok(/Seal the gap/.test(otext), 'client sees the recommendation', otext.slice(0, 400));
-  const cliPdf = await cp.evaluate(`(async () => { const v = state.model.visits[0]; if (!v) return null; await downloadVisitPdf(v.id); return { saved: window.__pdf.saved.slice(), texts: window.__pdf.texts.slice() }; })()`);
+  const cliPdf = await cp.evaluate(`(async () => { const v = state.model.visits[0]; if (!v) return null; window.__pdf.links = []; await downloadVisitPdf(v.id); return { saved: window.__pdf.saved.slice(), texts: window.__pdf.texts.slice(), links: window.__pdf.links.slice() }; })()`);
+  ok(cliPdf && cliPdf.links.some(u => /\/client\.html#\/site\/1\/overview\/station\/NEW-88$/.test(u)) && cliPdf.links.some(u => /#\/site\/1\/visits\/visit\//.test(u)),
+    'visit report: stations and the visit link back to the Client Portal', cliPdf && cliPdf.links);
+  // a link from a report opens that station
+  await cp.goto(BASE + '/client.html#/site/1/overview/station/NEW-88'); await sleep(3000);
+  ok(await cp.evaluate("!$('modal').classList.contains('hidden') && /Loading Dock/.test($('modal').textContent)"), 'a station link opens the station in the portal');
+  await cp.evaluate('closeModal && closeModal(true)').catch(() => {});
   ok(cliPdf && cliPdf.saved.some(f => /^Acme Foods - Visit report - \d{4}-\d\d-\d\d\.pdf$/.test(f)) && cliPdf.texts.includes('Station records') && cliPdf.texts.some(t => /Pesties Client Portal/.test(t)),
     'Client Portal visit report: the same shared report', cliPdf && cliPdf.saved);
+  // thumbnails are kept on the device: the first one is saved, the next one shows the saved copy straight away
+  const th = await cp.evaluate(`(async () => {
+    const [u] = await signPaths(['1/STATION_TEST_1.png']);
+    if (!u) return 'no link';
+    const box = Object.assign(document.createElement('div'), { className: 'thumb' }); box.innerHTML = '<img src="' + u + '">'; document.body.appendChild(box);
+    for (let i = 0; i < 40 && !(await THUMBS.saved('station-photos/1/STATION_TEST_1.png')); i++) await new Promise(r => setTimeout(r, 100));
+    const [u2] = await signPaths(['1/STATION_TEST_1.png']);
+    const box2 = Object.assign(document.createElement('div'), { className: 'thumb' }); box2.innerHTML = '<img src="' + u2 + '">'; document.body.appendChild(box2);
+    await new Promise(r => setTimeout(r, 300));
+    const src = box2.querySelector('img').src; box.remove(); box2.remove();
+    return src;
+  })()`);
+  ok(String(th).startsWith('blob:'), 'a thumbnail is saved on the device and shown from there the next time', th);
   await cp.screenshot({ path: SHOTS + '/portal.png' });
   ok(cp.errors.length === 0, 'Portal: no errors', cp.errors);
 

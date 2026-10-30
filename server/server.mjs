@@ -256,15 +256,19 @@ function canRead(tn, row, me) {
 
 /* ---------- write rules ---------- */
 const GUARDED = new Set([...SITE_TABLES, ...LIST_TABLES, 'clients', 'site_events', 'app_settings']);
+// a client adds their own files to their site's Meetings folder, and removes only the ones they added
+const clientMeetingDoc = (op, row, me) => me.client && !me.approved && row && isSiteClient(me, row.client_id) && /^meetings$/i.test(String(row.folder || '').trim())
+  && clientMeetingFile(me, String(row.file_path || '')) && (op === 'insert' || row.uploaded_by_id === me.uid);
 function canWrite(tn, op, row, me) {
   if (me.system) return true;
+  if (tn === 'site_documents' && clientMeetingDoc(op, row, me)) return true;
   if (GUARDED.has(tn) && !me.approved) return false;
   switch (tn) {
     case 'service_logs': case 'recommendations': case 'recommendation_updates': case 'stations': case 'site_maps': case 'visits':
     case 'site_events': case 'clients': return me.approved;
     case 'site_documents': case 'site_document_folders': case 'site_limits': return me.admin;
     case 'pest_sightings': return op !== 'delete' && me.approved;
-    case 'recommendation_views': return false;
+    case 'recommendation_views': case 'recommendation_view_log': return false;   // only through pestis_mark_rec_viewed
     case 'preparations': case 'species': case 'station_types': case 'app_settings': return me.admin;
     case 'site_contacts': return me.approved || isSiteClient(me, row.client_id);
     case 'client_users': case 'client_access': case 'allowed_emails': return me.admin;
@@ -563,6 +567,8 @@ const TRIGGERS = {
     },
     allowed_emails: row => { row.email = String(row.email || '').trim().toLowerCase(); return row; },
     site_contacts: (row, me) => siteContactBefore(row, null, me),
+    // a client's file: their own name on it, and it stays a meeting file
+    site_documents: (row, me) => { if (me.client && !me.approved) Object.assign(row, { uploaded_by: myName(me), uploaded_by_id: me.uid, category: 'Meetings' }); return row; },
     site_document_folders: row => {
       row.name = String(row.name || '').trim();
       if (row.name.length < 1 || row.name.length > 80) throw new PgError('23514', 'new row for relation "site_document_folders" violates check constraint "site_document_folders_name_check"');
@@ -724,6 +730,11 @@ const RPC = {
       const v = sys.one('recommendation_views', [['rec_id', 'eq', r.id], ['viewer_key', 'eq', me.uid]]);
       if (v) sys.update('recommendation_views', [['rec_id', 'eq', r.id], ['viewer_key', 'eq', me.uid]], { last_seen_at: new Date().toISOString(), view_count: (v.view_count || 0) + 1, viewer_name: myName(me) });
       else sys.insert('recommendation_views', { rec_id: r.id, client_id: r.client_id, viewer_key: me.uid, viewer_name: myName(me), is_client: isClient });
+      // the log of every opening (the same person opening it again within 2 minutes counts once)
+      const recent = db.prepare('SELECT at FROM recommendation_view_log WHERE rec_id = ? AND viewer_key = ? ORDER BY at DESC LIMIT 1').get(r.id, me.uid);
+      if (!recent || Date.now() - Date.parse(recent.at) > 120000)
+        sys.insert('recommendation_view_log', { rec_id: r.id, client_id: r.client_id, viewer_key: me.uid, viewer_name: myName(me), is_client: isClient,
+          app: ['Service App', 'Admin', 'Client Portal'].includes(a.p_app) ? a.p_app : (isClient ? 'Client Portal' : null) });
     });
     return null;
   },
@@ -1114,10 +1125,13 @@ function clientCanReadFile(me, bucket, p) {
   const a = p.split('/');
   return canSeeSite(me, fileSite(p)) || (bucket === 'station-photos' && a[0] === 'staff' && !!a[2]) || (a[0] === 'library' && ['sds', 'pests'].includes(a[1]) && !!a[2]);
 }
+// a client's own file in their site's Meetings folder: <site>/CLIENT_MEETING_<name>
+const clientMeetingFile = (me, p) => { const a = p.split('/'); return me.client && a.length === 2 && /^CLIENT_MEETING_/.test(a[1]) && isSiteClient(me, a[0]); };
+const fileOwner = (bucket, p) => (db.prepare('SELECT owner FROM storage_objects WHERE bucket = ? AND name = ?').get(bucket, p) || {}).owner;
 function fileAllowed(me, bucket, p, op) {
   if (!BUCKETS[bucket]) return false;
   if (op === 'read') return me.approved || clientCanReadFile(me, bucket, p);
-  if (bucket === 'site-documents') return me.admin;
+  if (bucket === 'site-documents') return me.admin || (clientMeetingFile(me, p) && (op === 'insert' || fileOwner(bucket, p) === me.uid));
   if (op === 'insert') { const a = p.split('/'); return me.approved || (me.client && a.length === 2 && /^CLIENT_/.test(a[1]) && canSeeSite(me, a[0])); }
   return me.approved;   // replace, delete
 }

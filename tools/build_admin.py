@@ -3,7 +3,7 @@ import re, json, sys, tempfile
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
 SP = ROOT + 'src/'
-ADMIN_VERSION = '2026.10.30-a20-oci'   # bump the a-number when Admin changes
+ADMIN_VERSION = '2026.10.30-a21-oci'   # bump the a-number when Admin changes
 idx = open(ROOT + 'index.html').read()
 src = open(SP + 'admin_src.html').read()          # the add-on version of admin.html (template + addonScript)
 
@@ -405,6 +405,7 @@ SYSTEM = r'''
             }
             currentProfile = profile;
             appStarted = true;
+            try { BOARD.attach(document.getElementById('adminBoard'), 'pestis-admin-overview-board', { attention: 2 / 3, workload: 1 / 3 }); } catch (e) {}
             const name = profile.full_name || currentUser.email;
             document.getElementById('adminMeInitial').textContent = name.trim().charAt(0).toUpperCase();
             document.getElementById('adminMeName').textContent = name;

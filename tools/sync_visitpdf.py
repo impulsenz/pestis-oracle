@@ -1,4 +1,5 @@
-# puts the shared visit report PDF code (visitpdf_shared.js) into the Service App and the Client Portal, identically
+# puts the shared code in visitpdf_shared.js (the visit report PDF, the A4 pest map, thumbnails kept on the device)
+# into the Service App, the Client Portal and the Admin source, identically
 import re
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
@@ -14,3 +15,14 @@ for name in ('index.html', 'client.html'):
     s = RX.sub(lambda m: js, s, count=1)
     open(p, 'w', encoding='utf-8').write(s)
     print('synced', name)
+# Admin source: inside its add-on script (that's what build_admin.py takes)
+p = ROOT + 'src/admin_src.html'
+s = open(p, encoding='utf-8').read()
+if not RX.search(s):
+    tag = '<script type="text/plain" id="addonScript">'
+    k = s.index(tag) + len(tag)
+    s = s[:k] + '\n' + js + '\n' + s[k:]
+else:
+    s = RX.sub(lambda m: js, s, count=1)
+open(p, 'w', encoding='utf-8').write(s)
+print('synced admin_src.html')

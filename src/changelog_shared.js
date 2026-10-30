@@ -3,6 +3,20 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r77', date: '2026-10-30', v: { svc: '2026.10.30-r77', adm: '2026.10.30-a21', cli: '2026.10.30-p37' },
+            svc: ['Photos and videos: the ‹ › arrows stay at the sides of the screen, so they don\'t move when the next picture is a different size',
+                  'Recommendations: "Seen by" lists every time anyone opened it - who (staff or client), when, and in which app',
+                  'Visit report PDF: tap a station, a recommendation or the visit to open it in the Client Portal',
+                  'Thumbnails of photos and videos are kept on this device, so they show straight away the next time'],
+            adm: ['Overview: drag the boxes into a new order (⠿) and resize them from the corner; "Reset layout" puts them back',
+                  'Photos and videos: the ‹ › arrows stay at the sides of the screen',
+                  'Thumbnails of photos and videos are kept on this device, so they show straight away the next time'],
+            cli: ['Overview: drag the boxes into a new order (⠿) and resize them from the corner; "Reset layout" puts them back',
+                  'Photos and videos: the ‹ › arrows stay at the sides of the screen, so they don\'t move when the next picture is a different size',
+                  'Recommendations: "Seen by" lists every time anyone opened it, and when',
+                  'Documents › Meetings: add your own meeting notes and files (and remove the ones you added)',
+                  'Downloaded PDFs: tap a station, a recommendation or a visit to open it here',
+                  'Thumbnails of photos and videos are kept on this device, so they show straight away the next time'] },
         { rev: 'r76', date: '2026-10-30', v: { svc: '2026.10.30-r76', adm: '2026.10.30-a20', cli: '2026.10.30-p36' },
             svc: ['Visit report: the downloaded PDF is now exactly the same as the one customers download from the Client Portal, with the Pesties logo in the top right',
                   'Floor plans: "Download pest map" makes one A4 page (PDF) with the plan filling the page, the same pins as on screen, the legend and the site details - the same as from the Client Portal. Station names are included when the Names switch is on'],

@@ -96,6 +96,14 @@ export const TABLES = {
     },
     index: [['client_id']],
   },
+  recommendation_view_log: {          // every time someone opens a recommendation (who, when, in which app)
+    pk: ['id'],
+    cols: {
+      id: c('text', { def: 'uuid', nn: true }), rec_id: c('text', { nn: true }), client_id: c('text', { nn: true }), viewer_key: c('text', { nn: true }),
+      viewer_name: c('text'), is_client: c('bool', { def: false, nn: true }), app: c('text'), at: c('ts', NOW),
+    },
+    index: [['rec_id', 'at'], ['client_id']],
+  },
   site_maps: {
     pk: ['id'],
     cols: {
@@ -222,7 +230,7 @@ export const STANDARD_FOLDERS = ['SDS', 'Service agreement', 'Maps', 'Site speci
 
 // Who can see what. "Site" tables hold one site's data: staff see every site, a client login sees only its own sites.
 export const SITE_TABLES = new Set(['service_logs', 'recommendations', 'recommendation_updates', 'stations', 'site_maps', 'visits', 'site_documents',
-  'site_document_folders', 'recommendation_views', 'pest_sightings', 'site_limits']);
+  'site_document_folders', 'recommendation_views', 'recommendation_view_log', 'pest_sightings', 'site_limits']);
 export const LIST_TABLES = new Set(['preparations', 'species', 'station_types']);
 // Tables the apps get live updates for
 export const LIVE_TABLES = new Set(['service_logs', 'recommendations', 'recommendation_updates', 'stations', 'site_maps', 'visits', 'site_events',
