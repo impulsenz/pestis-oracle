@@ -253,7 +253,8 @@ try {
   const sid = String(r.data[0].id);
   await api(b2)('site_limits', { op: 'insert', values: [{ id: 'limE', client_id: sid, name: 'Dispatch', rules: [{ species: 'House Fly', max: 10 }, { species: 'Blowfly', max: 5 }] }] });
   await api(t2)('stations', { op: 'insert', values: [{ id: 'stE1', client_id: sid, barcode: 'ILT-E1', name: 'Dock ILT', type: 'Flying Insect Monitoring', limit_id: 'limE' },
-    { id: 'stE2', client_id: sid, barcode: 'RB-E1', name: 'Rodent box', type: 'Internal Non-Toxic Rodent Station', limit_id: 'limE' }] });
+    { id: 'stE2', client_id: sid, barcode: 'RB-E1', name: 'Rodent box', type: 'Internal Non-Toxic Rodent Station', limit_id: 'limE' },
+    { id: 'stE3', client_id: sid, barcode: 'ILT-E3', name: 'Quiet ILT', type: 'Flying Insect Monitoring', limit_id: 'limE' }] });
   const lg = (b, name, ty, n, more) => ({ client_id: Number(sid), barcode_id: b, payload: { locationName: name, deviceType: ty, activityLevel: 'Caught', speciesCaught: 'House Fly', pestCount: n, morePests: more || [], technician: 'Tina Tech', servicedAt: new Date(Date.now() - 3600000).toISOString() } });
   await api(t2)('service_logs', { op: 'insert', values: [lg('ILT-E1', 'Dock ILT', 'Flying Insect Monitoring', 4, [{ species: 'Blowfly', count: 7 }]), lg('RB-E1', 'Rodent box', 'Internal Non-Toxic Rodent Station', 30)] });
   await api(t2)('visits', { op: 'insert', values: [{ id: 'vE1', client_id: sid, technician: 'Tina Tech', visit_type: 'Routine Service', completed_at: new Date().toISOString() }] });
@@ -267,8 +268,32 @@ try {
     alert: (document.querySelector('.pr-alert') || {}).innerText || '', pests: Array.from(document.querySelectorAll('.pr-lim-p > .pr-lim-ph b')).map(b => b.textContent) }));
   ok(!lim.filters.some(f => /^Month/.test(f)) && lim.filters.some(f => /Insect/.test(f)), 'critical limits: no month filter, an insect filter', lim.filters);
   ok(lim.filters.some(f => /Flying Insect Monitoring/.test(f)) && !lim.filters.some(f => /Rodent/.test(f)), 'critical limits: only insect station types', lim.filters);
-  ok(/Blowfly - Dispatch: 7 caught of 5/.test(lim.alert) && !/House Fly/.test(lim.alert), 'critical limits: the alert names the insect that is over', lim.alert);
+  ok(/Blowfly - Dispatch: over in [A-Z][a-z]+ \d{4} \(7 of 5\)/.test(lim.alert) && !/House Fly/.test(lim.alert), 'critical limits: the alert names the insect that is over, and the month', lim.alert);
   ok(lim.pests[0] === 'Blowfly' && lim.pests.includes('House Fly'), 'critical limits: a section per insect, the one over first', lim.pests);
+  ok(lim.filters.some(f => /^From/.test(f)) && lim.filters.some(f => /^To/.test(f)) && lim.filters.some(f => /^Breached.*Yes/.test(f)), 'critical limits: From and To months, and Breached (Yes to start with)', lim.filters);
+  // Breached: Yes shows only the stations that breached; No shows every insect station on a limit
+  const cardsNow = () => lc.evaluate(() => Array.from(document.querySelectorAll('.pr-lim > .pr-lim-h > b')).map(b => b.textContent.trim()));
+  await lc.evaluate(() => { const b = Array.from(document.querySelectorAll('.pr-combo-btn')).find(x => /Dock ILT/.test(x.textContent)); if (b) b.click(); });
+  await lc.evaluate(() => { const o = Array.from(document.querySelectorAll('.pr-combo-pop button, [role=option]')).find(x => /^All stations/.test(x.textContent.trim())); if (o) o.click(); }); await sleep(500);
+  const breachedOnly = await cardsNow();
+  await lc.evaluate(() => { const s = Array.from(document.querySelectorAll('.pr-f')).find(f => /^Breached/.test(f.textContent.trim())).querySelector('select'); s.value = 'no'; s.dispatchEvent(new Event('change')); }); await sleep(500);
+  const every = await cardsNow();
+  ok(breachedOnly.length === 1 && breachedOnly[0] === 'Dock ILT' && every.length === 2 && every.includes('Quiet ILT'), 'critical limits: Breached Yes hides stations that did not breach, No shows them', { breachedOnly, every });
+  // Visits: the visit that breached has a red "!", says which limit, and the tab shows a red "!" while it's unopened
+  await lc.evaluate("setTab('visits')"); await sleep(600);
+  const vis = await lc.evaluate(() => ({ row: (document.querySelector('.visit-breach') || {}).innerText || '', mark: !!document.querySelector('.visit-breach .breach-mark'), tab: !!document.querySelector('.nav-tab .count.alert') }));
+  ok(vis.mark && vis.tab && /Critical limit breach: Blowfly in Dispatch/.test(vis.row), 'visits: a breached visit has a red "!" and says which limit; the Visits tab shows "!"', vis);
+  // no automatic sign-out; services due as a month; certain months each year
+  ok(await lc.evaluate("typeof idleCheck === 'undefined' && !document.getElementById('idleWarning')"), 'portal: no automatic sign-out');
+  ok(await lc.evaluate("freqLabel('months:2,3,11') === 'Feb, Mar, Nov each year' && dueText(toDayStr(new Date())).text === 'Due this month'"), 'portal: certain months, and "Due this month"');
+  const svcDue = await sp.evaluate(() => {
+    const first = new Date(); first.setDate(1);
+    return { a: addFrequency('2026-03-15', 'months:2,3,11'), b: addFrequency('2026-11-30', 'months:2,3,11'), lbl: freqLabel('months:11,2,3'),
+      now: dueInfo({ nextDue: toDayStr(first) }).text, idle: typeof idleCheck };
+  });
+  ok(svcDue.a === '2026-11-15' && svcDue.b === '2027-02-28' && svcDue.lbl === 'Feb, Mar, Nov each year' && svcDue.now === 'Due this month' && svcDue.idle === 'undefined', 'service app: certain months each year, "Due this month", no automatic sign-out', svcDue);
+  const folders = await api(b2)('site_document_folders', { op: 'select', filters: [['client_id', 'eq', sid]] });
+  ok((folders.data || []).some(f => f.name === 'Meeting notes') && !(folders.data || []).some(f => f.name === 'Meetings'), 'documents: the Meeting notes folder (not Meetings)', folders);
   ok(lc.errors.length === 0, 'critical limits: no errors', lc.errors);
 } catch (e) { fails++; console.log('ERROR', e); }
 finally {

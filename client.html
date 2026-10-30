@@ -117,6 +117,10 @@
         .nav-tab:hover { color: var(--text); background: var(--surface2); }
         .nav-tab.active { color: var(--accent-text); background: var(--surface2); border-color: var(--border); }
         .nav-tab .count { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; box-sizing: border-box; min-width: 1.15rem; height: 1.15rem; margin-left: .35rem; padding: 0 .32rem; font-size: .62rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; border-radius: 999px; background: rgb(var(--b500)); color: #fff; position: relative; top: -.05em; }
+        .nav-tab .count.alert, .breach-mark { background: #dc2626; color: #fff; }
+        .breach-mark { display: inline-flex; align-items: center; justify-content: center; width: 1.15rem; height: 1.15rem; margin-right: .4rem; border-radius: 999px; font-size: .7rem; font-weight: 900; line-height: 1; vertical-align: -.15em; }
+        .row-item.doc-picked { border-color: #f97316 !important; box-shadow: 0 0 0 3px rgba(249, 115, 22, .3); }
+        .row-item.visit-breach { border-color: #ef4444 !important; box-shadow: inset 4px 0 0 #dc2626; }
 
         /* Site picker (Netflix style) */
         .site-card { position: relative; display: block; width: 100%; aspect-ratio: 4 / 3; border-radius: 1rem; overflow: hidden; text-align: left; cursor: pointer; border: 1px solid rgba(255, 255, 255, .08); transition: transform .2s ease, box-shadow .2s ease, border-color .2s ease; box-shadow: var(--shadow); background: linear-gradient(135deg, #1e293b, #0f172a); }
@@ -498,7 +502,7 @@
         </div>
     </header>
 
-    <main id="appRoot" class="hidden flex-1 w-full max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+    <main id="appRoot" class="hidden flex-1 w-full max-w-[1500px] mx-auto px-4 sm:px-6 lg:px-8 py-5"><!-- one section shows at a time: the gap above it matches the gaps between its cards -->
         <!-- Site picker -->
         <section id="pickerView" class="hidden space-y-5">
             <div class="flex flex-wrap items-end justify-between gap-3">
@@ -685,7 +689,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (pestis_client_portal.sql); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.30-p44-oci';
+const PORTAL_VERSION = '2026.10.30-p45-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -783,7 +787,18 @@ const mediaIcon = paths => !paths.length ? '' : paths.every(isVideo) ? '🎥' : 
 const mediaWord = (paths, verb) => { const v = paths.filter(isVideo).length, p = paths.length - v; return [p ? `${p} photo${p === 1 ? '' : 's'}` : '', v ? `${v} video${v === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ') + (verb ? ' ' + verb : ''); };
 function safeName(s) { return String(s || 'Site').replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 60); }
 function plural(n, w, p) { return `${n} ${n === 1 ? w : (p || w + 's')}`; }
-function freqLabel(v) { return (FREQUENCIES[v] && FREQUENCIES[v].label) || 'Frequency not set'; }
+// a service done in certain months each year is saved as 'months:2,3,11' (February, March and November)
+function freqLabel(v) {
+    const m = /^months:(.*)$/.exec(String(v || ''));
+    if (m) { const ms = m[1].split(',').map(Number).filter(n => n >= 1 && n <= 12); return ms.length ? ms.map(n => new Date(2000, n - 1, 1).toLocaleString('en-NZ', { month: 'short' })).join(', ') + ' each year' : 'Certain months'; }
+    return (FREQUENCIES[v] && FREQUENCIES[v].label) || 'Frequency not set';
+}
+// services are booked for a month, not a day: "Due this month" until the month is over
+function dueText(day) {
+    const d = new Date(dayStart(String(day).slice(0, 10))), now = new Date(), diff = (d.getFullYear() * 12 + d.getMonth()) - (now.getFullYear() * 12 + now.getMonth());
+    const month = d.toLocaleString('en-NZ', { month: 'long', year: 'numeric' });
+    return { overdue: diff < 0, text: diff < 0 ? 'Overdue (due ' + month + ')' : diff === 0 ? 'Due this month' : diff === 1 ? 'Due next month' : 'Due ' + month, month };
+}
 function siteName(s) { return (s && (s.Name || s.name)) || 'Site'; }
 function parsePayload(p) { if (typeof p === 'string') { try { return JSON.parse(p); } catch (e) { return {}; } } return p || {}; }
 
@@ -835,42 +850,6 @@ async function sendEmailLink() {
 async function signInWithGoogle() {
     const { error } = await sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: portalUrl(), queryParams: { prompt: 'select_account' } } });
     if (error) loginMessage('Sign-in failed: ' + esc(error.message), 'error');
-}
-// ===================================================================
-//  SIGN OUT WHEN NOT IN USE: after the time Pesties sets (5 minutes unless changed), with a minute's warning
-// ===================================================================
-let idleLast = Date.now(), idleMins = 5, idleWarnEl = null;
-const IDLE_WARN_SECONDS = 60;
-function idleActivity() { idleLast = Date.now(); if (state.me) pestisMarkActive(); if (idleWarnEl) { idleWarnEl.remove(); idleWarnEl = null; } }
-['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev => document.addEventListener(ev, idleActivity, { passive: true, capture: true }));
-async function loadIdleMinutes() {
-    try { const { data, error } = await sb.rpc('pestis_idle_minutes'); if (!error && data != null && isFinite(Number(data))) idleMins = Math.max(0, Number(data)); } catch (e) {}
-}
-function idleCheck() {
-    if (!state.me) { idleLast = Date.now(); return; }
-    if (!idleMins) return;
-    idleLast = Math.max(idleLast, pestisLastActive());   // used in another Pestis app
-    const left = idleLast + idleMins * 60000 - Date.now();
-    if (left <= 0) { idleSignOut(); return; }
-    if (left <= IDLE_WARN_SECONDS * 1000) {
-        if (!idleWarnEl) { idleWarnEl = document.createElement('div'); idleWarnEl.id = 'idleWarning'; idleWarnEl.className = 'idle-warn'; document.body.appendChild(idleWarnEl); }
-        idleWarnEl.innerHTML = `<div class="card p-5 max-w-sm w-full text-center space-y-3"><div class="text-3xl">⏳</div><div class="font-black t-strong text-lg">Still there?</div>
-            <p class="text-sm t-muted">For your security you'll be signed out in <b class="t-strong">${Math.ceil(left / 1000)} seconds</b>.</p>
-            <button type="button" class="btn btn-primary w-full justify-center" onclick="idleActivity()">Keep me signed in</button></div>`;
-    }
-}
-setInterval(idleCheck, 1000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) idleCheck(); });
-async function idleSignOut() {
-    const mins = idleMins;
-    if (idleWarnEl) { idleWarnEl.remove(); idleWarnEl = null; }
-    stopLive();
-    try { await sb.auth.signOut({ scope: 'local' }); } catch (e) {}
-    state.me = null; state.sites = []; state.site = null; state.data = null;
-    ['modal', 'pestModal', 'viewer'].forEach(id => { const el = $(id); if (el) el.classList.add('hidden'); });
-    document.body.style.overflow = '';
-    history.replaceState(null, '', portalUrl());
-    showLogin(`You were signed out because the portal wasn't used for ${mins} minute${mins === 1 ? '' : 's'}. Sign in again to carry on.`);
 }
 
 async function signOut() {
@@ -1006,7 +985,7 @@ function bellItems(includeSeen) {
     allSiteDocs.filter(d => d.expires_on && dayStart(d.expires_on) - today <= DOC_WARN_DAYS * 86400000).sort((a, b) => String(a.expires_on).localeCompare(String(b.expires_on))).forEach(d => {
         const site = state.sites.find(x => String(x.id) === String(d.client_id));
         const days = Math.round((dayStart(d.expires_on) - today) / 86400000);
-        items.push({ key: `doc:${d.id}:${d.expires_on}:${days < 0 ? 'x' : 'w'}`, icon: '📄', red: days < 0, title: `${d.title} ${days < 0 ? 'has expired' : days === 0 ? 'expires today' : `expires in ${plural(days, 'day')}`}`, sub: `${site ? siteName(site) + ' · ' : ''}${d.category || 'Document'} · ${fmtDay(d.expires_on)}`, go: `goToDocs('${esc(String(d.client_id))}')` });
+        items.push({ key: `doc:${d.id}:${d.expires_on}:${days < 0 ? 'x' : 'w'}`, icon: '📄', red: days < 0, title: `${d.title} ${days < 0 ? 'has expired' : days === 0 ? 'expires today' : `expires in ${plural(days, 'day')}`}`, sub: `${site ? siteName(site) + ' · ' : ''}${d.category || 'Document'} · ${fmtDay(d.expires_on)}`, go: `goToDoc('${esc(String(d.client_id))}', '${esc(String(d.id))}')` });
     });
     if (state.model) {
         // a station that took a critical limit over this month: one notification each, opening its critical limits report
@@ -1017,7 +996,7 @@ function bellItems(includeSeen) {
                 title: `Critical limit exceeded at ${o.name}`, sub: `${limitPest(x.limit)}: ${o.n} here, ${x.total} in ${x.limit.zone} this month (limit ${x.limit.max})`,
                 go: `openLimitReport('${esc(barcode)}')` }));
         });
-        state.model.visits.filter(v => v.completed > Date.now() - 14 * 86400000).slice().reverse().forEach(v => items.push({ key: 'visit:' + v.id, icon: '✅', title: `New service report: ${v.type}`, sub: `${fmtDate(v.completed)} · finished ${fmtTime(v.end || v.completed)}${v.tech ? ' · ' + v.tech : ''}${visitBreaches(v).length ? ' · ⚠ critical limit breach' : ''}`, red: visitBreaches(v).length > 0, go: `openVisit('${esc(v.id)}')` }));
+        state.model.visits.filter(v => v.completed > Date.now() - 14 * 86400000).slice().reverse().forEach(v => items.push({ key: 'visit:' + v.id, icon: visitBreaches(v).length ? '❗' : '✅', title: `New service report: ${v.type}`, sub: `${fmtDate(v.completed)} · finished ${fmtTime(v.end || v.completed)}${v.tech ? ' · ' + v.tech : ''}${visitBreaches(v).length ? ' · ⚠ critical limit breach' : ''}`, red: visitBreaches(v).length > 0, go: `openVisit('${esc(v.id)}')` }));
         (state.model.sightings || []).filter(x => x.status === 'actioned').forEach(x => items.push({ key: `sight:${x.id}:actioned`, icon: '🔎', title: `Pest sighting ${fmtSightNo(x.no)} actioned - please review`, sub: `${x.pest} · ${x.location}${x.actionedBy ? ' · ' + x.actionedBy : ''}`, go: `setTab('sightings'); showSighting('${esc(x.id)}')` }));
         const uid = state.me && state.me.uid;
         state.model.recs.filter(r => r.status !== 'complete' && r.raisedAt > Date.now() - 30 * 86400000 && uid && !r.views.some(v => v.viewer_key === uid))
@@ -1040,6 +1019,14 @@ function renderBell() {
 }
 function toggleBell() { renderBell(); $('bellPanel').classList.toggle('hidden'); keepOnScreen($('bellPanel')); }
 function goToDocs(cid) { location.hash = `#/site/${encodeURIComponent(cid)}/documents`; }
+// a document's notification (e.g. expiring soon): its folder in Documents with the document picked out,
+// and opened straight away when this site is already loaded (a tap can open a new tab; a page load can't)
+function goToDoc(cid, id) {
+    state.openDocId = id;
+    const here = state.site && String(state.site.id) === String(cid) && state.model && state.model.docs.find(x => x.id === id);
+    if (here) { openFolder = docFolderOf(here) || null; if (state.tab === 'documents') renderDocuments(); else setTab('documents'); openDoc(id); }
+    else goToDocs(cid);
+}
 // the web address of a station, recommendation or visit in the Client Portal (for the links in downloaded reports)
 function portalLink(cid, kind, id) { return `${location.origin}/client.html#/site/${encodeURIComponent(cid)}/${{ station: 'overview', rec: 'recs', visit: 'visits' }[kind]}/${kind}/${encodeURIComponent(id)}`; }
 
@@ -1085,8 +1072,6 @@ async function afterSignIn(session) {
     state.me = Object.assign({ email: session.user.email, uid: session.user.id }, me || {});
     // the other apps in the menu: only the ones this account can use (staff: the Service App; admins: Admin too)
     document.querySelectorAll('#accountMenu .app-switch a').forEach(a => a.classList.toggle('hidden', !(me && me.staff) || (a.getAttribute('href') === 'admin.html' && !(me && me.admin))));
-    idleActivity();
-    loadIdleMinutes();
     loadAccountPrefs();
     // (not signed out: the same sign-in is used by the other Pestis apps - "Sign in with a different account" does that)
     if (!me || (!me.staff && !me.client)) {
@@ -1234,10 +1219,10 @@ function renderPicker() {
     $('pickerGrid').innerHTML = list.map(s => {
         const cover = s.image_path && state.covers.get(s.image_path);
         const due = nextDue(s);
-        const dueDays = due ? Math.round((dayStart(due) - dayStart(toDayStr(new Date()))) / 86400000) : null;
+        const dt = due ? dueText(due) : null;
         const badges = [];
         if (s.visit_started_at) badges.push('<span class="site-badge">● Visit in progress</span>');
-        if (due) badges.push(`<span class="site-badge ${dueDays < 0 ? 'warn' : ''}">${dueDays < 0 ? 'Service overdue ' + fmtDay(due) : dueDays === 0 ? 'Service due today' : 'Next service due ' + fmtDay(due)}</span>`);
+        if (dt) badges.push(`<span class="site-badge ${dt.overdue ? 'warn' : ''}">${dt.overdue ? 'Service overdue' : 'Next service: ' + dt.text.replace(/^Due /, 'due ')}</span>`);
         return `<button type="button" class="site-card" onclick="location.hash = '#/site/${encodeURIComponent(s.id)}/' + startTab()" aria-label="Open ${esc(siteName(s))}">
             ${cover ? `<img class="site-cover" src="${esc(cover)}" alt="">` : `<span class="site-initials">${esc(initials(siteName(s)))}</span>`}
             <span class="site-badges">${badges.join('')}</span>
@@ -1541,7 +1526,9 @@ function renderSiteHeader() {
     const openRecs = m.recs.filter(r => r.status !== 'complete').length;
     const toReview = (m.sightings || []).filter(x => x.status === 'actioned').length;
     const unreadVisits = unopenedVisits().length;
-    $('siteTabs').innerHTML = TABS.map(([k, l]) => `<button type="button" class="nav-tab ${state.tab === k ? 'active' : ''}" onclick="${k === 'plans' ? "planId = null; planFocus = null; if (state.tab === 'plans') renderPlans(); else " : ''}setTab('${k}')">${l}${k === 'recs' && openRecs ? `<span class="count">${openRecs}</span>` : ''}${k === 'visits' && unreadVisits ? `<span class="count" title="Visit reports you haven't opened yet">${unreadVisits}</span>` : ''}${k === 'sightings' && toReview ? `<span class="count" title="Actioned by your technician, waiting for your review">${toReview}</span>` : ''}</button>`).join('');
+    // a red "!" on Visits while a visit report with a critical limit breach hasn't been opened
+    const breachVisits = unopenedVisits().filter(v => visitBreaches(v).length).length;
+    $('siteTabs').innerHTML = TABS.map(([k, l]) => `<button type="button" class="nav-tab ${state.tab === k ? 'active' : ''}" onclick="${k === 'plans' ? "planId = null; planFocus = null; if (state.tab === 'plans') renderPlans(); else " : ''}setTab('${k}')">${l}${k === 'recs' && openRecs ? `<span class="count">${openRecs}</span>` : ''}${k === 'visits' && breachVisits ? `<span class="count alert" title="A visit report with a critical limit breach - not opened yet">!</span>` : ''}${k === 'visits' && unreadVisits ? `<span class="count" title="Visit reports you haven't opened yet">${unreadVisits}</span>` : ''}${k === 'sightings' && toReview ? `<span class="count" title="Actioned by your technician, waiting for your review">${toReview}</span>` : ''}</button>`).join('');
 }
 // visit reports from the last 90 days this person hasn't opened (opening one counts it as read, here and in the bell)
 function unopenedVisits() {
@@ -1665,7 +1652,7 @@ function entryPestsText(e, times, none) {
     return list.map(x => x.species + (x.count ? (times || ' ×') + x.count : '')).join(', ') || (none == null ? '-' : none);
 }
 function stationCell(s) { return `<div class="flex items-center gap-2">${typeDot(s.type)}<div class="min-w-0"><div class="font-bold t-strong">${esc(s.name)}</div><div class="t-faint mono text-[11px]">${esc(s.barcode)}</div></div></div>`; }
-const STANDARD_FOLDERS = ['SDS', 'Service agreement', 'Maps', 'Site specific', 'Meetings', 'Entomology', 'Training', 'Insurance'];
+const STANDARD_FOLDERS = ['SDS', 'Service agreement', 'Maps', 'Site specific', 'Meeting notes', 'Entomology', 'Training', 'Insurance'];
 const CATEGORY_FOLDER = { 'SDS': 'SDS', 'Service agreement': 'Service agreement', 'Site map': 'Maps', 'Insurance': 'Insurance' };
 const docFolderOf = d => d.folder || CATEGORY_FOLDER[d.category] || '';
 function sectionCard(title, color, body, right) {
@@ -1693,7 +1680,7 @@ function renderOverview() {
         <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
             ${tile(m.stations.length, 'Stations', overdue ? `<span style="color:#ef4444" class="font-bold">${overdue} not checked recently</span>` : 'All checked on schedule', 'showStationList()')}
             ${tile(lastVisit ? fmtDate(lastVisit.completed) : '-', 'Last service', lastVisit ? `<span class="t-strong font-semibold">Finished ${fmtTime(lastVisit.end || lastVisit.completed)}</span><br>${esc(lastVisit.type)}${lastVisit.tech ? ' · ' + esc(lastVisit.tech) : ''}` : 'No visits yet', lastVisit ? `openVisit('${esc(lastVisit.id)}')` : '')}
-            ${tile(due ? fmtDay(due) : '-', 'Next service due', due ? `<span class="t-strong font-semibold">${esc(dueNames.join(', ') || 'Service')}</span>` : 'Not scheduled', '')}
+            ${tile(due ? dueText(due).text : '-', 'Next service', due ? `<span class="t-strong font-semibold">${esc(dueNames.join(', ') || 'Service')}</span>` : 'Not scheduled', '')}
             ${tile(m.stations.length && lastVisit ? Math.round(lastStations / m.stations.length * 100) + '%' : '-', 'Checked last visit', lastVisit ? `${lastStations} of ${m.stations.length} stations` : '', lastVisit ? 'showLastVisitCoverage()' : '', '#10b981')}
             ${tile(openRecs.length, 'Outstanding recommendations', openRecs.length ? `${openRecs.filter(r => r.status === 'open').length} open · ${openRecs.filter(r => r.status === 'pending').length} pending` : 'Nothing outstanding', "setTab('recs')", openRecs.length ? 'var(--accent-text)' : '')}
         </div>
@@ -1713,7 +1700,7 @@ function renderOverview() {
                     <div class="row-item p-3 space-y-0.5 text-xs">
                         <div class="font-bold t-strong text-sm">${esc(x.type)}</div>
                         <div class="t-muted">${esc(freqLabel(x.frequency))}</div>
-                        <div class="t-muted">Last done: <b class="t-strong">${fmtDay(x.lastDone)}</b> · Next due: <b class="t-strong">${x.nextDue ? fmtDay(x.nextDue) : '-'}</b></div>
+                        <div class="t-muted">Last done: <b class="t-strong">${fmtDay(x.lastDone)}</b> · Next: <b class="t-strong">${x.nextDue ? dueText(x.nextDue).text : '-'}</b></div>
                     </div>`).join('') : emptyNote('No scheduled services listed.'))}</div></div>
                 <div data-box="visits">${sectionCard('Recent visits', '#7c3aed', m.visits.length ? m.visits.slice(-4).reverse().map(v => visitRowHtml(v)).join('') : emptyNote('No visits recorded yet.'), `<button type="button" class="link-btn !no-underline" onclick="setTab('visits')">All visits</button>`)}</div>
                 ${soonDocs.length ? `<div data-box="docs">${sectionCard('Documents expiring soon', '#d97706', soonDocs.map(d => docRowHtml(d)).join(''))}</div>` : ''}
@@ -2599,7 +2586,8 @@ function renderReports() {
 }
 // from a critical limit notification: Reports › Critical limits, for that station
 function openLimitReport(barcode) {
-    state.openReport = { report: 'limits', patch: { station: barcode, type: '', pest: '' } };
+    const k = new Date().getFullYear() * 12 + new Date().getMonth();   // this month, breached stations
+    state.openReport = { report: 'limits', patch: { station: barcode, type: '', pest: '', breached: 'yes', limFrom: k, limTo: k } };
     if (state.tab === 'reports') renderReports(); else setTab('reports');
 }
 function renderReportsOld() {
@@ -3396,10 +3384,13 @@ function visitTypeOptions() { return VISIT_TYPES.concat(Array.from(new Set(state
 function visitRowHtml(v) {
     const n = new Set(v.entries.map(e => e.barcode)).size;
     const unread = v.completed > Date.now() - 90 * 86400000 && !bellSeen().has('visit:' + v.id);
-    return `<div class="row-item clickable p-3.5 flex justify-between items-center gap-3 ${unread ? 'visit-unread' : 'visit-read'}" tabindex="0" role="button" onclick="openVisit('${esc(v.id)}')" onkeydown="if (event.key === 'Enter') this.click()" title="${unread ? 'Not opened yet' : 'Opened'}">
-        <div class="min-w-0"><div class="font-bold t-strong text-sm">${unread ? '<span class="visit-dot" aria-hidden="true"></span>' : ''}${fmtDate(v.completed)} · ${esc(v.type)} <span class="t-muted font-semibold">· finished ${fmtTime(v.end || v.completed)}</span></div>
-        <div class="text-[11px] t-muted">${v.tech ? esc(v.tech) + ' · ' : ''}${plural(n, 'station')} checked${v.recs.length ? ' · ' + plural(v.recs.length, 'recommendation') : ''}</div></div>
-        <span class="flex items-center gap-2 shrink-0">${unread ? '<span class="chip chip-orange">New</span>' : '<span class="text-[11px] t-faint font-semibold">✓ Opened</span>'}<span class="t-faint text-lg font-black">›</span></span></div>`;
+    // a visit that took a critical limit over: a red "!" and the edge, and which limit, so it's easy to find
+    const br = visitBreaches(v);
+    return `<div class="row-item clickable p-3.5 flex flex-wrap justify-between items-center gap-x-3 gap-y-2 ${unread ? 'visit-unread' : 'visit-read'} ${br.length ? 'visit-breach' : ''}" tabindex="0" role="button" onclick="openVisit('${esc(v.id)}')" onkeydown="if (event.key === 'Enter') this.click()" title="${br.length ? 'Critical limit breach · ' : ''}${unread ? 'Not opened yet' : 'Opened'}">
+        <div class="min-w-0" style="flex: 1 1 15rem;"><div class="font-bold t-strong text-sm">${br.length ? '<span class="breach-mark" aria-label="Critical limit breach">!</span>' : ''}${unread ? '<span class="visit-dot" aria-hidden="true"></span>' : ''}${fmtDate(v.completed)} · ${esc(v.type)} <span class="t-muted font-semibold">· finished ${fmtTime(v.end || v.completed)}</span></div>
+        <div class="text-[11px] t-muted">${v.tech ? esc(v.tech) + ' · ' : ''}${plural(n, 'station')} checked${v.recs.length ? ' · ' + plural(v.recs.length, 'recommendation') : ''}</div>
+        ${br.length ? `<div class="text-[11px] font-bold mt-0.5" style="color:#dc2626">⚠ Critical limit breach: ${br.map(x => `${esc(limitPest(x.limit))} in ${esc(x.limit.zone)} - ${x.total} caught, limit ${x.limit.max} a month (${x.total - x.limit.max} over) at ${esc(breachStations(x).map(b => b.name).join(', '))}`).join(' · ')}</div>` : ''}</div>
+        <span class="flex items-center gap-2 shrink-0">${br.length ? '<span class="chip chip-red">Limit breach</span>' : ''}${unread ? '<span class="chip chip-orange">New</span>' : '<span class="text-[11px] t-faint font-semibold">✓ Opened</span>'}<span class="t-faint text-lg font-black">›</span></span></div>`;
 }
 function renderVisits() {
     const list = visitList();
@@ -3469,15 +3460,15 @@ function expiryChip(d) {
 function docRowHtml(d) {
     const [k, c] = docKind(d);
     const size = d.size_bytes ? (d.size_bytes > 1048576 ? (d.size_bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(d.size_bytes / 1024)) + ' KB') : '';
-    return `<div class="row-item clickable p-3 flex flex-wrap items-center gap-x-3 gap-y-2" tabindex="0" role="button" onclick="openDoc('${esc(d.id)}')" onkeydown="if (event.key === 'Enter') this.click()">
+    return `<div class="row-item clickable p-3 flex flex-wrap items-center gap-x-3 gap-y-2" data-doc="${esc(d.id)}" tabindex="0" role="button" onclick="openDoc('${esc(d.id)}')" onkeydown="if (event.key === 'Enter') this.click()">
         <span class="doc-icon" style="background:${c}">${k}</span>
         <div class="min-w-[10rem] flex-1"><div class="font-bold t-strong text-sm">${esc(d.title)}</div>
         <div class="text-[11px] t-muted">${esc(d.category || 'Other')}${size ? ' · ' + size : ''} · added ${fmtDate(d.created_at)}${d.uploaded_by && /\(client\)$/.test(d.uploaded_by) ? ' by ' + esc(d.uploaded_by.replace(/ \(client\)$/, '')) : ''}${d.notes ? ' · ' + esc(d.notes) : ''}</div></div>
         <div class="flex flex-wrap items-center gap-2 justify-end ml-auto">${expiryChip(d)}${d.uploaded_by && d.uploaded_by_id && state.me && d.uploaded_by_id === state.me.uid ? `<button type="button" class="link-btn !no-underline" style="color:#dc2626;" data-id="${esc(d.id)}" onclick="event.stopPropagation(); removeMeetingFile(this.dataset.id)">Remove</button>` : ''}<span class="link-btn !no-underline">Open ↗</span></div></div>`;
 }
 let openFolder = null;
-const isMeetingsFolder = f => /^meetings$/i.test(String(f || '').trim());
-// a client adds their own files to the Meetings folder (only that folder; they can remove only what they added)
+const isMeetingsFolder = f => /^meeting(s| notes)$/i.test(String(f || '').trim());
+// a client adds their own files to the Meeting notes folder (only that folder; they can remove only what they added)
 async function uploadMeetingFiles(input) {
     const files = Array.from(input.files || []);
     input.value = '';
@@ -3492,7 +3483,7 @@ async function uploadMeetingFiles(input) {
             const up = await sb.storage.from(DOC_BUCKET).upload(path, f, { contentType: f.type || 'application/octet-stream', upsert: false });
             if (up.error) throw up.error;
             const { error } = await sb.from('site_documents').insert([{ client_id: cid, title: f.name.replace(/\.[^.]+$/, '') || 'Meeting file', file_path: path, file_name: f.name,
-                mime_type: f.type || null, size_bytes: f.size, folder: openFolder, category: 'Meetings' }]);
+                mime_type: f.type || null, size_bytes: f.size, folder: openFolder, category: 'Meeting notes' }]);
             if (error) { sb.storage.from(DOC_BUCKET).remove([path]).catch(() => {}); throw error; }
         } catch (e) { failed.push(`${f.name} (${e.message || e})`); }
     }
@@ -3529,7 +3520,15 @@ function renderDocuments() {
         $('tabBody').innerHTML = `<div class="card p-5">${emptyNote('No documents have been added for this site yet. Pesties adds service agreements, safety data sheets (SDS), insurance certificates and site maps here.')}</div>`;
         return;
     }
+    // from a document's notification: open its folder and pick it out (below)
+    const pick = state.openDocId && docs.find(x => x.id === state.openDocId);
+    if (pick) openFolder = docFolderOf(pick) || null;
     if (openFolder && !m.folders.includes(openFolder)) openFolder = null;
+    if (pick) setTimeout(() => {
+        state.openDocId = null;
+        const row = document.querySelector(`[data-doc="${CSS.escape(pick.id)}"]`);
+        if (row) { row.classList.add('doc-picked'); row.scrollIntoView({ block: 'center', behavior: 'smooth' }); row.focus({ preventScroll: true }); }
+    }, 50);
     if (openFolder) {
         const inside = docs.filter(d => docFolderOf(d) === openFolder);
         const plans = isMapsFolder(openFolder) ? m.maps.map(planDocRowHtml).join('') : /^sds$/i.test(openFolder) ? sitePreps().map(sdsRowHtml).join('') : '';
@@ -4129,7 +4128,7 @@ async function buildAuditPack() {
             const chem = entries.filter(e => e.prep);
             pdf.facts([['Period', rangeText()], ['Visits', visits.length], ['Station checks', entries.filter(e => !e.extra).length], ['Stations', m.stations.length]]);
             pdf.facts([['Stations overdue', m.stations.filter(s => s.overdue).length], ['Pests caught / sighted', entries.reduce((a, e) => a + e.count, 0)], ['Chemical applications', chem.length], ['Open recommendations', m.recs.filter(r => r.status !== 'complete').length]]);
-            const svc = (state.site.services || []).map(s => `${s.type} (${freqLabel(s.frequency)}${s.nextDue ? ', next due ' + fmtDay(s.nextDue) : ''})`).join('; ');
+            const svc = (state.site.services || []).map(s => `${s.type} (${freqLabel(s.frequency)}${s.nextDue ? ', next due ' + dueText(s.nextDue).month : ''})`).join('; ');
             if (svc) pdf.para('Contracted services: ' + svc);
             if (state.site.technician) pdf.para('Assigned technician: ' + state.site.technician);
         }
@@ -4286,7 +4285,7 @@ const PR = (() => {
         { id: 'station', icon: '🔎', title: 'One station', blurb: 'A single station: each pest (or its activity) month by month over the years, and every visit to it.', f: ['type', 'station', 'view', 'years', 'pest'] },
         { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'station', 'map', 'gap'] },
         { id: 'preps', icon: '🧪', title: 'Preparations used', blurb: 'What was used on which station, how much, and the batch numbers.', f: ['period', 'type', 'station', 'prep', 'batch'] },
-        { id: 'limits', icon: '⚠️', title: 'Critical limits', blurb: 'Which insects are over (or close to) their critical limit, at which stations, and each insect month by month in green, amber or red.', f: ['type', 'station', 'pest'] },
+        { id: 'limits', icon: '⚠️', title: 'Critical limits', blurb: 'Which insects breached their critical limit, at which stations and when (the latest first), and each insect month by month in green, amber or red.', f: ['limMonths', 'breached', 'type', 'station', 'pest'] },
         { id: 'recs', icon: '📋', title: 'Recommendations', blurb: 'Raised and completed, by type, and how long they took.', f: ['period'] },
         { id: 'visits', icon: '🗓️', title: 'Service visits', blurb: 'Visits each month, the technician and the time on site.', f: ['period', 'tech'] }
     ];
@@ -4345,7 +4344,7 @@ const PR = (() => {
     function render(box, data, opts) {
         opts = opts || {};
         let s = ST.get(box);
-        if (!s) { s = { report: null, view: 'time', years: '2', preset: '12m', from: '', to: '', type: '', pest: '', station: '', map: '', prep: '', batch: '', tech: '', gap: '35', month: monthKey(Date.now()) }; ST.set(box, s); }
+        if (!s) { s = { report: null, view: 'time', years: '2', preset: '12m', from: '', to: '', type: '', pest: '', station: '', map: '', prep: '', batch: '', tech: '', gap: '35', breached: 'yes', limFrom: monthKey(Date.now()), limTo: monthKey(Date.now()) }; ST.set(box, s); }
         box._pr = { data, opts };
         draw(box);
     }
@@ -4399,6 +4398,9 @@ const PR = (() => {
             // the stations of the chosen type (type to search a long list)
             if (f === 'station') parts.push(cmb('station', s.type ? `Station (${s.type})` : 'Station', stationsOfType(d, s).filter(x => R.id !== 'limits' || isInsect(x.type)).map(x => [x.barcode, x.name + (x.type && !s.type ? ' · ' + x.type : '')]), R.id === 'station' ? null : (s.type ? 'All ' + s.type : 'All stations')));
             if (f === 'batch') parts.push(`<label class="pr-f"><span>Batch number</span><input type="search" value="${e(s.batch)}" placeholder="Any" onchange="PR.set(this, 'batch', this.value.trim())"></label>`);
+            // critical limits: the months to look at (this month to start with; From and To for several months), and breached stations only or all
+            if (f === 'limMonths') { const ms = months(Date.now() - 3 * 365 * DAY, Date.now()).reverse().map(k => [k, monthLong(k)]); parts.push(sel('limFrom', 'From', ms), sel('limTo', 'To', ms)); }
+            if (f === 'breached') parts.push(sel('breached', 'Breached', [['yes', 'Yes - only stations that breached'], ['no', 'No - every station']]));
             if (f === 'gap') parts.push(sel('gap', 'Flag stations not scanned for', [['14', '2 weeks'], ['35', '5 weeks'], ['60', '2 months'], ['95', '3 months']]));
         });
         return parts.join('');
@@ -4573,97 +4575,119 @@ const PR = (() => {
                 csv: [head.map(h => h.t)].concat(list.map(x => [fmtDT(x.at), x.station, x.prep, x.batch, x.qty != null ? x.qty : '', x.unit, x.tech]))
             };
         },
-        // Critical limits, station by station: an alert for each station that took a limit over (or close), and each
-        // station's captures month by month, the line coloured by where its area stood that month:
-        // red = over the limit (and this station added to it), amber = within 10% of the limit, green = under.
+        // Critical limits, insect by insect, for the months chosen (this month to start with):
+        // red = the area was over the limit and this station added to it, amber = within 10% of the limit, green = under.
+        // "Breached: Yes" (to start with) shows only the stations that breached, the latest breach first.
         limits(d, s, opts) {
             if (!d.limits.length) return { html: '<div class="pr-empty">No critical limits are set for this site.</div>', csv: [] };
-            // the last 12 months up to now (the graphs show every month, so there's no month to pick)
-            const k = monthKey(Date.now()), ks = months(monthStart(k - 11), monthStart(k + 1) - 1).filter(x => x <= k);
+            const now = monthKey(Date.now());
+            let a = Number(s.limFrom) || now, b = Number(s.limTo) || now; if (a > b) [a, b] = [b, a];
+            const pickedN = b - a + 1;
+            // the graphs show at least 12 months, ending with the last month chosen
+            const g0 = Math.min(a, b - 11), ks = Array.from({ length: b - g0 + 1 }, (_, i) => g0 + i);
+            const inPick = mk => mk >= a && mk <= b;
+            const when = a === b ? monthLong(a) : `${monthLong(a)} - ${monthLong(b)}`;
             const limById = new Map(d.limits.map(l => [String(l.id), l]));
             const inLimit = l => new Set(d.stations.filter(x => String(x.limitId) === l.id && isInsect(x.type)).map(x => x.barcode));
             const zoneTotal = (l, rule, mk) => { const sts = inLimit(l); return d.entries.filter(x => sts.has(x.barcode) && monthKey(x.at) === mk && pestKey(x.species) === pestKey(rule.species)).reduce((n, x) => n + x.count, 0); };
             const stCount = (st, rule, mk) => d.entries.filter(x => x.barcode === st.barcode && monthKey(x.at) === mk && pestKey(x.species) === pestKey(rule.species)).reduce((n, x) => n + x.count, 0);
             // one insect at one station in one month: this station's catch, the whole area's, and how the area stood
-            // red = the area is over the limit and this station added to it, amber = the area is within 10% of the limit
             // (a station that caught none of it while the area is over stays green - it isn't the cause)
             const monthOf = (st, l, rule, mk) => {
                 const mine = stCount(st, rule, mk), zone = zoneTotal(l, rule, mk);
                 const status = zone > rule.max ? (mine > 0 ? 'red' : 'green') : rule.max > 0 && zone >= rule.max * .9 ? 'amber' : 'green';
-                return { mine, zone, status };
+                return { mk, mine, zone, status };
             };
             const RANK = { red: 0, amber: 1, green: 2 };
             const COL = { red: '#dc2626', amber: '#d97706', green: '#16a34a' }, WORD = { red: 'Over the limit', amber: 'Close to the limit', green: 'Under the limit' };
+            const worst = list => list.reduce((w, h) => RANK[h.status] < RANK[w] ? h.status : w, 'green');
             const typeOk = s.type && isInsect(s.type) ? s.type : '';
+            const onlyBreached = s.breached !== 'no';
             const stations = d.stations.filter(st => limById.has(String(st.limitId)) && isInsect(st.type) && (!typeOk || st.type === typeOk) && (!s.station || st.barcode === s.station));
             // each station, and each insect on its limit (the worst first)
-            const rows = stations.map(st => {
+            let rows = stations.map(st => {
                 const l = limById.get(String(st.limitId));
                 const pests = l.rules.filter(rule => !s.pest || pestKey(rule.species) === pestKey(s.pest)).map(rule => {
-                    const hist = ks.map(mk => monthOf(st, l, rule, mk));
-                    return { rule, hist, now: hist[hist.length - 1], total: hist.reduce((n, h) => n + h.mine, 0), breaches: hist.filter(h => h.status === 'red').length };
-                }).sort((p, q) => RANK[p.now.status] - RANK[q.now.status] || q.now.zone / (q.rule.max || 1) - p.now.zone / (p.rule.max || 1) || q.total - p.total);
-                const status = pests.length ? pests[0].now.status : 'green';
-                return { st, l, pests, status, n: pests.reduce((n, p) => n + p.now.mine, 0), total: pests.reduce((n, p) => n + p.total, 0) };
-            }).filter(r => r.pests.length).sort((p, q) => RANK[p.status] - RANK[q.status] || q.n - p.n || q.total - p.total);
+                    const hist = ks.map(mk => monthOf(st, l, rule, mk)), picked = hist.filter(h => inPick(h.mk));
+                    const over = picked.filter(h => h.status === 'red'), last = over.length ? over[over.length - 1] : null;
+                    // the month to show the numbers for: the latest breach, else the latest month chosen
+                    const show = last || picked[picked.length - 1];
+                    return { rule, hist, over, last, show, status: worst(picked), total: picked.reduce((n, h) => n + h.mine, 0), year: hist.reduce((n, h) => n + h.mine, 0) };
+                }).sort((p, q) => RANK[p.status] - RANK[q.status] || (q.last ? q.last.mk : -1) - (p.last ? p.last.mk : -1) || q.show.zone / (q.rule.max || 1) - p.show.zone / (p.rule.max || 1) || q.total - p.total);
+                const lastMk = Math.max(-1, ...pests.map(p => p.last ? p.last.mk : -1));
+                return { st, l, pests, status: worst(pests), lastMk, breaches: pests.reduce((n, p) => n + p.over.length, 0), total: pests.reduce((n, p) => n + p.total, 0) };
+            }).filter(r => r.pests.length);
+            const onLimit = rows.length;
+            if (onlyBreached) rows = rows.filter(r => r.lastMk >= 0);
+            // the latest breach first, then the rest by how they stood
+            rows.sort((p, q) => q.lastMk - p.lastMk || RANK[p.status] - RANK[q.status] || q.breaches - p.breaches || q.total - p.total);
             // the graph for one insect at one station: this station's catch (coloured by how the area stood that month),
-            // the whole area's catch (grey dashes) and the limit (red dashes)
+            // the whole area's catch (grey dashes) and the limit (red dashes); the months chosen are shaded
             const chart = (r, p) => {
                 const W = 760, H = 190, pl = 40, pr = 12, pt = 14, pb = 32, n = ks.length;
                 const max = Math.max(1, p.rule.max, ...p.hist.map(h => h.zone));
                 const x = i => pl + (n <= 1 ? (W - pl - pr) / 2 : i * (W - pl - pr) / (n - 1)), y = v => pt + (H - pt - pb) * (1 - v / max);
                 const ticks = Array.from(new Set([0, .5, 1].map(f => Math.round(max * f))));
-                const every = Math.ceil(n / 12);
+                const every = Math.ceil(n / 12), half = n <= 1 ? 0 : (W - pl - pr) / (n - 1) / 2;
+                const bx0 = Math.max(pl, x(ks.indexOf(a)) - half), bx1 = Math.min(W - pr, x(ks.indexOf(b)) + half);
                 return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(r.st.name)}: ${e(p.rule.species)} caught each month">
+                    <rect x="${bx0}" y="${pt}" width="${Math.max(0, bx1 - bx0)}" height="${H - pt - pb}" fill="#94a3b8" fill-opacity=".12"/>
                     ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="pr-grid"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" class="pr-ax">${t}</text>`).join('')}
                     ${ks.map((mk, i) => i % every === 0 || i === n - 1 ? `<text x="${x(i)}" y="${H - 10}" text-anchor="${i === n - 1 ? 'end' : i === 0 ? 'start' : 'middle'}" class="pr-ax">${e(monthLbl(mk))}</text>` : '').join('')}
                     ${p.rule.max > 0 ? `<line x1="${pl}" x2="${W - pr}" y1="${y(p.rule.max)}" y2="${y(p.rule.max)}" stroke="#dc2626" stroke-width="2" stroke-dasharray="7 5"/><text x="${W - pr}" y="${y(p.rule.max) - 5}" text-anchor="end" class="pr-ax" fill="#dc2626">Limit ${p.rule.max}</text>` : ''}
                     <polyline points="${p.hist.map((h, i) => `${x(i)},${y(h.zone)}`).join(' ')}" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="4 4"/>
                     ${p.hist.slice(1).map((h, i) => `<polygon points="${x(i)},${y(p.hist[i].mine)} ${x(i + 1)},${y(h.mine)} ${x(i + 1)},${y(0)} ${x(i)},${y(0)}" fill="${COL[h.status]}" fill-opacity=".2" stroke="none"/>`).join('')}
                     ${p.hist.slice(1).map((h, i) => `<line x1="${x(i)}" y1="${y(p.hist[i].mine)}" x2="${x(i + 1)}" y2="${y(h.mine)}" stroke="${COL[h.status]}" stroke-width="3" stroke-linecap="round"/>`).join('')}
-                    ${p.hist.map((h, i) => `<circle cx="${x(i)}" cy="${y(h.mine)}" r="${h.status === 'green' ? 3.5 : 5.5}" fill="${COL[h.status]}"><title>${e(monthLong(ks[i]))} · ${e(p.rule.species)}: this station ${h.mine}, the whole area ${h.zone} of ${p.rule.max} · ${WORD[h.status]}</title></circle>`).join('')}
+                    ${p.hist.map((h, i) => `<circle cx="${x(i)}" cy="${y(h.mine)}" r="${h.status === 'green' ? 3.5 : 5.5}" fill="${COL[h.status]}"><title>${e(monthLong(h.mk))} · ${e(p.rule.species)}: this station ${h.mine}, the whole area ${h.zone} of ${p.rule.max} · ${WORD[h.status]}</title></circle>`).join('')}
                 </svg>`;
             };
-            const line = (p) => `This month: this station <strong>${p.now.mine}</strong> · whole area <strong>${p.now.zone}</strong> of <strong>${p.rule.max}</strong> a month${p.now.zone > p.rule.max ? ` (${p.now.zone - p.rule.max} over)` : ''}${p.breaches ? ` · over in ${p.breaches} of the last ${ks.length} months` : ''}`;
-            const pestHtml = (r, p) => `<div class="pr-lim-p ${p.now.status}"><div class="pr-lim-ph"><b>${e(p.rule.species)}</b><span class="pr-chip ${p.now.status}">${WORD[p.now.status]}</span></div>
+            const line = p => { const h = p.show;
+                return `${e(monthLong(h.mk))}: this station <strong>${h.mine}</strong> · whole area <strong>${h.zone}</strong> of <strong>${p.rule.max}</strong> a month${h.zone > p.rule.max ? ` (${h.zone - p.rule.max} over)` : ''}`
+                    + (pickedN > 1 ? ` · over in ${p.over.length} of the ${pickedN} months chosen` : ''); };
+            const pestHtml = (r, p) => `<div class="pr-lim-p ${p.status}"><div class="pr-lim-ph"><b>${e(p.rule.species)}</b><span class="pr-chip ${p.status}">${WORD[p.status]}</span></div>
                 <div class="pr-lim-n">${line(p)}</div>${chart(r, p)}</div>`;
             const cards = rows.map(r => {
-                const hot = r.pests.filter(p => p.now.status !== 'green');
+                const hot = r.pests.filter(p => p.status !== 'green');
                 // insects over or close are open with their graph (or, when none are, those caught here this year);
                 // the rest fold away (tap to see them)
-                const open = hot.length ? hot : r.pests.filter(p => p.total > 0), calm = r.pests.filter(p => !open.includes(p));
+                const open = hot.length ? hot : r.pests.filter(p => p.year > 0), calm = r.pests.filter(p => !open.includes(p));
                 const fold = calm.length ? `<details class="pr-lim-more"><summary>${calm.length === 1 ? `${e(calm[0].rule.species)} is` : `${calm.length} ${open.length ? 'more ' : ''}insects are`} under the limit - show</summary>${calm.map(p => pestHtml(r, p)).join('')}</details>` : '';
-                const nRed = hot.filter(p => p.now.status === 'red').length, nAmber = hot.length - nRed;
+                const nRed = hot.filter(p => p.status === 'red').length, nAmber = hot.length - nRed;
                 const chip = r.status === 'green' ? 'All under the limit' : [nRed ? `${nRed} insect${nRed > 1 ? 's' : ''} over` : '', nAmber ? `${nAmber} close` : ''].filter(Boolean).join(' · ');
                 return `<div class="pr-lim"><div class="pr-lim-h"><b>${stLink(opts, r.st)}</b><span class="pr-chip ${r.status}">${chip}</span></div>
-                <p class="pr-note">${e(r.st.type || 'Station')} · critical limit area: ${e(r.l.name)}</p>
+                <p class="pr-note">${e(r.st.type || 'Station')} · critical limit area: ${e(r.l.name)}${r.lastMk >= 0 ? ` · last breached <strong>${e(monthLong(r.lastMk))}</strong>` : ''}</p>
                 ${open.length ? open.map(p => pestHtml(r, p)).join('') : `<p class="pr-note">None of these insects caught here in the last ${ks.length} months.</p>`}${fold}</div>`;
             }).join('');
-            // the alert, insect by insect: which insect is over (or close) in which area, and the stations that caught it
+            // the alert, insect by insect: which insect went over (or close) in which area, in which months, and the stations that caught it
             const groups = new Map();
-            rows.forEach(r => r.pests.forEach(p => { if (p.now.status === 'green') return;
+            rows.forEach(r => r.pests.forEach(p => { if (p.status === 'green') return;
                 const key = r.l.id + '|' + pestKey(p.rule.species);
-                if (!groups.has(key)) groups.set(key, { l: r.l, rule: p.rule, zone: p.now.zone, status: p.now.status, sts: [] });
-                const g = groups.get(key); if (p.now.status === 'red') g.status = 'red';
-                if (p.now.mine > 0) g.sts.push({ st: r.st, n: p.now.mine });
+                if (!groups.has(key)) groups.set(key, { l: r.l, rule: p.rule, status: p.status, months: new Map(), sts: new Map(), show: p.show });
+                const g = groups.get(key); if (p.status === 'red') g.status = 'red';
+                p.over.forEach(h => g.months.set(h.mk, h.zone));
+                const n = (p.over.length ? p.over : [p.show]).reduce((m, h) => m + h.mine, 0);
+                if (n > 0) g.sts.set(r.st.barcode, { st: r.st, n: ((g.sts.get(r.st.barcode) || {}).n || 0) + n });
             }));
-            const glist = Array.from(groups.values()).sort((p, q) => RANK[p.status] - RANK[q.status] || q.zone / (q.rule.max || 1) - p.zone / (p.rule.max || 1));
-            const redN = glist.filter(g => g.status === 'red').length, amberN = glist.length - redN;
-            const alert = glist.length ? `<div class="pr-alert ${redN ? '' : 'pr-alert-amber'}"><b>${redN ? `⚠ ${redN === 1 ? 'An insect is' : redN + ' insects are'} over the critical limit in ${e(monthLong(k))}` : `Getting close to a critical limit in ${e(monthLong(k))}`}</b>
-                ${glist.map(g => `<div class="pr-alert-g"><div>${g.status === 'red' ? '🔴' : '🟠'} <strong>${e(g.rule.species)}</strong> - ${e(g.l.name)}: ${g.zone} caught of ${g.rule.max} a month${g.zone > g.rule.max ? ` (${g.zone - g.rule.max} over)` : ' (close)'}</div>
-                    <div class="pr-alert-st">${g.sts.length ? 'Caught at: ' + g.sts.sort((p, q) => q.n - p.n).map(x => `${stLink(opts, x.st)} (${x.n})`).join(', ') : 'Not caught at the stations shown'}</div></div>`).join('')}</div>`
-                : `<div class="pr-alert pr-alert-ok"><b>✓ Every insect is within its critical limit in ${e(monthLong(k))}.</b></div>`;
+            const lastOf = g => Math.max(-1, ...g.months.keys());
+            const glist = Array.from(groups.values()).sort((p, q) => RANK[p.status] - RANK[q.status] || lastOf(q) - lastOf(p));
+            const redN = glist.filter(g => g.status === 'red').length;
+            const monthsTxt = g => Array.from(g.months.entries()).sort((p, q) => q[0] - p[0]).map(([mk, z]) => `${e(monthLong(mk))} (${z} of ${g.rule.max})`).join(', ');
+            const alert = glist.length ? `<div class="pr-alert ${redN ? '' : 'pr-alert-amber'}"><b>${redN ? `⚠ ${redN === 1 ? 'An insect went' : redN + ' insects went'} over the critical limit in ${e(when)}` : `Getting close to a critical limit in ${e(when)}`}</b>
+                ${glist.map(g => `<div class="pr-alert-g"><div>${g.status === 'red' ? '🔴' : '🟠'} <strong>${e(g.rule.species)}</strong> - ${e(g.l.name)}: ${g.status === 'red' ? 'over in ' + monthsTxt(g) : `${g.show.zone} caught of ${g.rule.max} a month (close)`}</div>
+                    <div class="pr-alert-st">${g.sts.size ? 'Caught at: ' + Array.from(g.sts.values()).sort((p, q) => q.n - p.n).map(x => `${stLink(opts, x.st)} (${x.n})`).join(', ') : 'Not caught at the stations shown'}</div></div>`).join('')}</div>`
+                : `<div class="pr-alert pr-alert-ok"><b>✓ Every insect was within its critical limit in ${e(when)}.</b></div>`;
             const breaches = [];
-            rows.forEach(r => r.pests.forEach(p => p.hist.forEach((h, i) => { if (h.status === 'red') breaches.push({ mk: ks[i], r, p, h }); })));
+            rows.forEach(r => r.pests.forEach(p => p.over.forEach(h => breaches.push({ mk: h.mk, r, p, h }))));
             const csv = [['Month', 'Station', 'Station type', 'Critical limit area', 'Insect', 'Station captures', 'Area total', 'Limit', 'Status']];
-            rows.forEach(r => r.pests.forEach(p => p.hist.forEach((h, i) => csv.push([monthLong(ks[i]), r.st.name, r.st.type, r.l.name, p.rule.species, h.mine, h.zone, p.rule.max, WORD[h.status]]))));
+            rows.forEach(r => r.pests.forEach(p => p.hist.filter(h => inPick(h.mk)).forEach(h => csv.push([monthLong(h.mk), r.st.name, r.st.type, r.l.name, p.rule.species, h.mine, h.zone, p.rule.max, WORD[h.status]]))));
+            const breachedSts = rows.filter(r => r.lastMk >= 0).length;
             return {
-                html: kpis([{ v: rows.length, l: 'insect stations on a critical limit' }, { v: redN, l: `insects over in ${monthLong(k)}`, c: redN ? '#dc2626' : '#16a34a' }, { v: amberN, l: 'insects close to the limit', c: amberN ? '#d97706' : undefined }, { v: breaches.length, l: 'breaches in the 12 months' }])
+                html: kpis([{ v: breachedSts, l: `stations that breached in ${when}`, c: breachedSts ? '#dc2626' : '#16a34a' }, { v: redN, l: 'insects over the limit', c: redN ? '#dc2626' : '#16a34a' }, { v: breaches.length, l: 'breaches in these months' }, { v: onLimit, l: 'insect stations on a critical limit' }])
                     + alert
-                    + `<div class="pr-legend"><span><i style="background:#16a34a"></i>Under the limit</span><span><i style="background:#d97706"></i>Within 10% of the limit</span><span><i style="background:#dc2626"></i>Over the limit</span><span><i class="pr-dash" style="border-color:#94a3b8"></i>Whole area</span><span><i class="pr-dash" style="border-color:#dc2626"></i>Limit</span></div>`
-                    + `<div class="pr-lims">${cards || '<div class="pr-empty">No insect stations on a critical limit match these filters.</div>'}</div>`
+                    + `<div class="pr-legend"><span><i style="background:#16a34a"></i>Under the limit</span><span><i style="background:#d97706"></i>Within 10% of the limit</span><span><i style="background:#dc2626"></i>Over the limit</span><span><i class="pr-dash" style="border-color:#94a3b8"></i>Whole area</span><span><i class="pr-dash" style="border-color:#dc2626"></i>Limit</span><span><i style="background:rgba(148,163,184,.3)"></i>Months chosen</span></div>`
+                    + `<div class="pr-lims">${cards || `<div class="pr-empty">${onlyBreached ? `No station breached a critical limit in ${e(when)}. 🎉 Choose more months, or Breached: No to see every station.` : 'No insect stations on a critical limit match these filters.'}</div>`}</div>`
                     + `<h4 class="pr-h4">Breaches by station</h4>` + table([{ t: 'Month' }, { t: 'Station' }, { t: 'Critical limit area' }, { t: 'Insect' }, { t: 'This station', num: true }, { t: 'Whole area', num: true }, { t: 'Limit', num: true }, { t: 'Over by', num: true }],
-                        breaches.sort((p, q) => q.mk - p.mk).map(b => ({ _cls: 'pr-late', cells: [e(monthLong(b.mk)), stLink(opts, b.r.st), e(b.r.l.name), e(b.p.rule.species), b.h.mine, b.h.zone, b.p.rule.max, b.h.zone - b.p.rule.max] })), { empty: 'No breaches - every limit was kept. 🎉' }),
+                        breaches.sort((p, q) => q.mk - p.mk).map(b => ({ _cls: 'pr-late', cells: [e(monthLong(b.mk)), stLink(opts, b.r.st), e(b.r.l.name), e(b.p.rule.species), b.h.mine, b.h.zone, b.p.rule.max, b.h.zone - b.p.rule.max] })), { empty: `No breaches in ${e(when)} - every limit was kept. 🎉` }),
                 csv
             };
         },
@@ -4799,6 +4823,25 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r86', date: '2026-10-30', v: { svc: '2026.10.30-r86', adm: '2026.10.30-a29', cli: '2026.10.30-p45' },
+            svc: ['No more automatic sign-out: the app stays signed in until you tap Sign out',
+                  'Closing a visit: if this visit took a critical limit over, a red box at the top of "Customer review & sign" shows it, so the customer sees it before signing',
+                  'Services: "How often" has a new choice, "Certain months each year" - tap the months (e.g. Feb, Mar and Nov) and the next due month is worked out for you',
+                  'Services show "Due this month", "Due next month" or the month they are due, not a day count. A service is only overdue once its month is over',
+                  'Notifications: tap a site document to renew and it opens that document',
+                  'Pests: Midge added to the list. Critical limits count insect stations only',
+                  'Documents: the Meetings folder is now called Meeting notes'],
+            adm: ['No more automatic sign-out (the setting is gone from Team settings)',
+                  'Services: "How often" has a new choice, "Certain months each year" - tap the months and the next due month is worked out',
+                  'Reports › Critical limits: Breached (Yes to start with) shows only the stations that breached, the latest breach first; choose From and To months to look at (this month to start with)',
+                  'Documents: the Meetings folder is now called Meeting notes. Midge added to the pest list'],
+            cli: ['No more automatic sign-out: the portal stays signed in until you sign out',
+                  'Reports › Critical limits: Breached (Yes to start with) shows only the stations that breached, the latest breach first; choose From and To months to look at more than this month',
+                  'Visits: a visit that went over a critical limit has a red "!" and says which limit, and the Visits tab shows a red "!" until you open it',
+                  'Notifications: tap a document that is expiring and it opens that document',
+                  'Services show "Due this month" or the month they are due, not an exact day',
+                  'Documents: the Meetings folder is now called Meeting notes',
+                  'A tidier gap at the top of each site page'] },
         { rev: 'r85', date: '2026-10-30', v: { svc: '2026.10.30-r85', adm: '2026.10.30-a28', cli: '2026.10.30-p44' },
             svc: ['Pest map (A4 PDF): the "Generated" date and name are gone, and the legend card at the bottom is more compact so the floor plan gets more of the page'],
             adm: ['Reports › Critical limits is now insect by insect: the alert names each insect that is over (or close) and the stations that caught it, and each station card has a section and graph per insect (worst first; insects under the limit fold away). The graph also shows the whole area\'s total and the limit line',

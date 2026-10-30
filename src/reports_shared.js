@@ -94,7 +94,7 @@ const PR = (() => {
         { id: 'station', icon: '🔎', title: 'One station', blurb: 'A single station: each pest (or its activity) month by month over the years, and every visit to it.', f: ['type', 'station', 'view', 'years', 'pest'] },
         { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'station', 'map', 'gap'] },
         { id: 'preps', icon: '🧪', title: 'Preparations used', blurb: 'What was used on which station, how much, and the batch numbers.', f: ['period', 'type', 'station', 'prep', 'batch'] },
-        { id: 'limits', icon: '⚠️', title: 'Critical limits', blurb: 'Which insects are over (or close to) their critical limit, at which stations, and each insect month by month in green, amber or red.', f: ['type', 'station', 'pest'] },
+        { id: 'limits', icon: '⚠️', title: 'Critical limits', blurb: 'Which insects breached their critical limit, at which stations and when (the latest first), and each insect month by month in green, amber or red.', f: ['limMonths', 'breached', 'type', 'station', 'pest'] },
         { id: 'recs', icon: '📋', title: 'Recommendations', blurb: 'Raised and completed, by type, and how long they took.', f: ['period'] },
         { id: 'visits', icon: '🗓️', title: 'Service visits', blurb: 'Visits each month, the technician and the time on site.', f: ['period', 'tech'] }
     ];
@@ -153,7 +153,7 @@ const PR = (() => {
     function render(box, data, opts) {
         opts = opts || {};
         let s = ST.get(box);
-        if (!s) { s = { report: null, view: 'time', years: '2', preset: '12m', from: '', to: '', type: '', pest: '', station: '', map: '', prep: '', batch: '', tech: '', gap: '35', month: monthKey(Date.now()) }; ST.set(box, s); }
+        if (!s) { s = { report: null, view: 'time', years: '2', preset: '12m', from: '', to: '', type: '', pest: '', station: '', map: '', prep: '', batch: '', tech: '', gap: '35', breached: 'yes', limFrom: monthKey(Date.now()), limTo: monthKey(Date.now()) }; ST.set(box, s); }
         box._pr = { data, opts };
         draw(box);
     }
@@ -207,6 +207,9 @@ const PR = (() => {
             // the stations of the chosen type (type to search a long list)
             if (f === 'station') parts.push(cmb('station', s.type ? `Station (${s.type})` : 'Station', stationsOfType(d, s).filter(x => R.id !== 'limits' || isInsect(x.type)).map(x => [x.barcode, x.name + (x.type && !s.type ? ' · ' + x.type : '')]), R.id === 'station' ? null : (s.type ? 'All ' + s.type : 'All stations')));
             if (f === 'batch') parts.push(`<label class="pr-f"><span>Batch number</span><input type="search" value="${e(s.batch)}" placeholder="Any" onchange="PR.set(this, 'batch', this.value.trim())"></label>`);
+            // critical limits: the months to look at (this month to start with; From and To for several months), and breached stations only or all
+            if (f === 'limMonths') { const ms = months(Date.now() - 3 * 365 * DAY, Date.now()).reverse().map(k => [k, monthLong(k)]); parts.push(sel('limFrom', 'From', ms), sel('limTo', 'To', ms)); }
+            if (f === 'breached') parts.push(sel('breached', 'Breached', [['yes', 'Yes - only stations that breached'], ['no', 'No - every station']]));
             if (f === 'gap') parts.push(sel('gap', 'Flag stations not scanned for', [['14', '2 weeks'], ['35', '5 weeks'], ['60', '2 months'], ['95', '3 months']]));
         });
         return parts.join('');
@@ -381,97 +384,119 @@ const PR = (() => {
                 csv: [head.map(h => h.t)].concat(list.map(x => [fmtDT(x.at), x.station, x.prep, x.batch, x.qty != null ? x.qty : '', x.unit, x.tech]))
             };
         },
-        // Critical limits, station by station: an alert for each station that took a limit over (or close), and each
-        // station's captures month by month, the line coloured by where its area stood that month:
-        // red = over the limit (and this station added to it), amber = within 10% of the limit, green = under.
+        // Critical limits, insect by insect, for the months chosen (this month to start with):
+        // red = the area was over the limit and this station added to it, amber = within 10% of the limit, green = under.
+        // "Breached: Yes" (to start with) shows only the stations that breached, the latest breach first.
         limits(d, s, opts) {
             if (!d.limits.length) return { html: '<div class="pr-empty">No critical limits are set for this site.</div>', csv: [] };
-            // the last 12 months up to now (the graphs show every month, so there's no month to pick)
-            const k = monthKey(Date.now()), ks = months(monthStart(k - 11), monthStart(k + 1) - 1).filter(x => x <= k);
+            const now = monthKey(Date.now());
+            let a = Number(s.limFrom) || now, b = Number(s.limTo) || now; if (a > b) [a, b] = [b, a];
+            const pickedN = b - a + 1;
+            // the graphs show at least 12 months, ending with the last month chosen
+            const g0 = Math.min(a, b - 11), ks = Array.from({ length: b - g0 + 1 }, (_, i) => g0 + i);
+            const inPick = mk => mk >= a && mk <= b;
+            const when = a === b ? monthLong(a) : `${monthLong(a)} - ${monthLong(b)}`;
             const limById = new Map(d.limits.map(l => [String(l.id), l]));
             const inLimit = l => new Set(d.stations.filter(x => String(x.limitId) === l.id && isInsect(x.type)).map(x => x.barcode));
             const zoneTotal = (l, rule, mk) => { const sts = inLimit(l); return d.entries.filter(x => sts.has(x.barcode) && monthKey(x.at) === mk && pestKey(x.species) === pestKey(rule.species)).reduce((n, x) => n + x.count, 0); };
             const stCount = (st, rule, mk) => d.entries.filter(x => x.barcode === st.barcode && monthKey(x.at) === mk && pestKey(x.species) === pestKey(rule.species)).reduce((n, x) => n + x.count, 0);
             // one insect at one station in one month: this station's catch, the whole area's, and how the area stood
-            // red = the area is over the limit and this station added to it, amber = the area is within 10% of the limit
             // (a station that caught none of it while the area is over stays green - it isn't the cause)
             const monthOf = (st, l, rule, mk) => {
                 const mine = stCount(st, rule, mk), zone = zoneTotal(l, rule, mk);
                 const status = zone > rule.max ? (mine > 0 ? 'red' : 'green') : rule.max > 0 && zone >= rule.max * .9 ? 'amber' : 'green';
-                return { mine, zone, status };
+                return { mk, mine, zone, status };
             };
             const RANK = { red: 0, amber: 1, green: 2 };
             const COL = { red: '#dc2626', amber: '#d97706', green: '#16a34a' }, WORD = { red: 'Over the limit', amber: 'Close to the limit', green: 'Under the limit' };
+            const worst = list => list.reduce((w, h) => RANK[h.status] < RANK[w] ? h.status : w, 'green');
             const typeOk = s.type && isInsect(s.type) ? s.type : '';
+            const onlyBreached = s.breached !== 'no';
             const stations = d.stations.filter(st => limById.has(String(st.limitId)) && isInsect(st.type) && (!typeOk || st.type === typeOk) && (!s.station || st.barcode === s.station));
             // each station, and each insect on its limit (the worst first)
-            const rows = stations.map(st => {
+            let rows = stations.map(st => {
                 const l = limById.get(String(st.limitId));
                 const pests = l.rules.filter(rule => !s.pest || pestKey(rule.species) === pestKey(s.pest)).map(rule => {
-                    const hist = ks.map(mk => monthOf(st, l, rule, mk));
-                    return { rule, hist, now: hist[hist.length - 1], total: hist.reduce((n, h) => n + h.mine, 0), breaches: hist.filter(h => h.status === 'red').length };
-                }).sort((p, q) => RANK[p.now.status] - RANK[q.now.status] || q.now.zone / (q.rule.max || 1) - p.now.zone / (p.rule.max || 1) || q.total - p.total);
-                const status = pests.length ? pests[0].now.status : 'green';
-                return { st, l, pests, status, n: pests.reduce((n, p) => n + p.now.mine, 0), total: pests.reduce((n, p) => n + p.total, 0) };
-            }).filter(r => r.pests.length).sort((p, q) => RANK[p.status] - RANK[q.status] || q.n - p.n || q.total - p.total);
+                    const hist = ks.map(mk => monthOf(st, l, rule, mk)), picked = hist.filter(h => inPick(h.mk));
+                    const over = picked.filter(h => h.status === 'red'), last = over.length ? over[over.length - 1] : null;
+                    // the month to show the numbers for: the latest breach, else the latest month chosen
+                    const show = last || picked[picked.length - 1];
+                    return { rule, hist, over, last, show, status: worst(picked), total: picked.reduce((n, h) => n + h.mine, 0), year: hist.reduce((n, h) => n + h.mine, 0) };
+                }).sort((p, q) => RANK[p.status] - RANK[q.status] || (q.last ? q.last.mk : -1) - (p.last ? p.last.mk : -1) || q.show.zone / (q.rule.max || 1) - p.show.zone / (p.rule.max || 1) || q.total - p.total);
+                const lastMk = Math.max(-1, ...pests.map(p => p.last ? p.last.mk : -1));
+                return { st, l, pests, status: worst(pests), lastMk, breaches: pests.reduce((n, p) => n + p.over.length, 0), total: pests.reduce((n, p) => n + p.total, 0) };
+            }).filter(r => r.pests.length);
+            const onLimit = rows.length;
+            if (onlyBreached) rows = rows.filter(r => r.lastMk >= 0);
+            // the latest breach first, then the rest by how they stood
+            rows.sort((p, q) => q.lastMk - p.lastMk || RANK[p.status] - RANK[q.status] || q.breaches - p.breaches || q.total - p.total);
             // the graph for one insect at one station: this station's catch (coloured by how the area stood that month),
-            // the whole area's catch (grey dashes) and the limit (red dashes)
+            // the whole area's catch (grey dashes) and the limit (red dashes); the months chosen are shaded
             const chart = (r, p) => {
                 const W = 760, H = 190, pl = 40, pr = 12, pt = 14, pb = 32, n = ks.length;
                 const max = Math.max(1, p.rule.max, ...p.hist.map(h => h.zone));
                 const x = i => pl + (n <= 1 ? (W - pl - pr) / 2 : i * (W - pl - pr) / (n - 1)), y = v => pt + (H - pt - pb) * (1 - v / max);
                 const ticks = Array.from(new Set([0, .5, 1].map(f => Math.round(max * f))));
-                const every = Math.ceil(n / 12);
+                const every = Math.ceil(n / 12), half = n <= 1 ? 0 : (W - pl - pr) / (n - 1) / 2;
+                const bx0 = Math.max(pl, x(ks.indexOf(a)) - half), bx1 = Math.min(W - pr, x(ks.indexOf(b)) + half);
                 return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(r.st.name)}: ${e(p.rule.species)} caught each month">
+                    <rect x="${bx0}" y="${pt}" width="${Math.max(0, bx1 - bx0)}" height="${H - pt - pb}" fill="#94a3b8" fill-opacity=".12"/>
                     ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="pr-grid"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" class="pr-ax">${t}</text>`).join('')}
                     ${ks.map((mk, i) => i % every === 0 || i === n - 1 ? `<text x="${x(i)}" y="${H - 10}" text-anchor="${i === n - 1 ? 'end' : i === 0 ? 'start' : 'middle'}" class="pr-ax">${e(monthLbl(mk))}</text>` : '').join('')}
                     ${p.rule.max > 0 ? `<line x1="${pl}" x2="${W - pr}" y1="${y(p.rule.max)}" y2="${y(p.rule.max)}" stroke="#dc2626" stroke-width="2" stroke-dasharray="7 5"/><text x="${W - pr}" y="${y(p.rule.max) - 5}" text-anchor="end" class="pr-ax" fill="#dc2626">Limit ${p.rule.max}</text>` : ''}
                     <polyline points="${p.hist.map((h, i) => `${x(i)},${y(h.zone)}`).join(' ')}" fill="none" stroke="#94a3b8" stroke-width="2" stroke-dasharray="4 4"/>
                     ${p.hist.slice(1).map((h, i) => `<polygon points="${x(i)},${y(p.hist[i].mine)} ${x(i + 1)},${y(h.mine)} ${x(i + 1)},${y(0)} ${x(i)},${y(0)}" fill="${COL[h.status]}" fill-opacity=".2" stroke="none"/>`).join('')}
                     ${p.hist.slice(1).map((h, i) => `<line x1="${x(i)}" y1="${y(p.hist[i].mine)}" x2="${x(i + 1)}" y2="${y(h.mine)}" stroke="${COL[h.status]}" stroke-width="3" stroke-linecap="round"/>`).join('')}
-                    ${p.hist.map((h, i) => `<circle cx="${x(i)}" cy="${y(h.mine)}" r="${h.status === 'green' ? 3.5 : 5.5}" fill="${COL[h.status]}"><title>${e(monthLong(ks[i]))} · ${e(p.rule.species)}: this station ${h.mine}, the whole area ${h.zone} of ${p.rule.max} · ${WORD[h.status]}</title></circle>`).join('')}
+                    ${p.hist.map((h, i) => `<circle cx="${x(i)}" cy="${y(h.mine)}" r="${h.status === 'green' ? 3.5 : 5.5}" fill="${COL[h.status]}"><title>${e(monthLong(h.mk))} · ${e(p.rule.species)}: this station ${h.mine}, the whole area ${h.zone} of ${p.rule.max} · ${WORD[h.status]}</title></circle>`).join('')}
                 </svg>`;
             };
-            const line = (p) => `This month: this station <strong>${p.now.mine}</strong> · whole area <strong>${p.now.zone}</strong> of <strong>${p.rule.max}</strong> a month${p.now.zone > p.rule.max ? ` (${p.now.zone - p.rule.max} over)` : ''}${p.breaches ? ` · over in ${p.breaches} of the last ${ks.length} months` : ''}`;
-            const pestHtml = (r, p) => `<div class="pr-lim-p ${p.now.status}"><div class="pr-lim-ph"><b>${e(p.rule.species)}</b><span class="pr-chip ${p.now.status}">${WORD[p.now.status]}</span></div>
+            const line = p => { const h = p.show;
+                return `${e(monthLong(h.mk))}: this station <strong>${h.mine}</strong> · whole area <strong>${h.zone}</strong> of <strong>${p.rule.max}</strong> a month${h.zone > p.rule.max ? ` (${h.zone - p.rule.max} over)` : ''}`
+                    + (pickedN > 1 ? ` · over in ${p.over.length} of the ${pickedN} months chosen` : ''); };
+            const pestHtml = (r, p) => `<div class="pr-lim-p ${p.status}"><div class="pr-lim-ph"><b>${e(p.rule.species)}</b><span class="pr-chip ${p.status}">${WORD[p.status]}</span></div>
                 <div class="pr-lim-n">${line(p)}</div>${chart(r, p)}</div>`;
             const cards = rows.map(r => {
-                const hot = r.pests.filter(p => p.now.status !== 'green');
+                const hot = r.pests.filter(p => p.status !== 'green');
                 // insects over or close are open with their graph (or, when none are, those caught here this year);
                 // the rest fold away (tap to see them)
-                const open = hot.length ? hot : r.pests.filter(p => p.total > 0), calm = r.pests.filter(p => !open.includes(p));
+                const open = hot.length ? hot : r.pests.filter(p => p.year > 0), calm = r.pests.filter(p => !open.includes(p));
                 const fold = calm.length ? `<details class="pr-lim-more"><summary>${calm.length === 1 ? `${e(calm[0].rule.species)} is` : `${calm.length} ${open.length ? 'more ' : ''}insects are`} under the limit - show</summary>${calm.map(p => pestHtml(r, p)).join('')}</details>` : '';
-                const nRed = hot.filter(p => p.now.status === 'red').length, nAmber = hot.length - nRed;
+                const nRed = hot.filter(p => p.status === 'red').length, nAmber = hot.length - nRed;
                 const chip = r.status === 'green' ? 'All under the limit' : [nRed ? `${nRed} insect${nRed > 1 ? 's' : ''} over` : '', nAmber ? `${nAmber} close` : ''].filter(Boolean).join(' · ');
                 return `<div class="pr-lim"><div class="pr-lim-h"><b>${stLink(opts, r.st)}</b><span class="pr-chip ${r.status}">${chip}</span></div>
-                <p class="pr-note">${e(r.st.type || 'Station')} · critical limit area: ${e(r.l.name)}</p>
+                <p class="pr-note">${e(r.st.type || 'Station')} · critical limit area: ${e(r.l.name)}${r.lastMk >= 0 ? ` · last breached <strong>${e(monthLong(r.lastMk))}</strong>` : ''}</p>
                 ${open.length ? open.map(p => pestHtml(r, p)).join('') : `<p class="pr-note">None of these insects caught here in the last ${ks.length} months.</p>`}${fold}</div>`;
             }).join('');
-            // the alert, insect by insect: which insect is over (or close) in which area, and the stations that caught it
+            // the alert, insect by insect: which insect went over (or close) in which area, in which months, and the stations that caught it
             const groups = new Map();
-            rows.forEach(r => r.pests.forEach(p => { if (p.now.status === 'green') return;
+            rows.forEach(r => r.pests.forEach(p => { if (p.status === 'green') return;
                 const key = r.l.id + '|' + pestKey(p.rule.species);
-                if (!groups.has(key)) groups.set(key, { l: r.l, rule: p.rule, zone: p.now.zone, status: p.now.status, sts: [] });
-                const g = groups.get(key); if (p.now.status === 'red') g.status = 'red';
-                if (p.now.mine > 0) g.sts.push({ st: r.st, n: p.now.mine });
+                if (!groups.has(key)) groups.set(key, { l: r.l, rule: p.rule, status: p.status, months: new Map(), sts: new Map(), show: p.show });
+                const g = groups.get(key); if (p.status === 'red') g.status = 'red';
+                p.over.forEach(h => g.months.set(h.mk, h.zone));
+                const n = (p.over.length ? p.over : [p.show]).reduce((m, h) => m + h.mine, 0);
+                if (n > 0) g.sts.set(r.st.barcode, { st: r.st, n: ((g.sts.get(r.st.barcode) || {}).n || 0) + n });
             }));
-            const glist = Array.from(groups.values()).sort((p, q) => RANK[p.status] - RANK[q.status] || q.zone / (q.rule.max || 1) - p.zone / (p.rule.max || 1));
-            const redN = glist.filter(g => g.status === 'red').length, amberN = glist.length - redN;
-            const alert = glist.length ? `<div class="pr-alert ${redN ? '' : 'pr-alert-amber'}"><b>${redN ? `⚠ ${redN === 1 ? 'An insect is' : redN + ' insects are'} over the critical limit in ${e(monthLong(k))}` : `Getting close to a critical limit in ${e(monthLong(k))}`}</b>
-                ${glist.map(g => `<div class="pr-alert-g"><div>${g.status === 'red' ? '🔴' : '🟠'} <strong>${e(g.rule.species)}</strong> - ${e(g.l.name)}: ${g.zone} caught of ${g.rule.max} a month${g.zone > g.rule.max ? ` (${g.zone - g.rule.max} over)` : ' (close)'}</div>
-                    <div class="pr-alert-st">${g.sts.length ? 'Caught at: ' + g.sts.sort((p, q) => q.n - p.n).map(x => `${stLink(opts, x.st)} (${x.n})`).join(', ') : 'Not caught at the stations shown'}</div></div>`).join('')}</div>`
-                : `<div class="pr-alert pr-alert-ok"><b>✓ Every insect is within its critical limit in ${e(monthLong(k))}.</b></div>`;
+            const lastOf = g => Math.max(-1, ...g.months.keys());
+            const glist = Array.from(groups.values()).sort((p, q) => RANK[p.status] - RANK[q.status] || lastOf(q) - lastOf(p));
+            const redN = glist.filter(g => g.status === 'red').length;
+            const monthsTxt = g => Array.from(g.months.entries()).sort((p, q) => q[0] - p[0]).map(([mk, z]) => `${e(monthLong(mk))} (${z} of ${g.rule.max})`).join(', ');
+            const alert = glist.length ? `<div class="pr-alert ${redN ? '' : 'pr-alert-amber'}"><b>${redN ? `⚠ ${redN === 1 ? 'An insect went' : redN + ' insects went'} over the critical limit in ${e(when)}` : `Getting close to a critical limit in ${e(when)}`}</b>
+                ${glist.map(g => `<div class="pr-alert-g"><div>${g.status === 'red' ? '🔴' : '🟠'} <strong>${e(g.rule.species)}</strong> - ${e(g.l.name)}: ${g.status === 'red' ? 'over in ' + monthsTxt(g) : `${g.show.zone} caught of ${g.rule.max} a month (close)`}</div>
+                    <div class="pr-alert-st">${g.sts.size ? 'Caught at: ' + Array.from(g.sts.values()).sort((p, q) => q.n - p.n).map(x => `${stLink(opts, x.st)} (${x.n})`).join(', ') : 'Not caught at the stations shown'}</div></div>`).join('')}</div>`
+                : `<div class="pr-alert pr-alert-ok"><b>✓ Every insect was within its critical limit in ${e(when)}.</b></div>`;
             const breaches = [];
-            rows.forEach(r => r.pests.forEach(p => p.hist.forEach((h, i) => { if (h.status === 'red') breaches.push({ mk: ks[i], r, p, h }); })));
+            rows.forEach(r => r.pests.forEach(p => p.over.forEach(h => breaches.push({ mk: h.mk, r, p, h }))));
             const csv = [['Month', 'Station', 'Station type', 'Critical limit area', 'Insect', 'Station captures', 'Area total', 'Limit', 'Status']];
-            rows.forEach(r => r.pests.forEach(p => p.hist.forEach((h, i) => csv.push([monthLong(ks[i]), r.st.name, r.st.type, r.l.name, p.rule.species, h.mine, h.zone, p.rule.max, WORD[h.status]]))));
+            rows.forEach(r => r.pests.forEach(p => p.hist.filter(h => inPick(h.mk)).forEach(h => csv.push([monthLong(h.mk), r.st.name, r.st.type, r.l.name, p.rule.species, h.mine, h.zone, p.rule.max, WORD[h.status]]))));
+            const breachedSts = rows.filter(r => r.lastMk >= 0).length;
             return {
-                html: kpis([{ v: rows.length, l: 'insect stations on a critical limit' }, { v: redN, l: `insects over in ${monthLong(k)}`, c: redN ? '#dc2626' : '#16a34a' }, { v: amberN, l: 'insects close to the limit', c: amberN ? '#d97706' : undefined }, { v: breaches.length, l: 'breaches in the 12 months' }])
+                html: kpis([{ v: breachedSts, l: `stations that breached in ${when}`, c: breachedSts ? '#dc2626' : '#16a34a' }, { v: redN, l: 'insects over the limit', c: redN ? '#dc2626' : '#16a34a' }, { v: breaches.length, l: 'breaches in these months' }, { v: onLimit, l: 'insect stations on a critical limit' }])
                     + alert
-                    + `<div class="pr-legend"><span><i style="background:#16a34a"></i>Under the limit</span><span><i style="background:#d97706"></i>Within 10% of the limit</span><span><i style="background:#dc2626"></i>Over the limit</span><span><i class="pr-dash" style="border-color:#94a3b8"></i>Whole area</span><span><i class="pr-dash" style="border-color:#dc2626"></i>Limit</span></div>`
-                    + `<div class="pr-lims">${cards || '<div class="pr-empty">No insect stations on a critical limit match these filters.</div>'}</div>`
+                    + `<div class="pr-legend"><span><i style="background:#16a34a"></i>Under the limit</span><span><i style="background:#d97706"></i>Within 10% of the limit</span><span><i style="background:#dc2626"></i>Over the limit</span><span><i class="pr-dash" style="border-color:#94a3b8"></i>Whole area</span><span><i class="pr-dash" style="border-color:#dc2626"></i>Limit</span><span><i style="background:rgba(148,163,184,.3)"></i>Months chosen</span></div>`
+                    + `<div class="pr-lims">${cards || `<div class="pr-empty">${onlyBreached ? `No station breached a critical limit in ${e(when)}. 🎉 Choose more months, or Breached: No to see every station.` : 'No insect stations on a critical limit match these filters.'}</div>`}</div>`
                     + `<h4 class="pr-h4">Breaches by station</h4>` + table([{ t: 'Month' }, { t: 'Station' }, { t: 'Critical limit area' }, { t: 'Insect' }, { t: 'This station', num: true }, { t: 'Whole area', num: true }, { t: 'Limit', num: true }, { t: 'Over by', num: true }],
-                        breaches.sort((p, q) => q.mk - p.mk).map(b => ({ _cls: 'pr-late', cells: [e(monthLong(b.mk)), stLink(opts, b.r.st), e(b.r.l.name), e(b.p.rule.species), b.h.mine, b.h.zone, b.p.rule.max, b.h.zone - b.p.rule.max] })), { empty: 'No breaches - every limit was kept. 🎉' }),
+                        breaches.sort((p, q) => q.mk - p.mk).map(b => ({ _cls: 'pr-late', cells: [e(monthLong(b.mk)), stLink(opts, b.r.st), e(b.r.l.name), e(b.p.rule.species), b.h.mine, b.h.zone, b.p.rule.max, b.h.zone - b.p.rule.max] })), { empty: `No breaches in ${e(when)} - every limit was kept. 🎉` }),
                 csv
             };
         },

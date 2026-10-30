@@ -226,7 +226,7 @@ export const SEED = {
 };
 
 // Every site gets these document folders
-export const STANDARD_FOLDERS = ['SDS', 'Service agreement', 'Maps', 'Site specific', 'Meetings', 'Entomology', 'Training', 'Insurance'];
+export const STANDARD_FOLDERS = ['SDS', 'Service agreement', 'Maps', 'Site specific', 'Meeting notes', 'Entomology', 'Training', 'Insurance'];
 
 // Who can see what. "Site" tables hold one site's data: staff see every site, a client login sees only its own sites.
 export const SITE_TABLES = new Set(['service_logs', 'recommendations', 'recommendation_updates', 'stations', 'site_maps', 'visits', 'site_documents',

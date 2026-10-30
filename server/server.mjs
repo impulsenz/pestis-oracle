@@ -7,8 +7,7 @@
 //   ADMIN_EMAILS       comma-separated emails that are always approved admins
 //   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, SMTP_SECURE (ssl | starttls | none)
 //                      optional: lets clients get an emailed sign-in link
-//   SESSION_DAYS       how long a sign-in lasts without being used (default 30; the apps also sign out after the
-//                      idle time set in Admin -> Team settings, 5 minutes to start with)
+//   SESSION_DAYS       how long a sign-in lasts without being used (default 30; the apps don't sign out on their own)
 //   DATA_DIR           database and files (default /var/lib/pestis)
 //   PUBLIC_DIR         the apps (default: the folder above this one)
 
@@ -256,8 +255,8 @@ function canRead(tn, row, me) {
 
 /* ---------- write rules ---------- */
 const GUARDED = new Set([...SITE_TABLES, ...LIST_TABLES, 'clients', 'site_events', 'app_settings']);
-// a client adds their own files to their site's Meetings folder, and removes only the ones they added
-const clientMeetingDoc = (op, row, me) => me.client && !me.approved && row && isSiteClient(me, row.client_id) && /^meetings$/i.test(String(row.folder || '').trim())
+// a client adds their own files to their site's Meeting notes folder (once called Meetings), and removes only the ones they added
+const clientMeetingDoc = (op, row, me) => me.client && !me.approved && row && isSiteClient(me, row.client_id) && /^meeting(s| notes)$/i.test(String(row.folder || '').trim())
   && clientMeetingFile(me, String(row.file_path || '')) && (op === 'insert' || row.uploaded_by_id === me.uid);
 function canWrite(tn, op, row, me) {
   if (me.system) return true;
@@ -568,7 +567,7 @@ const TRIGGERS = {
     allowed_emails: row => { row.email = String(row.email || '').trim().toLowerCase(); return row; },
     site_contacts: (row, me) => siteContactBefore(row, null, me),
     // a client's file: their own name on it, and it stays a meeting file
-    site_documents: (row, me) => { if (me.client && !me.approved) Object.assign(row, { uploaded_by: myName(me), uploaded_by_id: me.uid, category: 'Meetings' }); return row; },
+    site_documents: (row, me) => { if (me.client && !me.approved) Object.assign(row, { uploaded_by: myName(me), uploaded_by_id: me.uid, category: 'Meeting notes' }); return row; },
     site_document_folders: row => {
       row.name = String(row.name || '').trim();
       if (row.name.length < 1 || row.name.length > 80) throw new PgError('23514', 'new row for relation "site_document_folders" violates check constraint "site_document_folders_name_check"');
@@ -794,12 +793,8 @@ const RPC = {
     savePref(a.p_user, a.p_key, a.p_value, 250000);
     return null;
   },
-  pestis_idle_minutes() {
-    const r = db.prepare("SELECT value FROM app_settings WHERE key = 'idle_logout_minutes'").get();
-    let v = r ? fromDb('json', r.value) : null;
-    if (typeof v === 'string' && /^\d+$/.test(v)) v = Number(v);
-    return typeof v === 'number' && Number.isFinite(v) ? Math.round(v) : 5;
-  },
+  // the apps no longer sign people out when not in use: 0 (never) for any older copy of the Client Portal that asks
+  pestis_idle_minutes() { return 0; },
   save_my_ui_prefs(me, a) {
     prefKey(a.p_key);
     if (JSON.stringify(a.p_value ?? null).length > 20000) fail('Setting too large');
@@ -992,6 +987,38 @@ function updateStationTypes() {
 }
 transaction(updateStationTypes);
 
+// Once: the Meetings document folder is renamed Meeting notes on every site (and its documents move with it)
+const FOLDERS_V = 1;
+function updateFolders() {
+  const done = sys.one('app_settings', [['key', 'eq', 'folders_version']]);
+  if (done && Number(done.value) >= FOLDERS_V) return;
+  for (const f of sys.all('site_document_folders', [])) {
+    if (!/^meetings$/i.test(String(f.name || '').trim())) continue;
+    if (sys.one('site_document_folders', [['client_id', 'eq', f.client_id], ['name', 'eq', 'Meeting notes']])) sys.delete('site_document_folders', [['id', 'eq', f.id]]);
+    else sys.update('site_document_folders', [['id', 'eq', f.id]], { name: 'Meeting notes' });
+  }
+  db.prepare("UPDATE site_documents SET folder = 'Meeting notes' WHERE lower(trim(folder)) = 'meetings'").run();
+  db.prepare("UPDATE site_documents SET category = 'Meeting notes' WHERE lower(trim(category)) = 'meetings'").run();
+  if (done) sys.update('app_settings', [['key', 'eq', 'folders_version']], { value: FOLDERS_V, updated_by: 'Server' });
+  else sys.insert('app_settings', { key: 'folders_version', value: FOLDERS_V, updated_by: 'Server' });
+}
+transaction(updateFolders);
+
+// Once: pests added to the list after it was first set up (Midge), unless the list already has them
+const MORE_PESTS_V = 1;
+const MORE_PESTS = [['Midge', 'Flying insects', 'Flies', /midge|chironom/i]];
+function addMorePests() {
+  const done = sys.one('app_settings', [['key', 'eq', 'more_pests_version']]);
+  if (done && Number(done.value) >= MORE_PESTS_V) return;
+  const rows = sys.all('species', []);
+  let sort = Math.max(0, ...rows.map(r => r.sort || 0));
+  for (const [label, category, subcategory, re] of MORE_PESTS)
+    if (!rows.some(r => re.test(String(r.label || '')))) sys.insert('species', { id: crypto.randomUUID(), label, sort: ++sort, category, subcategory });
+  if (done) sys.update('app_settings', [['key', 'eq', 'more_pests_version']], { value: MORE_PESTS_V, updated_by: 'Server' });
+  else sys.insert('app_settings', { key: 'more_pests_version', value: MORE_PESTS_V, updated_by: 'Server' });
+}
+transaction(addMorePests);
+
 /* =====================================================================================
    Sign-in
    ===================================================================================== */
@@ -1178,7 +1205,7 @@ function clientCanReadFile(me, bucket, p) {
   const a = p.split('/');
   return canSeeSite(me, fileSite(p)) || (bucket === 'station-photos' && a[0] === 'staff' && !!a[2]) || (a[0] === 'library' && ['sds', 'pests'].includes(a[1]) && !!a[2]);
 }
-// a client's own file in their site's Meetings folder: <site>/CLIENT_MEETING_<name>
+// a client's own file in their site's Meeting notes folder: <site>/CLIENT_MEETING_<name>
 const clientMeetingFile = (me, p) => { const a = p.split('/'); return me.client && a.length === 2 && /^CLIENT_MEETING_/.test(a[1]) && isSiteClient(me, a[0]); };
 const fileOwner = (bucket, p) => (db.prepare('SELECT owner FROM storage_objects WHERE bucket = ? AND name = ?').get(bucket, p) || {}).owner;
 function fileAllowed(me, bucket, p, op) {

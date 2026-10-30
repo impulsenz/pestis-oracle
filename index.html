@@ -2260,7 +2260,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r85-oci';
+        const APP_VERSION = '2026.10.30-r86-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -2288,9 +2288,42 @@
             { v: 'quarterly', label: 'Quarterly', months: 3 },
             { v: '6monthly', label: 'Every 6 months', months: 6 },
             { v: 'annually', label: 'Annually', months: 12 },
+            { v: 'months', label: 'Certain months each year (choose)' },
             { v: 'oneoff', label: 'One-off / On request' }
         ];
         const FREQ_MAP = Object.fromEntries(FREQUENCIES.map(f => [f.v, f]));
+        // A service done in certain months each year (e.g. February, March and November) is saved as 'months:2,3,11'
+        const MONTH_SHORT = Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleDateString('en-NZ', { month: 'short' }));
+        function freqMonths(v) {
+            const m = /^months:(.*)$/.exec(String(v || ''));
+            return m ? Array.from(new Set(m[1].split(',').map(Number).filter(n => n >= 1 && n <= 12))).sort((a, b) => a - b) : null;
+        }
+        const freqSelectValue = v => freqMonths(v) ? 'months' : v;
+        // the first chosen month from this month on (its 1st): when a months service has never been done
+        function firstChosenDue(freq) {
+            const ms = freqMonths(freq) || [], d = new Date();
+            for (let i = 0; i < 12 && ms.length; i++) { const x = new Date(d.getFullYear(), d.getMonth() + i, 1); if (ms.includes(x.getMonth() + 1)) return toDayStr(x); }
+            return '';
+        }
+        // a service's How often changed (from either services editor): a months service starts with no months chosen
+        function setServiceFrequency(s, v) {
+            s.frequency = v === 'months' ? 'months:' + ((freqMonths(s.frequency) || []).join(',')) : v;
+            const nd = s.lastDone ? addFrequency(s.lastDone, s.frequency) : freqMonths(s.frequency) ? firstChosenDue(s.frequency) : '';
+            if (nd || s.frequency === 'oneoff') s.nextDue = nd;
+        }
+        // tap a month on or off; the next due date is worked out again
+        function toggleServiceMonth(s, n) {
+            const ms = new Set(freqMonths(s.frequency) || []);
+            if (ms.has(n)) ms.delete(n); else ms.add(n);
+            s.frequency = 'months:' + Array.from(ms).sort((a, b) => a - b).join(',');
+            s.nextDue = s.lastDone ? addFrequency(s.lastDone, s.frequency) : firstChosenDue(s.frequency);
+        }
+        // the twelve month buttons under How often (onTap gets the month number, 1-12)
+        function monthPickerHtml(freq, onTap) {
+            const ms = freqMonths(freq) || [];
+            return `<div class="flex flex-wrap gap-1.5" role="group" aria-label="Months this service is done">${MONTH_SHORT.map((m, k) => `<button type="button" class="chip ${ms.includes(k + 1) ? 'chip-orange' : 'chip-grey'} cursor-pointer" aria-pressed="${ms.includes(k + 1)}" onclick="${onTap(k + 1)}">${m}</button>`).join('')}</div>
+                <p class="text-[11px] t-faint mt-1">${ms.length ? 'Done in ' + ms.map(n => MONTH_SHORT[n - 1]).join(', ') + ' each year. The next due month is worked out from these.' : 'Tap the months this service is done each year.'}</p>`;
+        }
 
         // The Admin site is its own page (admin.html) with its own sign-in. In the Service App nobody gets
         // admin powers or admin links, whatever their role.
@@ -2723,12 +2756,6 @@
         function differentAccountHtml() { return `<div class="mt-3"><button type="button" class="btn btn-secondary w-full !py-2.5" onclick="useDifferentAccount()">Sign in with a different account</button></div>`; }
         async function useDifferentAccount() { try { await withTimeout(_supabase.auth.signOut({ scope: 'local' }), 5000, 'Sign out'); } catch (e) {} location.href = window.location.origin + window.location.pathname; }
         function showLoginPanel() {
-            let idleOut = null;
-            try { idleOut = sessionStorage.getItem('pestis-idle-out'); sessionStorage.removeItem('pestis-idle-out'); } catch (e) {}
-            if (idleOut) {
-                const m = document.getElementById('loginMessage');
-                if (m) { m.textContent = `You were signed out because the app wasn't used for ${idleOut} minute${idleOut === '1' ? '' : 's'}. Anything not uploaded yet is still saved on this device. Sign in to carry on.`; m.style.color = '#d97706'; m.classList.remove('hidden'); }
-            }
             document.getElementById('authLoading').classList.add('hidden');
             document.getElementById('loginPanel').classList.remove('hidden');
             document.getElementById('loginScreen').classList.remove('hidden');
@@ -2775,52 +2802,6 @@
             location.replace(window.location.origin + window.location.pathname + '?fresh=' + Date.now());
         }
 
-        // ===================================================================
-        //  SIGN OUT WHEN NOT IN USE: after the team's set time with no taps or typing (Admin -> Team settings,
-        //  5 minutes unless changed; 0 = never). A minute before, a warning gives the chance to stay signed in.
-        //  Anything not uploaded yet stays on the device and uploads after signing back in.
-        // ===================================================================
-        let idleLast = Date.now(), idleWarnEl = null;
-        const IDLE_WARN_SECONDS = 60;
-        function idleMinutes() { return typeof teamSetting === 'function' ? teamSetting('idle_logout_minutes') : 5; }
-        function idleBusy() {
-            // scanning with the camera or recording a video counts as using the app
-            const open = id => { const el = document.getElementById(id); return el && !el.classList.contains('hidden'); };
-            return open('fullscreenScannerModal') || open('videoRecModal');
-        }
-        function idleActivity() { idleLast = Date.now(); if (appStarted) pestisMarkActive(); if (idleWarnEl) { idleWarnEl.remove(); idleWarnEl = null; } }
-        ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev => document.addEventListener(ev, idleActivity, { passive: true, capture: true }));
-        function idleCheck() {
-            if (!appStarted || !currentUser) { idleLast = Date.now(); return; }
-            const mins = idleMinutes();
-            if (!mins) return;
-            if (idleBusy()) { idleLast = Date.now(); pestisMarkActive(); return; }
-            idleLast = Math.max(idleLast, pestisLastActive());   // used in another Pestis app
-            const left = idleLast + mins * 60000 - Date.now();
-            if (left <= 0) { idleSignOut(mins); return; }
-            if (left <= IDLE_WARN_SECONDS * 1000) {
-                if (!idleWarnEl) {
-                    idleWarnEl = document.createElement('div');
-                    idleWarnEl.id = 'idleWarning';
-                    idleWarnEl.className = 'idle-warn';
-                    document.body.appendChild(idleWarnEl);
-                }
-                idleWarnEl.innerHTML = `<div class="card p-5 max-w-sm w-full text-center space-y-3"><div class="text-3xl">⏳</div><div class="font-black t-strong text-lg">Still there?</div>
-                    <p class="text-sm t-muted">You'll be signed out in <b class="t-strong">${Math.ceil(left / 1000)} seconds</b> because the app hasn't been used for a while.</p>
-                    <button type="button" class="btn btn-primary w-full justify-center" onclick="idleActivity()">Keep me signed in</button></div>`;
-            }
-        }
-        setInterval(idleCheck, 1000);
-        document.addEventListener('visibilitychange', () => { if (!document.hidden) idleCheck(); });
-        async function idleSignOut(mins) {
-            appStarted = false;
-            try { await stopFullscreenCameraScanner(); } catch (e) {}
-            try { sessionStorage.setItem('pestis-idle-out', String(mins)); } catch (e) {}
-            try { await withTimeout(_supabase.auth.signOut({ scope: 'local' }), 5000, 'Sign out'); } catch (e) {}
-            clearStoredSession();
-            clearIdentity();
-            location.href = window.location.origin + window.location.pathname;
-        }
 
         async function signOut() {
             const unsent = unsentItems().length;
@@ -3369,7 +3350,7 @@
             } finally { btn.disabled = false; btn.textContent = 'Upload'; }
         }
         // ---------- document folders (admins make them; clients see them in the portal) ----------
-        const STANDARD_FOLDERS = ['SDS', 'Service agreement', 'Maps', 'Site specific', 'Meetings', 'Entomology', 'Training', 'Insurance'];
+        const STANDARD_FOLDERS = ['SDS', 'Service agreement', 'Maps', 'Site specific', 'Meeting notes', 'Entomology', 'Training', 'Insurance'];
         const CATEGORY_FOLDER = { 'SDS': 'SDS', 'Service agreement': 'Service agreement', 'Site map': 'Maps', 'Insurance': 'Insurance' };
         const docFolderOf = d => d.folder || CATEGORY_FOLDER[d.category] || '';
         const isStandardFolder = f => STANDARD_FOLDERS.includes(f);
@@ -3423,6 +3404,15 @@
                 names = folderNames(data || [], adminData.docs.filter(d => String(d.client_id) === String(cid)));
             }
             if (document.getElementById('adminDocSite').value === cid) fillFolderSelect('adminDocFolder', names, pick);
+        }
+        // a document from the notifications (any site): opened straight away
+        async function openNotifDoc(id) {
+            const d = (notifDocs || []).concat((typeof adminData !== 'undefined' && adminData.docs) || []).find(x => String(x.id) === String(id));
+            if (!d || !d.file_path) { alert('This document could not be found. It may have been removed.'); return; }
+            const w = window.open('', '_blank');
+            const { data, error } = await _supabase.storage.from(DOC_BUCKET).createSignedUrl(d.file_path, 600);
+            if (error || !data) { if (w) w.close(); alert('Could not open the document: ' + ((error && error.message) || 'not found')); return; }
+            if (w) w.location.href = data.signedUrl; else location.href = data.signedUrl;
         }
         async function openSiteDoc(id) {
             const d = siteDocs.find(x => x.id === id);
@@ -3531,7 +3521,7 @@
             grab(_supabase.from('pest_sightings').select('id, client_id, sighting_no, pest, location, urgency, seen_at, reported_by').eq('status', 'new').order('seen_at', { ascending: false }).limit(200))
                 .then(r => { if (r) notifSightings = r; });
             const [docs, breaches, maps, access, limits] = await Promise.all([
-                grab(_supabase.from('site_documents').select('id, client_id, title, category, expires_on')),
+                grab(_supabase.from('site_documents').select('id, client_id, title, category, expires_on, file_path')),
                 grab(_supabase.from('site_events').select('id, client_id, title, detail, technician, at').eq('action', 'limit_breach').gte('at', monthStart).order('at', { ascending: false }).limit(100)),
                 grab(_supabase.from('site_maps').select('*')),
                 grab(_supabase.from('client_access').select('client_id')),
@@ -4524,7 +4514,7 @@
             const list = getServices(c).map(sv => ({ sv, d: dueInfo(sv) })).filter(x => x.d.days !== null).sort((a, b) => a.d.days - b.d.days);
             if (!list.length) { el.textContent = getServices(c).length ? 'Not scheduled' : 'No services'; el.style.color = ''; note.textContent = getServices(c).length ? 'No due dates set' : 'Add them under Services'; return; }
             const x = list[0];
-            el.textContent = x.d.days < 0 ? `Overdue ${-x.d.days}d` : x.d.days === 0 ? 'Due today' : x.d.days <= 7 ? `In ${x.d.days} day${x.d.days === 1 ? '' : 's'}` : fmtDay(x.sv.nextDue);
+            el.textContent = x.d.text;
             el.style.color = x.d.days < 0 ? '#dc2626' : x.d.days <= 7 ? '#d97706' : '';
             note.textContent = x.sv.type + (list.length > 1 ? ` · +${list.length - 1} more` : '');
         }
@@ -5174,11 +5164,23 @@
             const d = parseDay(s);
             return d ? d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
         }
-        function freqLabel(v) { return (FREQ_MAP[v] && FREQ_MAP[v].label) || 'Frequency not set'; }
+        function freqLabel(v) {
+            const ms = freqMonths(v);
+            if (ms) return ms.length ? ms.map(n => MONTH_SHORT[n - 1]).join(', ') + ' each year' : 'Certain months (none chosen)';
+            return (FREQ_MAP[v] && FREQ_MAP[v].label) || 'Frequency not set';
+        }
 
         function addFrequency(dayStr, freq) {
             const f = FREQ_MAP[freq];
             const d = parseDay(dayStr);
+            // certain months each year: the next chosen month after this one (the same day, or the month's last)
+            const ms = freqMonths(freq);
+            if (ms) {
+                if (!ms.length || !d) return '';
+                let y = d.getFullYear(), m = d.getMonth() + 1;
+                for (let i = 0; i < 12; i++) { m++; if (m > 12) { m = 1; y++; } if (ms.includes(m)) break; }
+                return toDayStr(new Date(y, m - 1, Math.min(d.getDate(), new Date(y, m, 0).getDate())));
+            }
             if (!f || !d || (!f.days && !f.months)) return '';
             if (f.days) {
                 d.setDate(d.getDate() + f.days);
@@ -5196,12 +5198,17 @@
             if (!s || !s.nextDue || !parseDay(String(s.nextDue).slice(0, 10))) {
                 return { cls: 'chip-blue', text: s.frequency === 'oneoff' ? 'On request' : 'No due date', days: null };
             }
-            const diff = Math.round((parseDay(String(s.nextDue).slice(0, 10)) - parseDay(todayStr())) / 86400000);
-            if (diff < 0) return { cls: 'chip-red', text: `Overdue ${-diff} day${diff === -1 ? '' : 's'}`, days: diff };
-            if (diff === 0) return { cls: 'chip-amber', text: 'Due today', days: 0 };
-            if (diff <= 7) return { cls: 'chip-amber', text: `Due in ${diff} day${diff === 1 ? '' : 's'}`, days: diff };
-            return { cls: 'chip-green', text: `Due ${fmtDay(s.nextDue)}`, days: diff };
+            // services are booked for a month, not a day: "Due this month" until the month is over, then overdue
+            const due = parseDay(String(s.nextDue).slice(0, 10)), now = parseDay(todayStr());
+            const diff = Math.round((due - now) / 86400000);
+            const mDiff = (due.getFullYear() * 12 + due.getMonth()) - (now.getFullYear() * 12 + now.getMonth());
+            if (mDiff < 0) return { cls: 'chip-red', text: `Overdue (due ${dueMonth(s.nextDue, true)})`, days: diff };
+            if (mDiff === 0) return { cls: 'chip-amber', text: 'Due this month', days: Math.max(0, diff) };
+            if (mDiff === 1) return { cls: 'chip-green', text: 'Due next month', days: diff };
+            return { cls: 'chip-green', text: `Due ${dueMonth(s.nextDue)}`, days: diff };
         }
+        // a due date as its month ("November 2026", or short "Nov 2026")
+        function dueMonth(day, short) { const d = parseDay(String(day || '').slice(0, 10)); return d ? d.toLocaleDateString(LOCALE, { month: short ? 'short' : 'long', year: 'numeric' }) : '—'; }
 
         function getServices(c) {
             if (!c) return [];
@@ -5514,7 +5521,7 @@
             el.innerHTML = newSiteServices.length ? newSiteServices.map(s => `
                 <div class="row-item p-3 flex flex-wrap justify-between items-center gap-2">
                     <span class="font-bold t-strong">${esc(s.type)}</span>
-                    <span class="t-muted">${esc(freqLabel(s.frequency))}${s.nextDue ? ' · next due ' + esc(fmtDay(s.nextDue)) : ''}</span>
+                    <span class="t-muted">${esc(freqLabel(s.frequency))}${s.nextDue ? ' · next due ' + esc(dueMonth(s.nextDue)) : ''}</span>
                 </div>`).join('')
                 : '';
         }
@@ -5655,9 +5662,12 @@
                 shownUpdates.length ? `<div class="space-y-2"><div class="eyebrow" style="color:#0891b2;">Client updates, last 30 days${n.fresh.length ? ` (${n.fresh.length} new)` : ''}</div>${shownUpdates.map(updRow).join('')}</div>` : '',
                 section('Critical limits exceeded this month', '#dc2626', n.breaches.map(b => row(siteById(b.client_id) || { id: b.client_id, Name: 'Site' }, `${b.title.replace(/^Critical limit exceeded: /, '')} · ${b.detail || ''} · ${fmtDateTimeLong(b.at).date}`, 'chip-red', 'Over limit'))),
                 section(`Visits open more than ${VISIT_STALE_HOURS} hours`, '#dc2626', n.longVisits.map(x => row(x.c, `Started ${fmtDateTimeLong(x.v.at).date} ${fmtDateTimeLong(x.v.at).time}${x.v.by ? ' by ' + teamName(x.v.by) : ''} - complete or cancel it`, 'chip-red', `Open ${visitAgeText(x.v)}`))),
-                section('Missed services', '#dc2626', n.missed.map(x => row(x.c, `${x.sv.type} · was due ${fmtDay(x.sv.nextDue)}`, 'chip-red', `${-x.days}d overdue`))),
-                section(notifDueMode === 'week' ? 'Due in the next 7 days' : 'Due today', '#ea580c', n.dueSoon.map(x => row(x.c, `${x.sv.type} · due ${fmtDay(x.sv.nextDue)}`, 'chip-amber', x.days === 0 ? 'Today' : `In ${x.days}d`))),
-                section('Site documents to renew', '#d97706', n.docsDue.map(d => { const c = siteById(d.client_id) || { id: d.client_id, Name: 'Site' }; const days = Math.round((Date.parse(d.expires_on + 'T00:00:00') - Date.parse(toDayStr(new Date()) + 'T00:00:00')) / 86400000); return row(c, `${d.title} (${d.category || 'Document'})`, days < 0 ? 'chip-red' : 'chip-amber', days < 0 ? 'Expired' : `${days}d left`); })),
+                section('Missed services', '#dc2626', n.missed.map(x => row(x.c, `${x.sv.type} · was due ${dueMonth(x.sv.nextDue)}`, 'chip-red', 'Overdue'))),
+                section(notifDueMode === 'week' ? 'Due in the next 7 days' : 'Due today', '#ea580c', n.dueSoon.map(x => row(x.c, `${x.sv.type} · due ${dueMonth(x.sv.nextDue)}`, 'chip-amber', dueInfo(x.sv).text))),
+                section('Site documents to renew', '#d97706', n.docsDue.map(d => { const c = siteById(d.client_id) || { id: d.client_id, Name: 'Site' }; const days = Math.round((Date.parse(d.expires_on + 'T00:00:00') - Date.parse(toDayStr(new Date()) + 'T00:00:00')) / 86400000); return `
+                <button type="button" data-id="${esc(d.id)}" onclick="openNotifDoc(this.dataset.id)" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-3" title="Open this document">
+                    <div class="min-w-0"><div class="font-bold t-strong truncate">📄 ${esc(d.title)}</div><div class="t-muted">${esc(c.Name || 'Site')} · ${esc(d.category || 'Document')} · ${days < 0 ? 'expired' : 'expires'} ${esc(fmtDay(d.expires_on))}</div></div>
+                    <span class="chip ${days < 0 ? 'chip-red' : 'chip-amber'} shrink-0">${days < 0 ? 'Expired' : `${days}d left`}</span></button>`; })),
                 section('Stations not placed on a floor plan', '#0891b2', n.unplaced.map(o => `
                     <button type="button" data-id="${esc(o.cid)}" onclick="closeNotifModal(); startSiteVisit(this.dataset.id).then(() => openMapModal())" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-3">
                         <div class="min-w-0"><div class="font-bold t-strong truncate">${esc(siteById(o.cid).Name || 'Unnamed site')}</div><div class="t-muted">${o.n} of ${o.total} station${o.total === 1 ? '' : 's'} not placed on a floor plan yet</div></div>
@@ -6167,9 +6177,10 @@
                         <div class="sm:col-span-4">
                             <label class="lbl">How often</label>
                             <select onchange="svcField(${i},'frequency',this.value)" class="field cursor-pointer">
-                                ${FREQUENCIES.map(f => `<option value="${f.v}" ${s.frequency === f.v ? 'selected' : ''}>${esc(f.label)}</option>`).join('')}
+                                ${FREQUENCIES.map(f => `<option value="${f.v}" ${freqSelectValue(s.frequency) === f.v ? 'selected' : ''}>${esc(f.label)}</option>`).join('')}
                             </select>
                         </div>
+                        ${freqMonths(s.frequency) ? `<div class="sm:col-span-12 sm:order-none">${monthPickerHtml(s.frequency, n => `svcMonth(${i}, ${n})`)}</div>` : ''}
                         <div class="sm:col-span-3 flex items-end">
                             <button type="button" onclick="removeServiceRow(${i})" class="btn btn-outline-danger w-full !py-2.5">Remove</button>
                         </div>
@@ -6192,8 +6203,9 @@
         function svcField(i, key, value) {
             const s = editingServices[i];
             if (!s) return;
+            if (key === 'frequency') { setServiceFrequency(s, value); renderServicesEditor(); return; }
             s[key] = value;
-            if ((key === 'lastDone' || key === 'frequency') && s.lastDone) {
+            if (key === 'lastDone' && s.lastDone) {
                 const nd = addFrequency(s.lastDone, s.frequency);
                 if (nd || s.frequency === 'oneoff') {
                     s.nextDue = nd;
@@ -6207,6 +6219,8 @@
                 document.querySelectorAll('#svcQuickAdd [data-type]').forEach(b => b.classList.toggle('hidden', used.has(b.dataset.type)));
             }
         }
+
+        function svcMonth(i, n) { const s = editingServices[i]; if (!s) return; toggleServiceMonth(s, n); renderServicesEditor(); }
 
         function addServiceRow(type) {
             editingServices.push({ id: uid(), type: type || '', frequency: 'monthly', lastDone: '', nextDue: '', notes: '' });
@@ -6272,7 +6286,7 @@
                 <div class="grid grid-cols-2 gap-2 text-xs">
                     ${fact('How often', esc(freqLabel(s.frequency)))}
                     ${fact('Last done', esc(fmtDay(s.lastDone)))}
-                    <div class="col-span-2">${fact('Next service due', esc(s.nextDue ? fmtDay(s.nextDue) : (s.frequency === 'oneoff' ? 'On request' : 'Not set')))}</div>
+                    <div class="col-span-2">${fact('Next service due', esc(s.nextDue ? dueMonth(s.nextDue) : (s.frequency === 'oneoff' ? 'On request' : 'Not set')))}</div>
                 </div>
                 <div class="mt-4"><div class="eyebrow t-faint mb-1">Notes</div>
                     <div class="text-sm t-strong whitespace-pre-line break-words inset p-3">${s.notes ? esc(s.notes) : '<span class="t-faint italic">No notes for this service.</span>'}</div></div>`,
@@ -7726,10 +7740,10 @@
         function monthBounds(t) { const d = new Date(t); return [new Date(d.getFullYear(), d.getMonth(), 1).getTime(), new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime()]; }
         const monthName = t => new Date(t).toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' });
         const pestN = (species, count) => species && species !== NONE_SPECIES ? (parseFloat(count) > 0 ? parseFloat(count) : 1) : 0;
-        // every pest record on this site: [{ barcode, at, species, n, thisVisit }]
+        // every pest record on this site's insect stations (critical limits are for insects, not rodents): [{ barcode, at, species, n, thisVisit }]
         function sitePestRecords() {
             const out = [];
-            siteDevices.forEach(d => (d.history || []).forEach(h => (h.pests || [{ species: h.species, count: h.count }]).forEach(x => { const n = pestN(x.species, x.count); if (n) out.push({ barcode: d.barcode_id, at: h.at, species: x.species, n, thisVisit: !!h.thisVisit }); })));
+            siteDevices.filter(d => isInsectType(d.deviceType) && !/rodent|\brat|mouse|mice/i.test(d.deviceType || '')).forEach(d => (d.history || []).forEach(h => (h.pests || [{ species: h.species, count: h.count }]).forEach(x => { const n = pestN(x.species, x.count); if (n) out.push({ barcode: d.barcode_id, at: h.at, species: x.species, n, thisVisit: !!h.thisVisit }); })));
             return out;
         }
         // one pest of one limit, for the month containing t (records up to upTo)
@@ -13579,7 +13593,10 @@
             entries.forEach(e => { if (!e.prep || e.prep === NONE_PREP) return; const k = e.prep + '|' + (e.unit || 'each'); const p = preps.get(k) || { name: e.prep, unit: e.unit || 'each', qty: 0, n: 0, batches: new Set() }; if (!isNaN(parseFloat(e.qty))) p.qty += parseFloat(e.qty); p.n++; if (e.batch) p.batches.add(e.batch); preps.set(k, p); });
             const recs = currentVisitEntries.filter(e => e.recommendation);
             const box = (title, inner) => `<div class="row-item p-3 space-y-1.5"><div class="eyebrow t-faint">${title}</div>${inner}</div>`;
+            // a critical limit this visit took over comes first, so the customer sees it before they sign
+            const breaches = visitLimitBreaches({ inProgress: true, entries: currentVisitEntries });
             return [
+                breaches.length ? limitAlertHtml(breaches, `Critical limit exceeded on this visit - ${breaches.length === 1 ? 'please note before signing' : breaches.length + ' limits, please note before signing'}`) : '',
                 box('Visit', `<div class="t-strong font-bold">${esc(f.visitType)} · ${esc(technicianLabel())} · ${esc(new Date().toLocaleDateString(LOCALE, NZ_DATE))}</div>${f.doneTypes.length ? `<div class="t-muted">Services done: ${esc(f.doneTypes.join(', '))}</div>` : ''}`),
                 box('Technician notes', `<div class="t-strong whitespace-pre-line break-words">${f.siteNotes ? esc(f.siteNotes) : '<span class="t-faint italic">No overall notes yet - add them on the Visit details tab.</span>'}</div>`),
                 box(`Preparations used (${preps.size})`, preps.size ? Array.from(preps.values()).map(p => `<div><b class="t-strong">${esc(p.name)}</b> <span class="t-muted">· ${esc(fmtQty(p.qty, p.unit) || '-')} across ${p.n} station${p.n === 1 ? '' : 's'}${p.batches.size ? ' · batch ' + esc(Array.from(p.batches).join(', ')) : ''}</span></div>`).join('') : '<span class="t-faint italic">None.</span>'),
@@ -14470,8 +14487,7 @@
         const TEAM_SETTINGS = {
             renewal_warn_days: { label: 'Warn about contracts ending within (days)', def: 30, min: 1, max: 365 },
             visit_stale_hours: { label: 'Warn when a visit has been open for (hours)', def: 24, min: 1, max: 720 },
-            doc_expiry_warn_days: { label: 'Warn about site documents expiring within (days)', def: 60, min: 1, max: 365 },
-            idle_logout_minutes: { label: 'Sign people out after this many minutes without using the app (0 = never)', def: 5, min: 0, max: 480 }
+            doc_expiry_warn_days: { label: 'Warn about site documents expiring within (days)', def: 60, min: 1, max: 365 }
         };
         let teamSettings = loadJSON('pestis-team-settings', {});
         // Everything a person can have set for them, as shown in Admin -> Users -> (person) -> Settings.
@@ -14811,6 +14827,25 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r86', date: '2026-10-30', v: { svc: '2026.10.30-r86', adm: '2026.10.30-a29', cli: '2026.10.30-p45' },
+            svc: ['No more automatic sign-out: the app stays signed in until you tap Sign out',
+                  'Closing a visit: if this visit took a critical limit over, a red box at the top of "Customer review & sign" shows it, so the customer sees it before signing',
+                  'Services: "How often" has a new choice, "Certain months each year" - tap the months (e.g. Feb, Mar and Nov) and the next due month is worked out for you',
+                  'Services show "Due this month", "Due next month" or the month they are due, not a day count. A service is only overdue once its month is over',
+                  'Notifications: tap a site document to renew and it opens that document',
+                  'Pests: Midge added to the list. Critical limits count insect stations only',
+                  'Documents: the Meetings folder is now called Meeting notes'],
+            adm: ['No more automatic sign-out (the setting is gone from Team settings)',
+                  'Services: "How often" has a new choice, "Certain months each year" - tap the months and the next due month is worked out',
+                  'Reports › Critical limits: Breached (Yes to start with) shows only the stations that breached, the latest breach first; choose From and To months to look at (this month to start with)',
+                  'Documents: the Meetings folder is now called Meeting notes. Midge added to the pest list'],
+            cli: ['No more automatic sign-out: the portal stays signed in until you sign out',
+                  'Reports › Critical limits: Breached (Yes to start with) shows only the stations that breached, the latest breach first; choose From and To months to look at more than this month',
+                  'Visits: a visit that went over a critical limit has a red "!" and says which limit, and the Visits tab shows a red "!" until you open it',
+                  'Notifications: tap a document that is expiring and it opens that document',
+                  'Services show "Due this month" or the month they are due, not an exact day',
+                  'Documents: the Meetings folder is now called Meeting notes',
+                  'A tidier gap at the top of each site page'] },
         { rev: 'r85', date: '2026-10-30', v: { svc: '2026.10.30-r85', adm: '2026.10.30-a28', cli: '2026.10.30-p44' },
             svc: ['Pest map (A4 PDF): the "Generated" date and name are gone, and the legend card at the bottom is more compact so the floor plan gets more of the page'],
             adm: ['Reports › Critical limits is now insect by insect: the alert names each insect that is over (or close) and the stations that caught it, and each station card has a section and graph per insect (worst first; insects under the limit fold away). The graph also shows the whole area\'s total and the limit line',

@@ -132,7 +132,7 @@ try {
   ok(sp.filter(x => x.label === 'Rat').length === 1 && sp.find(x => x.label === 'Rat').category === 'Rodents', 'Rat is a rodent');
   ok(sp.some(x => x.label === 'Gisborne cockroach' && x.subcategory === 'Cockroaches'), 'Gisborne cockroach added');
   ok(['Argentine ant', "Darwin's ant", 'White-footed house ant', 'Black house ant', 'Coastal brown ant'].every(l => sp.some(x => x.label === l && x.subcategory === 'Ants')), 'the five common ants', sp.filter(x => x.subcategory === 'Ants').map(x => x.label));
-  ok(sp.filter(x => x.subcategory === 'Flies').length === 10, 'ten flies', sp.filter(x => x.subcategory === 'Flies').map(x => x.label));
+  ok(sp.filter(x => x.subcategory === 'Flies').length === 11 && sp.some(x => x.label === 'Midge'), 'ten flies and the midge', sp.filter(x => x.subcategory === 'Flies').map(x => x.label));
   ok(spIn('Moths').length === 10, 'Moths category with ten moths', spIn('Moths'));
   ok(spIn('Stored product pests').length === 15, 'fifteen stored product pests', spIn('Stored product pests'));
   ok(new Set(sp.map(x => x.label.toLowerCase())).size === sp.length, 'no pest twice');
@@ -148,12 +148,10 @@ try {
   // unknown column on save is added
   r = await tech.from('clients').update({ safety_notes: 'Hard hats' }).eq('id', 1).select('safety_notes');
   ok(!r.error && r.data[0].safety_notes === 'Hard hats', 'new column added automatically', r);
-  // settings + idle minutes
-  r = await tech.rpc('pestis_idle_minutes');
-  ok(r.data === 5, 'idle minutes default 5', r);
+  // no automatic sign-out: an older copy of the Portal that asks is told 0 (never), whatever was set before
   await boss.from('app_settings').upsert([{ key: 'idle_logout_minutes', value: 15 }], { onConflict: 'key' });
   r = await tech.rpc('pestis_idle_minutes');
-  ok(r.data === 15, 'idle minutes from settings', r);
+  ok(r.data === 0, 'no automatic sign-out (idle minutes 0)', r);
   // staff day log
   r = await tech.from('staff_days').insert([{ id: 'd1', started_at: new Date().toISOString(), technician: 'tech' }]);
   ok(!r.error, 'start day', r.error);
@@ -265,11 +263,11 @@ try {
   ok(!r.error, 'admin uploads a document', r.error);
   r = await tech.storage.from('site-documents').createSignedUrl('1/sds.pdf', 60);
   ok(r.data && r.data.signedUrl, 'technician opens a document', r);
-  // a client adds their own files to the Meetings folder (only there, only their site; they remove only their own)
+  // a client adds their own files to the Meeting notes folder (only there, only their site; they remove only their own)
   r = await cl.storage.from('site-documents').upload('1/CLIENT_MEETING_a.pdf', new Blob(['minutes']), { contentType: 'application/pdf' });
   ok(!r.error, 'client uploads a meeting file', r.error);
-  r = await cl.from('site_documents').insert([{ client_id: '1', title: 'Minutes', file_path: '1/CLIENT_MEETING_a.pdf', folder: 'Meetings', uploaded_by: 'Someone else' }]).select('*');
-  ok(!r.error && r.data[0].uploaded_by === 'Cara · Acme (client)' && r.data[0].uploaded_by_id === cl.uid, 'client adds it to Meetings, under their own name', r);
+  r = await cl.from('site_documents').insert([{ client_id: '1', title: 'Minutes', file_path: '1/CLIENT_MEETING_a.pdf', folder: 'Meeting notes', uploaded_by: 'Someone else' }]).select('*');
+  ok(!r.error && r.data[0].uploaded_by === 'Cara · Acme (client)' && r.data[0].uploaded_by_id === cl.uid, 'client adds it to Meeting notes, under their own name', r);
   const meetingId = r.data && r.data[0] && r.data[0].id;
   r = await cl.from('site_documents').insert([{ client_id: '1', title: 'Sneaky', file_path: '1/CLIENT_MEETING_a.pdf', folder: 'SDS' }]);
   ok(r.error && r.error.code === '42501', 'not into another folder', r.error);

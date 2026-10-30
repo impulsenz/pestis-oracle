@@ -49,7 +49,7 @@ The owner is not a programmer. Talk in plain words about what changed for the pe
 - A client login sees **only the sites ticked for it** (`client_access`), and only while the login is active.
 - Only approved staff change site data. Only admins change lists, documents, critical limits, users and client logins.
 - The three apps stay separate (separate pages and sign-in screens), but share one sign-in: the session is stored under `'sb-' + <first part of the host> + '-auth-token'`.
-- The apps sign people out after the idle time in Admin → Team settings (default 5 minutes).
+- The apps never sign people out on their own (the owner removed the idle sign-out in r86); people sign out with Sign out.
 - The Service App must keep working offline: records queue on the device and upload later. Never cache `/api/`, `/rest/` or `/auth/` in `sw.js`.
 
 ## Tests

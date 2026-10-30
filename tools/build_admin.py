@@ -3,7 +3,7 @@ import re, json, sys, tempfile
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
 SP = ROOT + 'src/'
-ADMIN_VERSION = '2026.10.30-a28-oci'   # bump the a-number when Admin changes
+ADMIN_VERSION = '2026.10.30-a29-oci'   # bump the a-number when Admin changes
 idx = open(ROOT + 'index.html').read()
 src = open(SP + 'admin_src.html').read()          # the add-on version of admin.html (template + addonScript)
 
@@ -38,7 +38,7 @@ unitText,userSettingFields,userSettingRead,userSettingWrite,visitAgeText,visitIn
 fillAdminDocFolders,sitePickUsers,contractInfo,openInfoModal,closeInfoModal,openPestGuide,renderPestGuideList,coverUrl,txt,hashString,CARD_GRADIENTS,adminData,clientUpdates,
 pestSubOf,pestSubs,PEST_SUB_ORDER,isGeneralPest,pestGallery,findPestGallery,commonsSearch,drawPestGallery,pgStep,pgOpenFull,pestGalleryHtml,pgState,LIST_TABLES,LIST_EXTRA_COLS,
 toDbClientFields,mergeClients,normalizeClientRow,learnClientColumns,saveSiteDocument,FREQUENCIES,FREQ_MAP,pestGuideOf,wikiPestInfo,PEST_LIBRARY,PEST_CATEGORY_TEXT,
-SCAN_SOUNDS,SCAN_VIBES,PHOTO_PRESETS,RENEWAL_WARN_DAYS,VISIT_STALE_HOURS,teamSettings,teamMembers,addFrequency,STANDARD_FOLDERS,copyPortalLink,newDocFolder,safely,adminProfiles,adminAllowed'''.replace('\n', '').split(',')
+SCAN_SOUNDS,SCAN_VIBES,PHOTO_PRESETS,RENEWAL_WARN_DAYS,VISIT_STALE_HOURS,teamSettings,teamMembers,addFrequency,MONTH_SHORT,freqMonths,freqSelectValue,firstChosenDue,setServiceFrequency,toggleServiceMonth,monthPickerHtml,dueMonth,STANDARD_FOLDERS,copyPortalLink,newDocFolder,safely,adminProfiles,adminAllowed'''.replace('\n', '').split(',')
 SKIP = set('''_supabase,enqueue,queueItems,currentUser,currentProfile,isOnline,appOptions,clientsData,selectedClient,addon,isAdmin,isAdminUser,queueSiteChange,startSiteVisit,
 openRecModal,openServicesModal,loadOptions,populateOptionSelects,cacheSet,updateSyncBadge,removeQueueItem,applyTeamSettings,buildNotifications,logAppError,acctApply,
 acctCacheKey,renderSiteCards,renderNotifications,loadSiteDocs,closeAdmin,showSiteDashboard,mwOpenSite,sessionSet,sessionGet,flushQueue,siteDocs,siteDocFolders,
@@ -347,13 +347,16 @@ SYSTEM = r'''
         function svcAdd() { svcEdit.list.push({ id: uid(), type: '', frequency: 'monthly', lastDone: '', nextDue: '', notes: '' }); renderAdminServiceRows(); }
         function svcSet(i, k, v) {
             const s = svcEdit.list[i]; if (!s) return;
+            if (k === 'frequency') { setServiceFrequency(s, v); renderAdminServiceRows(); return; }
             s[k] = v;
-            if (k === 'lastDone' && v && s.frequency && FREQ_MAP[s.frequency]) { s.nextDue = addFrequency(v, s.frequency) || s.nextDue; renderAdminServiceRows(); }
+            if (k === 'lastDone' && v && s.frequency && (FREQ_MAP[s.frequency] || freqMonths(s.frequency))) { s.nextDue = addFrequency(v, s.frequency) || s.nextDue; renderAdminServiceRows(); }
         }
+        function svcMonth(i, n) { const s = svcEdit.list[i]; if (!s) return; toggleServiceMonth(s, n); renderAdminServiceRows(); }
         function renderAdminServiceRows() {
             document.getElementById('svcList').innerHTML = svcEdit.list.map((s, i) => `<div class="row-item p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div class="sm:col-span-2 flex gap-2"><input class="field !py-2" placeholder="Service, e.g. Routine Service" value="${esc(s.type || '')}" oninput="svcSet(${i}, 'type', this.value)"><button type="button" class="btn btn-secondary !px-3" onclick="svcEdit.list.splice(${i}, 1); renderAdminServiceRows()" title="Remove" aria-label="Remove">✕</button></div>
-                <label class="space-y-1"><span class="lbl !mb-0">How often</span><select class="field !py-2" onchange="svcSet(${i}, 'frequency', this.value)">${FREQUENCIES.map(f => `<option value="${f.v}" ${s.frequency === f.v ? 'selected' : ''}>${esc(f.l || f.label || f.v)}</option>`).join('')}</select></label>
+                <label class="space-y-1"><span class="lbl !mb-0">How often</span><select class="field !py-2" onchange="svcSet(${i}, 'frequency', this.value)">${FREQUENCIES.map(f => `<option value="${f.v}" ${freqSelectValue(s.frequency) === f.v ? 'selected' : ''}>${esc(f.l || f.label || f.v)}</option>`).join('')}</select></label>
+                ${freqMonths(s.frequency) ? `<div class="sm:col-span-2">${monthPickerHtml(s.frequency, n => `svcMonth(${i}, ${n})`)}</div>` : ''}
                 <label class="space-y-1"><span class="lbl !mb-0">Last done</span><input type="date" class="field !py-2" value="${esc(s.lastDone || '')}" onchange="svcSet(${i}, 'lastDone', this.value)"></label>
                 <label class="space-y-1"><span class="lbl !mb-0">Next due</span><input type="date" class="field !py-2" value="${esc(s.nextDue || '')}" onchange="svcSet(${i}, 'nextDue', this.value)"></label>
                 <label class="space-y-1 sm:col-span-2"><span class="lbl !mb-0">Notes for the technician</span><textarea class="field !py-2" rows="2" oninput="svcSet(${i}, 'notes', this.value)">${esc(s.notes || '')}</textarea></label></div>`).join('') || '<div class="row-item p-3 t-faint italic">No services yet.</div>';
@@ -425,7 +428,7 @@ SYSTEM = r'''
         async function bootAdmin() {
             let session = null;
             try { session = (await withTimeout(_supabase.auth.getSession(), 10000, 'Session check')).data.session; } catch (e) {}
-            if (!session) { showLoginPanel(sessionGet('pestis-admin-idle') ? 'You were signed out because the Admin site was not used for a while.' : ''); sessionSet('pestis-admin-idle', null); return; }
+            if (!session) { showLoginPanel(''); return; }
             try { await startAdmin(session); } catch (e) { showLoginPanel('Could not start: ' + (e.message || e)); }
         }
         _supabase.auth.onAuthStateChange((event, session) => {
@@ -433,22 +436,6 @@ SYSTEM = r'''
             if (event === 'SIGNED_OUT' && appStarted) { appStarted = false; location.href = location.origin + location.pathname; }   // signed out in another Pestis app
         });
 
-        // ---------- sign out after a while without use ----------
-        let idleLast = Date.now(), idleWarnEl = null;
-        function idleActivity() { idleLast = Date.now(); if (appStarted) pestisMarkActive(); if (idleWarnEl) { idleWarnEl.remove(); idleWarnEl = null; } }
-        ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach(ev => document.addEventListener(ev, idleActivity, { passive: true, capture: true }));
-        setInterval(() => {
-            if (!appStarted) { idleLast = Date.now(); return; }
-            const mins = teamSetting('idle_logout_minutes');
-            if (!mins) return;
-            idleLast = Math.max(idleLast, pestisLastActive());   // used in another Pestis app
-            const left = idleLast + mins * 60000 - Date.now();
-            if (left <= 0) { appStarted = false; sessionSet('pestis-admin-idle', '1'); signOut(); return; }
-            if (left <= 60000) {
-                if (!idleWarnEl) { idleWarnEl = document.createElement('div'); idleWarnEl.id = 'idleWarning'; idleWarnEl.className = 'idle-warn'; document.body.appendChild(idleWarnEl); }
-                idleWarnEl.innerHTML = `<div class="card p-5 max-w-sm w-full text-center space-y-3"><div class="text-3xl">⏳</div><div class="font-black t-strong text-lg">Still there?</div><p class="text-sm t-muted">You'll be signed out in <b class="t-strong">${Math.ceil(left / 1000)} seconds</b>.</p><button type="button" class="btn btn-primary w-full justify-center" onclick="idleActivity()">Keep me signed in</button></div>`;
-            }
-        }, 1000);
 '''
 
 # ---------------- the admin code: adjust for a site of its own ----------------
