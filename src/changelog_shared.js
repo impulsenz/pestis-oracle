@@ -3,6 +3,9 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r84', date: '2026-10-30', v: { adm: '2026.10.30-a27', cli: '2026.10.30-p43' },
+            adm: ['Reports › Critical limits: the area under each station\'s line is filled in green, amber or red to match'],
+            cli: ['Reports › Critical limits: the area under each station\'s line is filled in green, amber or red to match'] },
         { rev: 'r83', date: '2026-10-30', v: { svc: '2026.10.30-r83', adm: '2026.10.30-a26', cli: '2026.10.30-p42' },
             svc: ['Notifications: critical limits are no longer listed here - the client is notified instead (you still get the warning when you record a count that goes over)'],
             adm: ['Reports › Critical limits is now station by station: an alert for any station over (or within 10% of) its limit, and a graph of each station\'s captures in green (under), amber (within 10%) or red (over)'],

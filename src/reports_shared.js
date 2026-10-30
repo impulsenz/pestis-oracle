@@ -417,6 +417,7 @@ const PR = (() => {
                 return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(r.st.name)}: captures each month">
                     ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="pr-grid"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" class="pr-ax">${t}</text>`).join('')}
                     ${ks.map((mk, i) => i % every === 0 || i === n - 1 ? `<text x="${x(i)}" y="${H - 12}" text-anchor="${i === n - 1 ? 'end' : i === 0 ? 'start' : 'middle'}" class="pr-ax">${e(monthLbl(mk))}</text>` : '').join('')}
+                    ${r.hist.slice(1).map((h, i) => `<polygon points="${x(i)},${y(r.hist[i].n)} ${x(i + 1)},${y(h.n)} ${x(i + 1)},${y(0)} ${x(i)},${y(0)}" fill="${COL[h.status]}" fill-opacity=".2" stroke="none"/>`).join('')}
                     ${r.hist.slice(1).map((h, i) => `<line x1="${x(i)}" y1="${y(r.hist[i].n)}" x2="${x(i + 1)}" y2="${y(h.n)}" stroke="${COL[h.status]}" stroke-width="3" stroke-linecap="round"/>`).join('')}
                     ${r.hist.map((h, i) => `<circle cx="${x(i)}" cy="${y(h.n)}" r="${h.status === 'green' ? 3.5 : 5.5}" fill="${COL[h.status]}"><title>${e(monthLong(ks[i]))}: ${h.n} caught · ${WORD[h.status]}${h.over.concat(h.near).map(o => ` · ${o.rule.species}: area ${o.zone} of ${o.rule.max}`).join('')}</title></circle>`).join('')}
                 </svg>`;

@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.30-a26-oci
+    Version 2026.10.30-a27-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -3513,6 +3513,9 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r84', date: '2026-10-30', v: { adm: '2026.10.30-a27', cli: '2026.10.30-p43' },
+            adm: ['Reports › Critical limits: the area under each station\'s line is filled in green, amber or red to match'],
+            cli: ['Reports › Critical limits: the area under each station\'s line is filled in green, amber or red to match'] },
         { rev: 'r83', date: '2026-10-30', v: { svc: '2026.10.30-r83', adm: '2026.10.30-a26', cli: '2026.10.30-p42' },
             svc: ['Notifications: critical limits are no longer listed here - the client is notified instead (you still get the warning when you record a count that goes over)'],
             adm: ['Reports › Critical limits is now station by station: an alert for any station over (or within 10% of) its limit, and a graph of each station\'s captures in green (under), amber (within 10%) or red (over)'],
@@ -4146,6 +4149,7 @@ const PR = (() => {
                 return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(r.st.name)}: captures each month">
                     ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="pr-grid"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" class="pr-ax">${t}</text>`).join('')}
                     ${ks.map((mk, i) => i % every === 0 || i === n - 1 ? `<text x="${x(i)}" y="${H - 12}" text-anchor="${i === n - 1 ? 'end' : i === 0 ? 'start' : 'middle'}" class="pr-ax">${e(monthLbl(mk))}</text>` : '').join('')}
+                    ${r.hist.slice(1).map((h, i) => `<polygon points="${x(i)},${y(r.hist[i].n)} ${x(i + 1)},${y(h.n)} ${x(i + 1)},${y(0)} ${x(i)},${y(0)}" fill="${COL[h.status]}" fill-opacity=".2" stroke="none"/>`).join('')}
                     ${r.hist.slice(1).map((h, i) => `<line x1="${x(i)}" y1="${y(r.hist[i].n)}" x2="${x(i + 1)}" y2="${y(h.n)}" stroke="${COL[h.status]}" stroke-width="3" stroke-linecap="round"/>`).join('')}
                     ${r.hist.map((h, i) => `<circle cx="${x(i)}" cy="${y(h.n)}" r="${h.status === 'green' ? 3.5 : 5.5}" fill="${COL[h.status]}"><title>${e(monthLong(ks[i]))}: ${h.n} caught · ${WORD[h.status]}${h.over.concat(h.near).map(o => ` · ${o.rule.species}: area ${o.zone} of ${o.rule.max}`).join('')}</title></circle>`).join('')}
                 </svg>`;
@@ -4298,7 +4302,7 @@ const PR = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a26-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a27-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');
