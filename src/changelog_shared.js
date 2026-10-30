@@ -3,6 +3,11 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r100', date: '2026-10-31', v: { svc: '2026.10.31-r100', cli: '2026.10.31-p55' },
+            svc: ['Site page: the photo cards share each box evenly - three across in a usual box on a computer (two in a narrow one, more in a wide one), with no empty space at the side',
+                  'Pest map (A4 PDF): a sleeker look - a taller header with bigger writing, the plan on a soft rounded panel, a white legend card with the counts in little pills, and no "Overdue for service" line in the legend'],
+            cli: ['Floor plans: the plan is shown just like the Pest map PDF - the header, the plan and the legend card - as big as the space allows, and you can still tap a station, zoom, drag and use the heat map',
+                  'Pest map: a sleeker look - a taller header with bigger writing, the plan on a soft rounded panel, a white legend card with the counts in little pills, and no "Overdue for service" line in the legend'] },
         { rev: 'r99', date: '2026-10-31', v: { svc: '2026.10.31-r99', adm: '2026.10.31-a41', cli: '2026.10.31-p54' },
             svc: ['Floor plans: station names are in the same colour as their pin, with no black box behind them (the screen and the pest map PDF)',
                   'Floor plans: the heat map controls are tidier - time frame and pests on the left, the colour key and what it found on the right'],

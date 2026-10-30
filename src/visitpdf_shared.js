@@ -75,8 +75,9 @@ const PVR = (() => {
             return { img: c, iw: c.width, ih: c.height, pins: pins.map(p => Object.assign({}, p, { x: (p.x * iw - sx) / sw, y: (p.y * ih - sy) / sh })) };
         } catch (e) { return { img, iw, ih, pins }; }   // a picture that can't be read: as it is
     }
-    async function pestMap(d) {
-        const { jsPDF } = window.jspdf;
+    // The page itself (a canvas): d as for pestMap; with noPins the pins and names are left off (the Client Portal puts tappable
+    // pins on top instead). Returns { canvas, W, H, box: { x, y, w, h } (where the plan is on the page), pins (placed in that box) }.
+    async function pestMapPage(d, noPins) {
         const tr = trimmed(d.image, d.pins), iw = tr.iw, ih = tr.ih, pins = tr.pins;
         const land = iw >= ih;
         const W = land ? 3508 : 2480, H = land ? 2480 : 3508;   // A4 at 300 dpi
@@ -87,37 +88,41 @@ const PVR = (() => {
         const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
         const fit = (t, max) => { t = String(t); if (g.measureText(t).width <= max) return t; while (t.length > 1 && g.measureText(t + '…').width > max) t = t.slice(0, -1); return t + '…'; };
         g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
-        // the legend: every station type (how many are on this plan, or a dash), and overdue
+        // the legend: every station type, and how many are on this plan
         const count = new Map(); pins.forEach(x => count.set(x.type, (count.get(x.type) || 0) + 1));
         const all = (d.types || []).slice();
         pins.forEach(x => { if (!all.some(t => t.type === x.type)) all.push({ type: x.type, color: x.color }); });
-        const overdue = pins.filter(x => x.overdue).length;
-        const legItems = all.map(t => ({ t: t.type, n: count.get(t.type) || 0, color: t.color })).concat([{ t: 'Overdue for service', n: overdue, ring: true }]);
+        const legItems = all.map(t => ({ t: t.type, n: count.get(t.type) || 0, color: t.color }));
         const details = [['Client', d.siteName || '-'], ['Site address', d.address || '-'], ['Floor plan', d.planName || '-'], ['Stations on this plan', String(pins.length)],
             ['Map made by', d.madeBy || 'Pesties'], ['Last updated', day(d.updated || d.created) || '-']];
         // a compact card: tight rows, more columns, so the plan gets the space
         const legCols = 3, rowH = 46, legRows = Math.ceil(legItems.length / legCols);
         const dCols = land ? 3 : 2, dRowH = 64, dRows = Math.ceil(details.length / dCols);
-        const legH = 84 + Math.max(legRows * rowH, dRows * dRowH) + 14;
+        const legH = 96 + Math.max(legRows * rowH, dRows * dRowH) + 18;
         // header: navy, an orange line under it, the Pesties logo on the right
-        const headH = 200;
-        const grd = g.createLinearGradient(0, 0, W, headH); grd.addColorStop(0, '#0b1530'); grd.addColorStop(1, '#16244a');
+        const headH = 240, HM = M + 20;
+        const grd = g.createLinearGradient(0, 0, W, headH); grd.addColorStop(0, '#08112a'); grd.addColorStop(.6, '#0f1d42'); grd.addColorStop(1, '#1a2c5c');
         g.fillStyle = grd; g.fillRect(0, 0, W, headH);
-        g.fillStyle = '#f97316'; g.fillRect(0, headH - 12, W, 12);
+        const glow = g.createRadialGradient(W * .78, -headH * .4, 0, W * .78, -headH * .4, W * .45); glow.addColorStop(0, 'rgba(249,115,22,.22)'); glow.addColorStop(1, 'rgba(249,115,22,0)');
+        g.fillStyle = glow; g.fillRect(0, 0, W, headH);
+        const bar = g.createLinearGradient(0, 0, W, 0); bar.addColorStop(0, '#f97316'); bar.addColorStop(1, '#fb923c');
+        g.fillStyle = bar; g.fillRect(0, headH - 8, W, 8);
         const lg = await logo();
         let logoW = 0;
-        if (lg) { const lh = 140, lw = lh * lg.k; logoW = lw + 50; g.drawImage(lg.img, W - M - lw, (headH - 12 - lh) / 2, lw, lh); }
+        if (lg) { const lh = 168, lw = lh * lg.k; logoW = lw + 60; g.drawImage(lg.img, W - HM - lw, (headH - 8 - lh) / 2, lw, lh); }
         g.textBaseline = 'alphabetic';
-        g.fillStyle = '#f97316'; g.font = font(800, 30); g.fillText('PEST MAP', M, 58);
-        g.fillStyle = '#ffffff'; g.font = font(900, 64); g.fillText(fit(d.siteName || 'Site', W - M * 2 - logoW), M, 128);
-        g.fillStyle = '#9db0d1'; g.font = font(600, 32); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - M * 2 - logoW), M, 172);
+        g.fillStyle = '#fb923c'; g.font = font(800, 36); if ('letterSpacing' in g) g.letterSpacing = '6px'; g.fillText('PEST MAP', HM, 72); if ('letterSpacing' in g) g.letterSpacing = '0px';
+        g.fillStyle = '#ffffff'; g.font = font(900, 77); g.fillText(fit(d.siteName || 'Site', W - HM * 2 - logoW), HM, 156);
+        g.fillStyle = '#a9bbdc'; g.font = font(600, 38); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - HM * 2 - logoW), HM, 210);
         // the plan: as big as the space between the header and the legend allows (keeping its shape), centred
-        const top = headH + gap, bottom = H - M - legH - gap, boxW = W - M * 2, boxH = bottom - top;
-        const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = M + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
+        const top = headH + gap + 18, bottom = H - M - legH - gap - 18, boxW = W - M * 2 - 36, boxH = bottom - top;
+        const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = M + 18 + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
+        g.save(); g.shadowColor = 'rgba(15,23,42,.10)'; g.shadowBlur = 36; g.shadowOffsetY = 10; g.fillStyle = '#ffffff'; rr(mx - 18, my - 18, mw + 36, mh + 36, 26); g.fill(); g.restore();
+        g.strokeStyle = '#e8edf4'; g.lineWidth = 3; rr(mx - 18, my - 18, mw + 36, mh + 36, 26); g.stroke();
         g.drawImage(tr.img, mx, my, mw, mh);
         const r = Math.max(15, Math.min(36, Math.min(mw, mh) / 50));
-        pins.forEach(x => pin(g, mx + x.x * mw, my + x.y * mh, r, x.color, x.overdue));
-        if (d.labels) {
+        if (!noPins) pins.forEach(x => pin(g, mx + x.x * mw, my + x.y * mh, r, x.color, x.overdue));
+        if (d.labels && !noPins) {
             g.font = font(700, Math.round(r * 1.15)); g.textBaseline = 'middle';
             pins.forEach(x => {
                 const px = mx + x.x * mw + r * 1.3, py = my + x.y * mh - r * Math.SQRT2, tw = g.measureText(x.name).width;
@@ -128,25 +133,34 @@ const PVR = (() => {
             g.textBaseline = 'alphabetic';
         }
         // the legend and map details card along the bottom
-        const ly = H - M - legH, splitX = M + boxW * (land ? .64 : .6);
-        g.fillStyle = '#f8fafc'; rr(M, ly, boxW, legH, 20); g.fill(); g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; rr(M, ly, boxW, legH, 20); g.stroke();
-        g.fillStyle = '#f97316'; g.font = font(800, 26); g.fillText('LEGEND', M + 36, ly + 50); g.fillText('MAP DETAILS', splitX + 36, ly + 50);
-        g.fillStyle = '#64748b'; g.font = font(700, 22); g.textAlign = 'right'; g.fillText('Floor plan not to scale', splitX - 32, ly + 50); g.textAlign = 'left';
-        g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; g.beginPath(); g.moveTo(splitX, ly + 24); g.lineTo(splitX, ly + legH - 24); g.stroke();
-        const lcW = (splitX - M - 56) / legCols;
+        const LW = W - M * 2, ly = H - M - legH, splitX = M + LW * (land ? .64 : .6);
+        g.save(); g.shadowColor = 'rgba(15,23,42,.10)'; g.shadowBlur = 30; g.shadowOffsetY = 8; g.fillStyle = '#ffffff'; rr(M, ly, LW, legH, 28); g.fill(); g.restore();
+        g.strokeStyle = '#e8edf4'; g.lineWidth = 3; rr(M, ly, LW, legH, 28); g.stroke();
+        g.fillStyle = '#f97316'; rr(M, ly + 30, 8, 36, 4); g.fill();
+        const head = (t, x) => { g.fillStyle = '#0f1d42'; g.font = font(800, 25); if ('letterSpacing' in g) g.letterSpacing = '4px'; g.fillText(t, x, ly + 58); if ('letterSpacing' in g) g.letterSpacing = '0px'; };
+        head('LEGEND', M + 40); head('MAP DETAILS', splitX + 40);
+        g.fillStyle = '#94a3b8'; g.font = font(600, 21); g.textAlign = 'right'; g.fillText('Floor plan not to scale', splitX - 36, ly + 58); g.textAlign = 'left';
+        g.strokeStyle = '#eef2f7'; g.lineWidth = 3; g.beginPath(); g.moveTo(splitX, ly + 30); g.lineTo(splitX, ly + legH - 30); g.stroke();
+        const lcW = (splitX - M - 64) / legCols;
         legItems.forEach((it, i) => {
-            const x = M + 36 + (i % legCols) * lcW, y = ly + 100 + Math.floor(i / legCols) * rowH;
-            if (it.ring) { g.beginPath(); g.arc(x + 14, y - 9, 13, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 5; g.stroke(); }
-            else pin(g, x + 14, y + 6, 12, it.color, false);
-            g.fillStyle = it.n ? '#0b1530' : '#94a3b8'; g.font = font(700, 22); g.fillText(fit(it.t, lcW - 90), x + 40, y);
-            g.fillStyle = '#64748b'; g.font = font(800, 22); g.textAlign = 'right'; g.fillText(it.n ? String(it.n) : '-', x + lcW - 20, y); g.textAlign = 'left';
+            const x = M + 40 + (i % legCols) * lcW, y = ly + 112 + Math.floor(i / legCols) * rowH;
+            pin(g, x + 14, y + 6, 12, it.color, false);
+            g.fillStyle = it.n ? '#0b1530' : '#94a3b8'; g.font = font(700, 22); g.fillText(fit(it.t, lcW - 110), x + 40, y);
+            const nt = it.n ? String(it.n) : '-'; g.font = font(800, 20); const pw = Math.max(40, g.measureText(nt).width + 24);
+            g.fillStyle = it.n ? '#fff1e6' : '#f1f5f9'; rr(x + lcW - 24 - pw, y - 24, pw, 32, 16); g.fill();
+            g.fillStyle = it.n ? '#c2410c' : '#94a3b8'; g.textAlign = 'center'; g.fillText(nt, x + lcW - 24 - pw / 2, y - 1); g.textAlign = 'left';
         });
-        const dW = (M + boxW - splitX - 64) / dCols;
+        const dW = (M + LW - splitX - 72) / dCols;
         details.forEach(([key, val], i) => {
-            const x = splitX + 36 + (i % dCols) * dW, y = ly + 92 + Math.floor(i / dCols) * dRowH;
-            g.fillStyle = '#64748b'; g.font = font(800, 18); g.fillText(key.toUpperCase(), x, y);
-            g.fillStyle = '#0b1530'; g.font = font(700, 25); g.fillText(fit(val, dW - 16), x, y + 30);
+            const x = splitX + 40 + (i % dCols) * dW, y = ly + 104 + Math.floor(i / dCols) * dRowH;
+            g.fillStyle = '#94a3b8'; g.font = font(800, 17); if ('letterSpacing' in g) g.letterSpacing = '2px'; g.fillText(key.toUpperCase(), x, y); if ('letterSpacing' in g) g.letterSpacing = '0px';
+            g.fillStyle = '#0b1530'; g.font = font(700, 25); g.fillText(fit(val, dW - 16), x, y + 31);
         });
+        return { canvas: c, W, H, land, box: { x: mx, y: my, w: mw, h: mh }, pins };
+    }
+    async function pestMap(d) {
+        const { jsPDF } = window.jspdf;
+        const { canvas: c, land } = await pestMapPage(d);
         // one A4 page, edge to edge
         const doc = new jsPDF({ orientation: land ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
         doc.addImage(c.toDataURL('image/jpeg', .92), 'JPEG', 0, 0, doc.internal.pageSize.getWidth(), doc.internal.pageSize.getHeight());
@@ -339,7 +353,7 @@ const PVR = (() => {
 @media (max-width:640px){.heat-panel{gap:.5rem .6rem}.heat-key{flex:1 1 100%;min-width:0}.heat-sum{text-align:left}.heat-dd{min-width:9rem}}
 .pz-view{position:relative;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;background:var(--surface2,#f1f5f9);border-radius:.7rem;cursor:grab;height:min(70vh,560px);min-height:240px}
 .pz-view.pz-drag{cursor:grabbing}.pz-stage{position:absolute;left:0;top:0;transform-origin:0 0}
-.pz-stage>img{display:block;max-width:none;width:100%;height:100%;pointer-events:none;-webkit-user-drag:none}
+.pz-stage>canvas.pz-page{display:block;width:100%;height:100%;pointer-events:none}.pz-box{position:absolute}.pz-stage>img{display:block;max-width:none;width:100%;height:100%;pointer-events:none;-webkit-user-drag:none}
 .pz-ctl{position:absolute;right:.5rem;top:.5rem;z-index:20;display:flex;flex-direction:column;gap:.3rem}
 .pz-ctl button{width:2.25rem;height:2.25rem;border-radius:.6rem;border:1px solid var(--border,#cbd5e1);background:var(--surface,#fff);color:var(--text,#0f172a);font-weight:900;font-size:1rem;line-height:1;cursor:pointer;box-shadow:0 4px 12px -4px rgba(0,0,0,.35)}
 .pz-ctl button.pz-fit{font-size:9px}
@@ -459,7 +473,7 @@ body.pz-lock{overflow:hidden}`;
         return view._pz;
     }
 
-    return { build, logo, pestMap, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom };
+    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------

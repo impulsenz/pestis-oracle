@@ -68,6 +68,11 @@ try {
   const liveState = await sp.evaluate('typeof liveState !== "undefined" ? liveState : null');
   ok(liveState === 'live', 'live updates connected', liveState);
   ok(await sp.evaluate("siteDevices.some(d => d.barcode === 'TOX-1' || d.barcodeId === 'TOX-1' || d.id === 'TOX-1')") || (await sp.textContent('body')).includes('Store Room'), 'site data downloaded');
+  // overview boxes on a computer: the photo cards share the box width (3 across in a usual box), no empty space at the side
+  const grids = await sp.evaluate(() => Array.from(document.querySelectorAll('.land-card .nf-grid')).filter(g => g.offsetParent).map(g => { const c = g.closest('.land-card'), cs = getComputedStyle(c);
+    return { id: g.id, box: c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), cols: getComputedStyle(g).gridTemplateColumns.split(' ').length, spare: g.clientWidth - Array.from(g.children).filter(x => x.classList.contains('nf-card')).reduce((m, x) => Math.max(m, x.offsetLeft + x.offsetWidth - g.offsetLeft), 0) }; }));
+  ok(grids.length > 0 && grids.every(g => g.box >= 820 ? g.cols >= 3 : g.box >= 400 ? g.cols === 3 : g.cols === 2), 'overview: photo cards fit 3 across in a usual box', grids);
+  await sp.screenshot({ path: SHOTS + '/overview-cards.png', fullPage: true });
   // a station check, start to finish
   await sp.evaluate("chooseVisitType = async () => 'Routine Service'");
   await sp.click('#startServiceLabel'); await sleep(800);
@@ -433,8 +438,8 @@ try {
   await hp.screenshot({ path: SHOTS + '/heat-portal-390.png', fullPage: true });
   // the plan area is the plan's own shape (no grey bands at the sides); station names are in the pin's colour with no dark box
   const shape = await hp.evaluate(() => { const v = document.getElementById('planView').getBoundingClientRect(), l = document.querySelector('#planStage .plan-pin-label'), pin = l.parentElement.querySelector('span'), cs = getComputedStyle(l);
-    return { w: v.width, h: v.height, ih: innerHeight, color: cs.color, pin: getComputedStyle(pin).backgroundColor, bg: cs.backgroundColor }; });
-  ok(Math.abs(shape.h - Math.min(shape.w * 300 / 400, shape.ih * .85)) < 4 && shape.color === shape.pin && shape.bg === 'rgba(0, 0, 0, 0)', 'floor plan: the area fits the plan, and station names are in the pin colour with no box', shape);
+    return { page: !!document.querySelector('#planStage canvas.pz-page') && !!document.querySelector('#planBox .plan-pin'), w: v.width, h: v.height, ih: innerHeight, color: cs.color, pin: getComputedStyle(pin).backgroundColor, bg: cs.backgroundColor }; });
+  ok(Math.abs(shape.h - Math.max(240, Math.min(shape.w * 2480 / 3508, shape.ih * .85))) < 4 && shape.page && shape.color === shape.pin && shape.bg === 'rgba(0, 0, 0, 0)', 'floor plan: shown as the Pest map page (header, plan, legend) filling its area, with tappable pins; station names in the pin colour with no box', shape);
   // the pests are a drop-down with tick boxes and a search; it stays open while ticking
   await hp.click('#planHeatBox .heat-dd-btn'); await sleep(200);
   await hp.fill('#planHeatBox .heat-dd-pop input[type=search]', 'ra'); await sleep(100);
