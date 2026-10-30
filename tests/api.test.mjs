@@ -415,6 +415,31 @@ try {
   r = await stranger.from('profiles').select('*').eq('id', stranger.uid);
   ok(r.data.length === 0, 'deleted profile');
 
+  // ---------- signing someone out of every device (admins only) ----------
+  {
+    const adm = await as('boss@example.com');
+    const signIn = async () => (await (await fetch(BASE + '/api/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: idToken('tech@example.com') }) })).json()).session;
+    const phone = await signIn(), laptop = await signIn();
+    const works = async s => (await fetch(BASE + '/api/auth/user', { headers: { Authorization: 'Bearer ' + s.access_token } })).ok;
+    ok(await works(phone) && await works(laptop), 'the technician is signed in on two devices');
+    // an open app (live connection) is told straight away
+    const ac = new AbortController();
+    const live = await fetch(BASE + '/api/live', { headers: { Authorization: 'Bearer ' + phone.access_token }, signal: ac.signal });
+    const reader = live.body.getReader();
+    let got = '';
+    const watching = (async () => { try { for (;;) { const { value, done } = await reader.read(); if (done) break; got += new TextDecoder().decode(value); } } catch {} })();
+    r = await (await as('tech@example.com')).rpc('admin_sign_out_everywhere', { p_email: 'boss@example.com' });
+    ok(r.error && /admins/.test(r.error.message), 'a technician cannot sign someone out', r);
+    r = await adm.rpc('admin_signed_in_counts');
+    ok(!r.error && r.data['tech@example.com'] >= 2, 'Admin sees how many devices each person is signed in on', r.data);
+    r = await adm.rpc('admin_sign_out_everywhere', { p_email: 'Tech@Example.com' });
+    ok(!r.error && r.data.devices >= 2, 'an admin signs the technician out of every device', r);
+    await new Promise(res => setTimeout(res, 300)); ac.abort(); await watching;
+    ok(!(await works(phone)) && !(await works(laptop)), 'their sign-ins no longer work');
+    ok(/event: signed-out/.test(got), 'an app they had open is signed out straight away', got.slice(0, 200));
+    ok(await works((await adm.auth.getSession()).data.session), "the admin's own sign-in is untouched");
+  }
+
   // ---------- deleting a site (admins only): the site and everything on it, and its files; other sites untouched ----------
   {
     const adm = await as('boss@example.com'), tch = await as('tech@example.com');

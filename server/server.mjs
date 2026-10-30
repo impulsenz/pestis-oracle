@@ -829,6 +829,25 @@ const RPC = {
     console.log(`Site #${cid} "${site.Name}" deleted by ${me.email}: ${JSON.stringify(counts)}, ${removed} files`);
     return { name: site.Name, counts, files: removed };
   },
+  // sign a person (staff or client login) out of every device they're signed in on (admins only): their sign-ins end
+  // and any app they have open is signed out straight away
+  admin_sign_out_everywhere(me, a) {
+    if (!me.admin) fail('Only admins can do this');
+    const email = String(a.p_email || '').trim().toLowerCase();
+    const u = email && db.prepare('SELECT id, email FROM auth_users WHERE email = ?').get(email);
+    if (!u) return { devices: 0 };
+    const n = db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(u.id).changes;
+    for (const [id, l] of listeners) if (l.uid === u.id) { try { l.res.write('event: signed-out\ndata: {}\n\n'); l.res.end(); } catch {} listeners.delete(id); }
+    console.log(`${me.email} signed ${email} out of ${n} device(s)`);
+    return { devices: n };
+  },
+  // how many devices each person is signed in on (admins only): { email: n }
+  admin_signed_in_counts(me) {
+    if (!me.admin) fail('Only admins can do this');
+    const out = {};
+    for (const r of db.prepare('SELECT u.email AS email, COUNT(*) AS n FROM auth_sessions s JOIN auth_users u ON u.id = s.user_id WHERE s.expires > ? GROUP BY u.email').all(Date.now())) out[r.email] = r.n;
+    return out;
+  },
   admin_get_user_prefs(me, a) {
     if (!me.admin) fail('Only admins can do this');
     return (sys.one('user_prefs', [['user_id', 'eq', a.p_user]]) || {}).prefs || {};

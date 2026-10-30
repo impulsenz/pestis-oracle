@@ -206,6 +206,16 @@ try {
   ad.removeAllListeners('dialog'); ad.on('dialog', d => d.accept());
   const left = ((await api(boss)('clients', {})).data || []).map(c => c.Name);
   ok(!left.includes('Throwaway Site') && left.includes('Acme Foods'), 'Admin › Sites: delete a site (typing its name to confirm)', left);
+  // Users: sign someone out of all their devices
+  const temp = await session('temp@example.com', { name: 'Temp Person' });
+  await session('temp@example.com', { name: 'Temp Person' });
+  await ad.evaluate("setAdminTab('team')"); await sleep(1500);
+  const soBtn = await ad.evaluate(() => { const b = document.querySelector('[data-email="temp@example.com"][onclick^="signOutEverywhere"]'); return b ? { text: b.textContent, disabled: b.disabled } : null; });
+  ok(soBtn && !soBtn.disabled && /all 2 devices/.test(soBtn.text), 'Admin › Users: "Sign out of all 2 devices" for someone signed in twice', soBtn);
+  await ad.evaluate(() => signOutEverywhere('temp@example.com')); await sleep(800);
+  const tempOk = (await fetch(BASE + '/api/auth/user', { headers: { Authorization: 'Bearer ' + temp.access_token } })).ok;
+  const soAfter = await ad.evaluate(() => { const b = document.querySelector('[data-email="temp@example.com"][onclick^="signOutEverywhere"]'); return b ? { text: b.textContent, disabled: b.disabled } : null; });
+  ok(!tempOk && soAfter && soAfter.disabled && /Not signed in/.test(soAfter.text), 'Admin › Users: they are signed out everywhere', { tempOk, soAfter });
   await ad.evaluate("setAdminTab('overview')"); await sleep(300);
   ok(ad.errors.length === 0, 'Admin: no errors', ad.errors);
 

@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.30-a36-oci
+    Version 2026.10.30-a37-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -3579,6 +3579,8 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r94', date: '2026-10-30', v: { adm: '2026.10.30-a37' },
+            adm: ['Users and Client portal: a Sign out of all devices button on each person shows how many devices they are signed in on, and signs them out of every one straight away (for a lost phone, or someone leaving). They can sign in again unless you also remove their access'] },
         { rev: 'r93', date: '2026-10-30', v: { svc: '2026.10.30-r93', adm: '2026.10.30-a36', cli: '2026.10.30-p49' },
             svc: ['Tidy-up: old unused code removed, and error messages no longer mention running database scripts (the server sorts that out itself)',
                   'Security: files that are not photos, videos or PDFs now download instead of opening, and the app can no longer be shown inside another website'],
@@ -4474,7 +4476,7 @@ const PR = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a36-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a37-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');
@@ -4487,6 +4489,7 @@ const PR = (() => {
             profList.innerHTML = '<span class="t-faint italic">Loading...</span>';
             allowedList.innerHTML = '';
 
+            loadSignedInCounts();
             try {
                 const [p, a] = await Promise.all([
                     _supabase.from('profiles').select('*').order('created_at', { ascending: true }),
@@ -4552,7 +4555,8 @@ const PR = (() => {
                     <div class="flex flex-wrap items-center gap-1.5">
                         ${roleBtn(x, 'technician', x.staff, 'Technician')}${roleBtn(x, 'admin', x.admin, 'Admin')}${roleBtn(x, 'client', x.clientOn, 'Client')}
                         ${x.clientOn ? `<button type="button" class="link-btn !text-[11px] ml-1" onclick="setAdminTab('clients')">Client sites</button>` : ''}
-                        ${x.me ? '' : `<button type="button" class="font-bold !text-[11px] ml-auto" style="color:#ef4444;" data-email="${esc(x.email)}" onclick="deleteUser(this.dataset.email)">Delete user</button>`}
+                        ${x.me ? '' : signOutAllBtn(x.email, 'ml-auto')}
+                        ${x.me ? '' : `<button type="button" class="font-bold !text-[11px]" style="color:#ef4444;" data-email="${esc(x.email)}" onclick="deleteUser(this.dataset.email)">Delete user</button>`}
                     </div>
                 </div>`;
             }).join('') || '<span class="t-faint italic">Nobody here.</span>';
@@ -4590,6 +4594,23 @@ const PR = (() => {
             }
             renderUsers();
             saveRoleChanges(email, jobs);
+        }
+        // ---------- sign someone out of every device (e.g. a lost phone, or someone leaving) ----------
+        let signedInCounts = {};   // email -> how many devices they're signed in on
+        async function loadSignedInCounts() {
+            try { const { data, error } = await _supabase.rpc('admin_signed_in_counts'); if (!error && data) { signedInCounts = data; if (adminTab === 'team') renderUsers(); if (adminTab === 'clients') renderClientAdmin(); } } catch (e) {}
+        }
+        function signOutAllBtn(email, cls) {
+            const n = signedInCounts[String(email || '').toLowerCase()] || 0;
+            return `<button type="button" class="btn btn-secondary !px-3 !py-1.5 !text-[11px] ${cls || ''}" data-email="${esc(email)}" onclick="signOutEverywhere(this.dataset.email)" ${n ? '' : 'disabled'} title="${n ? 'End every sign-in this person has (a lost phone, or someone leaving)' : 'Not signed in on any device'}">${n ? `Sign out of ${n === 1 ? 'their device' : 'all ' + n + ' devices'}` : 'Not signed in'}</button>`;
+        }
+        async function signOutEverywhere(email) {
+            const n = signedInCounts[String(email || '').toLowerCase()] || 0;
+            if (!confirm(`Sign ${email} out of ${n === 1 ? 'the device' : 'all ' + n + ' devices'} they're signed in on?\n\nAny Pestis app they have open signs out straight away. They can sign in again (unless you also remove their access).`)) return;
+            const { data, error } = await _supabase.rpc('admin_sign_out_everywhere', { p_email: email });
+            if (error) { alert('Could not sign them out: ' + error.message); return; }
+            adminToast(`${email} was signed out of ${data && data.devices === 1 ? '1 device' : ((data && data.devices) || 0) + ' devices'}.`);
+            await loadSignedInCounts();
         }
         // Delete someone: staff access, pre-approval and client login all go; their past work stays on record
         async function deleteUser(email) {
@@ -4686,6 +4707,7 @@ const PR = (() => {
         const clientPicks = { new: new Set(), edit: new Set(), site: new Set() };
         let clientEditing = null;
         async function loadClientAdmin() {
+            loadSignedInCounts();
             const box = document.getElementById('adminClientsList');
             if (!box) return;
             document.getElementById('portalLink').href = portalUrl();
@@ -4776,6 +4798,7 @@ const PR = (() => {
                             <span class="chip ${u.active ? 'chip-green' : 'chip-amber'}">${u.active ? 'Active' : 'Paused'}</span>
                             <button type="button" data-email="${esc(u.email)}" onclick="editClientSites(this.dataset.email)" class="btn btn-secondary !px-3 !py-1.5">${editing ? 'Close' : 'Sites'}</button>
                             <button type="button" data-email="${esc(u.email)}" onclick="toggleClientActive(this.dataset.email)" class="btn btn-secondary !px-3 !py-1.5">${u.active ? 'Pause' : 'Resume'}</button>
+                            ${signOutAllBtn(u.email)}
                             <button type="button" data-email="${esc(u.email)}" onclick="removeClientUser(this.dataset.email)" class="font-bold cursor-pointer" style="color:#ef4444;">Remove</button>
                         </div>
                     </div>
