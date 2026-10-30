@@ -150,7 +150,10 @@
         .as-cover { flex: 0 0 11rem; aspect-ratio: 4 / 3; border-radius: .75rem; overflow: hidden; position: relative; }
         .as-head-text { flex: 1 1 14rem; min-width: 0; }
         @media (max-width: 640px) { .as-cover { flex-basis: 100%; } }
-        .as-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 30rem), 1fr)); gap: 1.25rem; align-items: start; }
+        /* the site page's cards packed into columns (no gaps beside a short card); one column on narrow screens */
+        .as-grid { column-gap: 1.25rem; }
+        .as-grid > * { break-inside: avoid; margin-bottom: 1.25rem; }
+        @media (min-width: 1024px) { .as-grid { column-count: 2; } }
         .wn-badge { margin-left: .35rem; font-size: 9px; font-weight: 800; color: #fff; background: rgb(var(--b500)); padding: 0 .4rem; border-radius: 999px; line-height: 1.6; }
 </style>
 </head>
@@ -941,6 +944,8 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r92', date: '2026-10-30', v: { adm: '2026.10.30-a35' },
+            adm: ['Sites › each site page: the boxes now sit neatly in two columns with no gaps beside a short box, and the browser no longer pops up its saved-details list over the site details'] },
         { rev: 'r91', date: '2026-10-30', v: { adm: '2026.10.30-a34' },
             adm: ['New Sites tab: every site as a card (search, filter by technician, sort by next service or most to sort out), and "+ New site"',
                   'Each site has its own page: change its details (name, address, contact, technician, contract, staff notes), its services, and see its visits, stations (and when each was last checked), contacts, outstanding recommendations, documents, client logins, critical limits and recent changes - with buttons to change each',
@@ -2664,7 +2669,7 @@ const PR = (() => {
             const tile = (v, k, sub, color) => `<div class="card p-4"><div class="text-xl font-black" style="color:${color || 'var(--text)'}">${v}</div><div class="eyebrow t-faint mt-1">${k}</div>${sub ? `<div class="text-[11px] t-muted mt-0.5">${sub}</div>` : ''}</div>`;
             const sec = (id, title, color, inner, actions) => `<div class="card p-5 space-y-3"><div class="flex flex-wrap items-center justify-between gap-2"><span class="eyebrow" style="color:${color};">${title}</span><span class="flex flex-wrap gap-2">${actions || ''}</span></div><div id="${id}" class="space-y-2 text-xs">${inner}</div></div>`;
             const btn = (label, onclick, primary) => `<button type="button" class="btn ${primary ? 'btn-primary' : 'btn-secondary'} !py-1.5 !px-3 !text-xs" onclick="${onclick}">${label}</button>`;
-            const f = (k, label, val, type, extra) => `<div ${extra || ''}><label class="lbl" for="asd_${k}">${label}</label>${type === 'area' ? `<textarea id="asd_${k}" rows="3" class="field !text-sm">${esc(val || '')}</textarea>` : `<input id="asd_${k}" type="${type || 'text'}" class="field !text-sm" value="${esc(val || '')}">`}</div>`;
+            const f = (k, label, val, type, extra) => `<div ${extra || ''}><label class="lbl" for="asd_${k}">${label}</label>${type === 'area' ? `<textarea id="asd_${k}" rows="3" class="field !text-sm">${esc(val || '')}</textarea>` : `<input id="asd_${k}" type="${type || 'text'}" class="field !text-sm" autocomplete="off" data-lpignore="true" data-1p-ignore data-bwignore value="${esc(val || '')}">`}</div>`;
             const cidQ = `'${esc(String(c.id))}'`;
             const loading = '<div class="t-faint italic">Loading...</div>';
             document.getElementById('adminSites').innerHTML = `
@@ -2681,7 +2686,7 @@ const PR = (() => {
                     ${tile(s.recs, 'Outstanding recs', '', s.recs ? '#ea580c' : '#10b981')}${tile(s.docs, 'Documents to renew', '', s.docs ? '#d97706' : '#10b981')}${tile(s.logins, 'Client logins', '', s.logins ? '' : '#d97706')}
                 </div>
                 <div class="as-grid">
-                    ${sec('asDetails', 'Site details', '#2563eb', `<form class="grid grid-cols-1 sm:grid-cols-2 gap-3" onsubmit="event.preventDefault(); saveAdminSiteDetails(${cidQ});">
+                    ${sec('asDetails', 'Site details', '#2563eb', `<form class="grid grid-cols-1 sm:grid-cols-2 gap-3" autocomplete="off" onsubmit="event.preventDefault(); saveAdminSiteDetails(${cidQ});">
                         ${f('Name', 'Name *', c.Name)}${f('Address', 'Address', c.Address)}${f('Contact', 'Contact (name and phone)', c.Contact)}${f('Email', 'Email', c.Email, 'email')}
                         <div><label class="lbl" for="asd_assigned_to">Technician</label><select id="asd_assigned_to" class="field !text-sm"><option value="">No technician</option>${staff.map(u => `<option value="${esc(u.id)}" ${c.assigned_to === u.id ? 'selected' : ''}>${esc(u.full_name || u.email)}</option>`).join('')}</select></div>
                         <div></div>${f('contract_start', 'Contract start', c.contract_start ? String(c.contract_start).slice(0, 10) : '', 'date')}${f('contract_end', 'Contract end', c.contract_end ? String(c.contract_end).slice(0, 10) : '', 'date')}

@@ -3,6 +3,8 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r92', date: '2026-10-30', v: { adm: '2026.10.30-a35' },
+            adm: ['Sites › each site page: the boxes now sit neatly in two columns with no gaps beside a short box, and the browser no longer pops up its saved-details list over the site details'] },
         { rev: 'r91', date: '2026-10-30', v: { adm: '2026.10.30-a34' },
             adm: ['New Sites tab: every site as a card (search, filter by technician, sort by next service or most to sort out), and "+ New site"',
                   'Each site has its own page: change its details (name, address, contact, technician, contract, staff notes), its services, and see its visits, stations (and when each was last checked), contacts, outstanding recommendations, documents, client logins, critical limits and recent changes - with buttons to change each',
