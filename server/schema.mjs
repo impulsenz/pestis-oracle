@@ -109,7 +109,16 @@ export const TABLES = {
     cols: {
       id: c('text', { nn: true }), client_id: c('text', { nn: true }), name: c('text', { def: 'Floor plan', nn: true }), image_path: c('text'),
       width: c('int'), height: c('int'), sort: c('real', { def: 0, nn: true }), created_by: c('text'), created_at: c('ts', NOW), updated_at: c('ts', NOW),
-      drawing: c('json'),
+      drawing: c('json'), building_id: c('text'),
+    },
+    index: [['client_id']],
+  },
+  // a site's buildings: each floor plan sits under one (site_maps.building_id); a station is on a floor plan (stations.map_id)
+  site_buildings: {
+    pk: ['id'],
+    cols: {
+      id: c('text', { nn: true }), client_id: c('text', { nn: true }), name: c('text', { def: 'Building', nn: true }), sort: c('real', { def: 0, nn: true }),
+      created_by: c('text'), created_at: c('ts', NOW), updated_at: c('ts', NOW),
     },
     index: [['client_id']],
   },
@@ -234,10 +243,10 @@ export const STANDARD_FOLDERS = ['SDS', 'Service agreement', 'Maps', 'Site speci
 
 // Who can see what. "Site" tables hold one site's data: staff see every site, a client login sees only its own sites.
 export const SITE_TABLES = new Set(['service_logs', 'recommendations', 'recommendation_updates', 'stations', 'site_maps', 'visits', 'site_documents',
-  'site_document_folders', 'recommendation_views', 'recommendation_view_log', 'pest_sightings', 'site_limits']);
+  'site_document_folders', 'recommendation_views', 'recommendation_view_log', 'pest_sightings', 'site_limits', 'site_buildings']);
 export const LIST_TABLES = new Set(['preparations', 'species', 'station_types']);
 // Tables the apps get live updates for
 export const LIVE_TABLES = new Set(['service_logs', 'recommendations', 'recommendation_updates', 'stations', 'site_maps', 'visits', 'site_events',
-  'pest_sightings', 'site_documents', 'site_document_folders', 'recommendation_views', 'clients', 'site_limits', 'site_contacts']);
+  'pest_sightings', 'site_documents', 'site_document_folders', 'recommendation_views', 'clients', 'site_limits', 'site_contacts', 'site_buildings']);
 
 export const BUCKETS = { 'station-photos': { maxBytes: 52428800 }, 'site-documents': { maxBytes: 52428800 } };

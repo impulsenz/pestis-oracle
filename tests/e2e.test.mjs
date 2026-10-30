@@ -314,7 +314,7 @@ try {
     alert: (document.querySelector('.pr-alert') || {}).innerText || '', pests: Array.from(document.querySelectorAll('.pr-lim-p > .pr-lim-ph b')).map(b => b.textContent) }));
   ok(!lim.filters.some(f => /^Month/.test(f)) && lim.filters.some(f => /Insect/.test(f)), 'critical limits: no month filter, an insect filter', lim.filters);
   ok(lim.filters.some(f => /Flying Insect Monitoring/.test(f)) && !lim.filters.some(f => /Rodent/.test(f)), 'critical limits: only insect station types', lim.filters);
-  ok(/Blowfly · 1 station over/.test(lim.alert) && /Dock ILT\s+Blowfly\s+[A-Z][a-z]+ \d{4}\s+7 of 5 \+2/.test(lim.alert) && !/House Fly/.test(lim.alert), 'critical limits: the alert names the insect, the station over its own limit, and the month', lim.alert);
+  ok(/Dock ILT\s+Blowfly\s+[A-Z][a-z]+ \d{4}\s+7 of 5 \+2/.test(lim.alert) && !/House Fly/.test(lim.alert), 'critical limits: the alert names the insect, the station over its own limit, and the month', lim.alert);
   ok(lim.pests[0] === 'Blowfly' && lim.pests.includes('House Fly'), 'critical limits: a section per insect, the one over first', lim.pests);
   ok(lim.filters.some(f => /^From/.test(f)) && lim.filters.some(f => /^To/.test(f)) && lim.filters.some(f => /^Breached.*Yes/.test(f)), 'critical limits: From and To months, and Breached (Yes to start with)', lim.filters);
   // Breached: Yes shows only the stations that breached; No shows every insect station on a limit
@@ -381,7 +381,9 @@ try {
     const up = await _supabase.storage.from(PHOTO_BUCKET).upload(hid + '/plan-heat.png', blob, { contentType: 'image/png', upsert: true });
     if (up.error) throw new Error(up.error.message);
   }, hid);
-  await api(t2)('site_maps', { op: 'insert', values: [{ id: 'mapH', client_id: hid, name: 'Ground floor', image_path: hid + '/plan-heat.png' }] });
+  // two buildings: the Ground floor plan in the Main building, an Upstairs plan in the Warehouse
+  await api(t2)('site_buildings', { op: 'insert', values: [{ id: 'bH1', client_id: hid, name: 'Main building', sort: 1 }, { id: 'bH2', client_id: hid, name: 'Warehouse', sort: 2 }] });
+  await api(t2)('site_maps', { op: 'insert', values: [{ id: 'mapH', client_id: hid, name: 'Ground floor', image_path: hid + '/plan-heat.png', building_id: 'bH1' }, { id: 'mapH2', client_id: hid, name: 'Upstairs', image_path: hid + '/plan-heat.png', building_id: 'bH2', sort: 2 }] });
   const hst = (id, b, name, type, x, y) => ({ id, client_id: hid, barcode: b, name, type, map_id: 'mapH', pin_x: x, pin_y: y });
   await api(t2)('stations', { op: 'insert', values: [hst('hs1', 'RB-H1', 'Kitchen bait', 'Internal Toxic Rodent Station', .25, .3), hst('hs2', 'RB-H2', 'Store trap', 'Internal Non-Toxic Rodent Station', .7, .6),
     hst('hs3', 'RB-H3', 'Yard bait', 'External Toxic Rodent Station', .5, .9), hst('hs4', 'ILT-H4', 'Dock ILT', 'Flying Insect Monitoring', .8, .2), hst('hs5', 'RB-H5', 'Office trap', 'Internal Non-Toxic Rodent Station', .1, .8)] });
@@ -430,6 +432,18 @@ try {
   ok(allPestRows.length === 2 && JSON.stringify(oneType) === '["Dock ILT"]' && typed.length === 2 && typed.includes('Dock ILT') && typed.includes('Store trap') && label === '2 types' && btnTxt === 'All types', 'tick-box list: two station types ticked shows both (and the button says "2 types")', { allPestRows, oneType, typed, label, btnTxt });
   // the heat map on the Client Portal floor plan
   await hp.evaluate("setTab('plans')"); await sleep(600);
+  // the floor plans page: the plans under their buildings
+  await hp.evaluate("planId = null; renderPlans()"); await sleep(600);
+  const planGroupsShown = await hp.evaluate(() => Array.from(document.querySelectorAll('.plan-group')).map(g => g.textContent.replace(/\s+/g, ' ').trim()));
+  ok(JSON.stringify(planGroupsShown) === '["🏢 Main building 1 floor plan","🏢 Warehouse 1 floor plan"]', 'portal floor plans: the plans are listed under their buildings', planGroupsShown);
+  await hp.evaluate("planId = 'mapH'; renderPlans()"); await sleep(1500);
+  // the plan's top bar: a building drop-down, a floor plan drop-down (no row of plan buttons), and the zoom buttons
+  const bar = await hp.evaluate(() => ({ picks: Array.from(document.querySelectorAll('.plan-bar .pv-pick .heat-dd-btn')).map(b => b.textContent), zoom: document.querySelectorAll('#planZoom .pz-ctl button').length, tabs: document.querySelectorAll('.plan-bar .tab-btn').length }));
+  ok(JSON.stringify(bar.picks) === '["Main building","Ground floor"]' && bar.zoom === 4 && bar.tabs === 0, 'portal floor plan: building and floor plan drop-downs and the zoom buttons in the top bar', bar);
+  await hp.evaluate("planPickBuilding('bH2')"); await sleep(1500);
+  const bar2 = await hp.evaluate(() => ({ plan: planId, picks: Array.from(document.querySelectorAll('.plan-bar .pv-pick .heat-dd-btn')).map(b => b.textContent) }));
+  ok(bar2.plan === 'mapH2' && bar2.picks[1] === 'Upstairs', 'portal floor plan: choosing another building opens its floor plan', bar2);
+  await hp.screenshot({ path: SHOTS + '/plan-buildings-390.png' });
   await hp.evaluate("planId = 'mapH'; renderPlans()"); await sleep(1500);
   await hp.evaluate("togglePlanHeat()"); await sleep(500);
   const px = (sel, x, y) => hp.evaluate(([sel, x, y]) => { const c = document.querySelector(sel); if (!c) return null; return c.getContext('2d').getImageData(Math.round(x * c.width), Math.round(y * c.height), 1, 1).data[3]; }, [sel, x, y]);
@@ -453,7 +467,7 @@ try {
   // the plan can be zoomed and dragged; a drag doesn't open a station, a tap on a pin does
   const zoomOf = () => hp.evaluate(() => { const m = /scale\(([\d.]+)\)/.exec(document.getElementById('planStage').style.transform); return m ? Number(m[1]) : null; });
   const z0 = await zoomOf();
-  await hp.click('#planView .pz-ctl [data-pz=in]'); await sleep(200);
+  await hp.click('.pz-ctl [data-pz=in]'); await sleep(200);
   const z1 = await zoomOf();
   await hp.evaluate(() => document.getElementById('planView').scrollIntoView({ block: 'center' })); await sleep(200);
   const box = await hp.evaluate(() => { const r = document.getElementById('planView').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
@@ -462,12 +476,12 @@ try {
   const tr1 = await hp.evaluate(() => document.getElementById('planStage').style.transform);
   const opened = await hp.evaluate(() => !document.getElementById('modal').classList.contains('hidden'));
   ok(z0 > 0 && z1 > z0 * 1.3 && tr0 !== tr1 && !opened, 'floor plan: + zooms in, dragging moves it (and does not open a station)', { z0, z1, tr0, tr1, opened });
-  await hp.click('#planView .pz-ctl [data-pz=full]'); await sleep(300);
+  await hp.click('.pz-ctl [data-pz=full]'); await sleep(300);
   const full = await hp.evaluate(() => { const r = document.getElementById('planView').getBoundingClientRect(); return { full: document.getElementById('planView').classList.contains('pz-full'), w: r.width, h: r.height }; });
   await hp.screenshot({ path: SHOTS + '/plan-full-390.png' });
   await hp.keyboard.press('Escape'); await sleep(200);
   ok(full.full && full.w === 390 && full.h > 800 && !(await hp.evaluate(() => document.getElementById('planView').classList.contains('pz-full'))), 'floor plan: full screen fills the screen, Escape closes it', full);
-  await hp.click('#planView .pz-ctl [data-pz=fit]'); await sleep(200);
+  await hp.click('.pz-ctl [data-pz=fit]'); await sleep(200);
   await hp.evaluate("planHeatSet('pests', [])"); await hp.evaluate("planHeatSet('pest', 'Rat', true)"); await sleep(300);
   const heat2 = await hp.evaluate(() => (document.querySelector('#planHeatBox .heat-sum') || {}).textContent);
   ok(/^1 station with activity · most at Store trap/.test(heat2) && (await px('#planStage .heat-layer', .7, .6)) > 0 && !(await px('#planStage .heat-layer', .25, .3)), 'portal heat map: ticking a pest shows only its activity', heat2);
@@ -485,15 +499,24 @@ try {
   const ab = await hp.evaluate(() => ({ chips: Array.from(document.querySelectorAll('.pr-ab-chip')).map(c => c.textContent.trim()), rows: document.querySelectorAll('.pr-ab-list > .pr-ab-row:not(.pr-ab-head)').length, more: (document.querySelector('.pr-ab-more summary') || {}).textContent, first: (document.querySelector('.pr-ab-list > .pr-ab-row:not(.pr-ab-head)') || {}).innerText }));
   await hp.evaluate(() => document.querySelector('.pr-alert').scrollIntoView()); await hp.screenshot({ path: SHOTS + '/limits-box-1280.png' });
   await hp.setViewportSize({ width: 390, height: 900 }); await sleep(300); await hp.evaluate(() => document.querySelector('.pr-alert').scrollIntoView()); await hp.screenshot({ path: SHOTS + '/limits-box-390.png' }); await hp.setViewportSize({ width: 1280, height: 900 });
-  ok(ab.chips.some(c => /Blowfly · 8 stations over/.test(c)) && ab.chips.some(c => /House Fly · 3 stations over/.test(c)) && ab.rows === 5 && ab.more === 'Show all 11 breaches' && /Line 8 ILT/.test(ab.first), 'critical limits box: a chip per insect, 5 lines (the most over first), Show all for the rest', ab);
-  await hp.evaluate(() => document.querySelector('.pr-ab-chip[data-p="House Fly"]').click()); await sleep(400);
-  ok((await hp.evaluate(() => document.querySelectorAll('.pr-lim').length)) === 3, 'critical limits box: tapping an insect chip shows just that insect');
+  ok(ab.chips.length === 0 && ab.rows === 5 && ab.more === 'Show all 11 breaches' && /Line 8 ILT/.test(ab.first), 'critical limits box: no insect chips, 5 lines (the most over first), Show all for the rest', ab);
   ok(hp.errors.length === 0, 'tick-box filters and portal heat map: no errors', hp.errors);
   // Admin: the site page shows its floor plans with the heat map
   await ad.reload(); await sleep(4000);
   await ad.evaluate(id => openAdminSite(id), hid); await sleep(3500);
+  const adB = await ad.evaluate(() => ({ picks: Array.from(document.querySelectorAll('.as-bar .pv-pick .heat-dd-btn')).map(b => b.textContent), zoom: document.querySelectorAll('#asPlanZoom .pz-ctl button').length,
+    mgr: (document.querySelector('.as-bmgr summary') || {}).textContent, stPicks: document.querySelectorAll('#asStations [data-st-plan] .pv-pick').length }));
+  ok(JSON.stringify(adB.picks) === '["Main building","Ground floor"]' && adB.zoom === 4 && /2 buildings · 2 floor plans/.test(adB.mgr) && adB.stPicks === 13, 'admin: building and floor plan drop-downs, zoom buttons, buildings to manage, and a floor plan choice for each station', adB);
+  await ad.evaluate(() => adminStationSetPlan('mapH2', 'hs5')); await sleep(2500);
+  r = await api(t2)('stations', { filters: [['id', 'eq', 'hs5']] });
+  ok(r.data[0].map_id === 'mapH2' && r.data[0].pin_x === null, 'admin: a station moved to another floor plan (its pin is placed again in the Service App)', r.data[0]);
+  await ad.evaluate(() => adminPlanSetBuilding('bH1', 'mapH2')); await sleep(2500);
+  r = await api(t2)('site_maps', { filters: [['id', 'eq', 'mapH2']] });
+  ok(r.data[0].building_id === 'bH1', 'admin: a floor plan moved to another building', r.data[0]);
+  await ad.evaluate(() => { const d = document.querySelector('.as-bmgr'); d.open = true; d.scrollIntoView(); }); await sleep(200);
+  await ad.screenshot({ path: SHOTS + '/admin-buildings.png' });
   const adHeat = await ad.evaluate(() => ({ layer: !!document.querySelector('#asPlanStage canvas.heat-layer'), pins: document.querySelectorAll('#asPlanStage .as-pin').length, sum: (document.querySelector('#asHeatBox .heat-sum') || {}).textContent }));
-  ok(adHeat.layer && adHeat.pins === 5 && /^4 stations with activity/.test(adHeat.sum), 'admin heat map: the site page shows the floor plan, its stations and the heat map', adHeat);
+  ok(adHeat.layer && adHeat.pins === 4 && /^4 stations with activity/.test(adHeat.sum), 'admin heat map: the site page shows the floor plan, its stations and the heat map', adHeat);
   await ad.evaluate(() => document.getElementById('asPlans').scrollIntoView()); await ad.screenshot({ path: SHOTS + '/heat-admin.png' });
   // Service App: the Heat map tick box on the floor plan
   const hs = await newPage(browser, t2, 390);
@@ -501,6 +524,10 @@ try {
   await hs.click(`.site-card[data-id='${hid}']`); await hs.waitForSelector('#siteLandingDashboard:not(.hidden)', { timeout: 20000 }); await sleep(2500);
   await hs.evaluate("openMapModal()"); await sleep(2000);
   await hs.click('#mapHeatOn'); await sleep(500);
+  const svB = await hs.evaluate(() => ({ picks: Array.from(document.querySelectorAll('#mapPickers .pv-pick .heat-dd-btn')).map(b => b.textContent), sel: document.getElementById('mapSelect').classList.contains('hidden') }));
+  ok(JSON.stringify(svB.picks) === '["Main building","Ground floor"]' && svB.sel, 'service app floor plans: building and floor plan drop-downs', svB);
+  const svSt = await hs.evaluate(() => { currentBarcode = 'RB-H1'; populateStationMapSelect('RB-H1'); return Array.from(document.querySelectorAll('#stationPlanPick .pv-pick .heat-dd-btn')).map(b => b.textContent); });
+  ok(JSON.stringify(svSt) === '["Main building","Ground floor"]', "service app station: its building, then its floor plan", svSt);
   const svHeat = await hs.evaluate(() => ({ layer: !!document.querySelector('#mapStage canvas.heat-layer'), sum: (document.querySelector('#mapHeatBox .heat-sum') || {}).textContent, pests: Array.from(document.querySelectorAll('#mapHeatBox .heat-list input')).map(i => i.value) }));
   ok(svHeat.layer && /^4 stations with activity/.test(svHeat.sum) && svHeat.pests.includes('Rat') && svHeat.pests.includes('House Fly'), 'service app heat map: the Heat map tick box colours the plan, with pests to tick', svHeat);
   await hs.screenshot({ path: SHOTS + '/heat-service-390.png' });

@@ -703,6 +703,13 @@
         .map-top { background: var(--surface); border-bottom: 1px solid var(--border); padding: .5rem .6rem; display: flex; flex-direction: column; gap: .45rem; }
         .map-top-row { display: flex; align-items: center; gap: .45rem; min-width: 0; }
         .map-tools-row { flex-wrap: wrap; }
+        .map-pickers { display: flex; gap: .4rem; flex: 1 1 auto; min-width: 0; }
+        #mapSelect.hidden { display: none !important; }
+        @media (max-width: 639px) { .map-top > .map-top-row:first-child { flex-wrap: wrap; } .map-pickers { order: 10; flex: 1 0 100%; } .map-pickers .pv-pick { max-width: none; } }
+        .map-pickers .pv-pick { flex: 1 1 0; min-width: 0; max-width: 16rem; }
+        .st-plan-pick { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+        .st-plan-pick .pv-pick { max-width: none; }
+        @media (max-width: 480px) { .st-plan-pick { grid-template-columns: 1fr; } }
         .map-heat-box { flex: 1 0 100%; border-top: 1px dashed var(--border); padding-top: .5rem; }
         .map-heat-box .heat-list { max-height: 6.5rem; }
         @media (min-width: 900px) { .map-top { flex-wrap: wrap; } }
@@ -1345,7 +1352,8 @@
                         </div>
                         <div class="sm:col-span-2">
                             <label class="lbl">Floor plan location</label>
-                            <select id="stationMapSelect" class="field cursor-pointer" onchange="stationMapChosen(this.value)"></select>
+                            <select id="stationMapSelect" class="field cursor-pointer hidden" onchange="stationMapChosen(this.value)"></select>
+                            <div id="stationPlanPick" class="st-plan-pick"></div>
                         </div>
                         <div class="sm:col-span-2">
                             <label class="lbl">Station location photo <span class="t-faint font-normal normal-case tracking-normal">- so the next technician can find it</span></label>
@@ -1980,13 +1988,14 @@
             <div class="map-top-row">
                 <span class="eyebrow t-accent hidden lg:inline shrink-0">Floor Plans</span>
                 <div id="mapTabs" class="map-tabs scroll-thin" role="tablist" aria-label="Floor plans"></div>
-                <select id="mapSelect" onchange="selectMap(this.value)" class="field map-select !py-2 !text-sm" aria-label="Floor plan"></select>
+                <select id="mapSelect" onchange="selectMap(this.value)" class="field map-select !py-2 !text-sm hidden" aria-label="Floor plan"></select>
+                <div id="mapPickers" class="map-pickers"></div>
                 <button type="button" onclick="openMapEdit('new')" class="btn btn-secondary !py-2 !px-3 shrink-0" title="Add a floor plan">＋<span class="sm-inline">&nbsp;New plan</span></button>
                 <button type="button" id="mapDrawBtn" onclick="peOpenForCurrent()" class="btn btn-primary !py-2 !px-3 shrink-0 hidden" title="Draw on this plan">✏️<span class="sm-inline" id="mapDrawLabel">&nbsp;Draw</span></button>
                 <div class="relative shrink-0">
                     <button type="button" onclick="toggleMapMenu()" class="btn btn-secondary !py-2 !px-3" title="More for this plan" aria-label="More for this plan">⋯</button>
                     <div id="mapMenu" class="hidden absolute right-0 top-full mt-1 z-10 card p-1.5 w-56 text-xs">
-                        <button type="button" onclick="openMapEdit('rename')" class="map-menu-item">Rename this plan</button>
+                        <button type="button" onclick="openMapEdit('rename')" class="map-menu-item">Rename or move to another building</button>
                         <button type="button" onclick="openMapEdit('image')" class="map-menu-item">Replace with a picture</button>
                         <button type="button" onclick="markMapChecked()" class="map-menu-item">✓ Mark as checked (still correct)</button>
                         <button type="button" onclick="exportMapImage()" class="map-menu-item">Download pest map (A4 PDF)</button>
@@ -2133,6 +2142,7 @@
                 <input type="text" id="mapEditName" list="mapNameSuggestions" placeholder="e.g. Site External" class="field">
                 <datalist id="mapNameSuggestions"><option value="Site External"></option><option value="Site Internal"></option><option value="Insect Monitoring"></option><option value="Warehouse"></option><option value="Office"></option></datalist>
             </div>
+            <div id="mapEditBuildingRow"><label class="lbl">Building</label><div id="mapEditBuilding"></div></div>
             <div id="mapEditHowRow" class="space-y-2">
                 <label class="lbl">How do you want to make it?</label>
                 <div class="grid grid-cols-3 gap-2">
@@ -2267,7 +2277,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.31-r101-oci';
+        const APP_VERSION = '2026.10.31-r102-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -6945,8 +6955,9 @@
         let recTableMissing = false;    // the database has no recommendations table yet
         let splitTablesMissing = false; // the database doesn't have the stations / plans / visits tables yet
         let siteStations = new Map();   // barcode -> row in the stations table
-        const SITE_TABLES = ['stations', 'site_maps', 'visits', 'recommendation_updates', 'site_events', 'site_limits', 'pest_sightings', 'site_contacts'];
-        const OPTIONAL_SITE_TABLES = ['site_limits', 'pest_sightings', 'site_contacts'];   // missing just means none yet
+        const SITE_TABLES = ['stations', 'site_maps', 'visits', 'recommendation_updates', 'site_events', 'site_limits', 'pest_sightings', 'site_contacts', 'site_buildings'];
+        const OPTIONAL_SITE_TABLES = ['site_limits', 'pest_sightings', 'site_contacts', 'site_buildings'];   // missing just means none yet
+        let siteBuildings = [];         // the site's buildings: [{ id, name, sort }]; each floor plan sits under one (its buildingId)
         let siteSightings = [];         // pest sightings the client reported in the Client Portal
         let siteContacts = [];          // the site's contacts (main contact first): [{ id, name, role, phone, email, notes, is_primary }]
         let siteLimits = [];            // critical limits: [{ id, name, rules: [{ species, max }] }]
@@ -6978,7 +6989,7 @@
             const t = name => effectiveTable(cache, name, clientId);
             const base = (barcode, at, payload, r, extra) => Object.assign({ barcode_id: barcode, created_at: at, payload: payload, _fromTable: true, _pending: !!r._pending, _blobKeys: r._blobKeys || undefined }, extra || {});
             t('site_maps').forEach(r => out.push(base('SITE_MAP', r.created_at || r.updated_at, {
-                clientRef: r.id, mapId: r.id, name: r.name, w: r.width, h: r.height, order: r.sort, drawing: r.drawing || null, editedAt: r.updated_at || r.created_at || null,
+                clientRef: r.id, mapId: r.id, name: r.name, w: r.width, h: r.height, order: r.sort, drawing: r.drawing || null, editedAt: r.updated_at || r.created_at || null, buildingId: r.building_id || null,
                 photos: r.image_path ? [r.image_path] : [], servicedAt: r.created_at || r.updated_at
             }, r, { _noEvent: true })));
             t('stations').forEach(r => { if (r.map_id) out.push(base('MAP_PIN', r.updated_at || r.created_at, {
@@ -7060,6 +7071,7 @@
             const stationRows = effectiveTable(saved, 'stations', clientId);
             siteSightings = effectiveTable(saved, 'pest_sightings', clientId).sort((a, b) => sightRank(a) - sightRank(b) || String(b.seen_at || '').localeCompare(String(a.seen_at || '')));
             siteContacts = sortContacts(effectiveTable(saved, 'site_contacts', clientId));
+            siteBuildings = effectiveTable(saved, 'site_buildings', clientId).filter(b => !b.deleted).sort((a, b) => (a.sort || 0) - (b.sort || 0) || String(a.name || '').localeCompare(String(b.name || ''), undefined, { numeric: true, sensitivity: 'base' }));
             siteLimits = effectiveTable(saved, 'site_limits', clientId).filter(l => !l.deleted).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }));
 
             const refs = new Set(rows.map(r => r.payload && r.payload.clientRef).filter(Boolean));
@@ -7147,6 +7159,7 @@
                         local: slot ? slot.local : prev.local || null,
                         w: p.w || prev.w || 0, h: p.h || prev.h || 0,
                         drawing: p.drawing !== undefined ? p.drawing : (prev.drawing || null),
+                        buildingId: p.buildingId !== undefined ? p.buildingId : (prev.buildingId || null),
                         editedAt: p.editedAt || prev.editedAt || null,
                         order: p.order != null ? p.order : (prev.order != null ? prev.order : recTime(r)),
                         pending: !!r._pending
@@ -7522,7 +7535,7 @@
         // ---------- Live updates: after the first download, the database pushes inserts, updates and deletes ----------
         const LIVE_TABLES = ['service_logs', 'recommendations', 'recommendation_updates', 'stations', 'site_maps', 'visits', 'site_events', 'pest_sightings'];
         // tables added by later SQL updates: only listened to once they've downloaded (a missing table would stop live updates)
-        const LIVE_OPTIONAL = ['site_contacts', 'site_limits'];
+        const LIVE_OPTIONAL = ['site_contacts', 'site_limits', 'site_buildings'];
         const liveTablesHere = new Set();   // optional tables that downloaded for the open site
         let liveRestartNeeded = false;
         let liveChannel = null, liveSite = null, liveTimer = null, liveSyncTimer = null, liveState = 'off', liveGlobal = null, liveGlobalTimer = null;
@@ -7856,7 +7869,7 @@
             hideStationForm();
             ['mapModal', 'mapEditDialog', 'stationOverviewModal', 'visitModal', 'barcodeModal'].forEach(id => document.getElementById(id).classList.add('hidden'));
             mapPlacing = null; mapFocus = null; currentMapId = null; ovBarcode = null; openVisitIndex = null; visitEditing = false; scanTypeFilter = new Set();
-            siteMaps = []; sitePins = new Map(); siteEvents = []; currentVisitEntries = []; lastVisitStats = null; barcodeAliases = new Map(); siteLimits = []; siteContacts = [];
+            siteMaps = []; sitePins = new Map(); siteEvents = []; currentVisitEntries = []; lastVisitStats = null; barcodeAliases = new Map(); siteLimits = []; siteContacts = []; siteBuildings = [];
             stationTypeFilter = 'all'; activityFilter = 'all';
             const ss = document.getElementById('siteStationSearch');
             if (ss) ss.value = '';
@@ -9451,11 +9464,48 @@
                 ? siteMaps.map(m => `<option value="${esc(m.id)}">${esc(mapOptionLabel(m))}</option>`).join('')
                 : '<option value="">No floor plans yet</option>';
             sel.value = currentMapId || '';
+            { const m = currentMap(); if (m) mapBuildingId = mapBuildingOf(m); else if (mapBuildingId == null) mapBuildingId = ''; }
+            renderMapPickers();
             renderMapTabs();
             renderMapHint();
             renderMapSidebar();
             loadMapImage(currentMap());
         }
+
+        // ---------- Buildings: each floor plan sits under a building; a station is on a floor plan ----------
+        // the building a plan is in ('' when it has none, or its building has gone)
+        const mapBuildingOf = m => m && siteBuildings.some(b => b.id === m.buildingId) ? m.buildingId : '';
+        const plansInBuilding = id => siteMaps.filter(m => mapBuildingOf(m) === (id || ''));
+        let mapBuildingId = null;   // the building chosen on the floor plan screen
+        // the buildings to choose from, and "Not in a building" when some plans have none
+        function buildingItems() {
+            const items = siteBuildings.map(b => [b.id, b.name || 'Building', `${plansInBuilding(b.id).length} floor plan${plansInBuilding(b.id).length === 1 ? '' : 's'}`]);
+            const loose = plansInBuilding('').length;
+            if (loose || !siteBuildings.length) items.push(['', siteBuildings.length ? 'Not in a building' : 'All floor plans', `${loose} floor plan${loose === 1 ? '' : 's'}`]);
+            return items;
+        }
+        // a new building (asks its name); returns its id
+        async function addBuilding() {
+            const name = (prompt('Name of the new building (for example Building A, Warehouse):') || '').trim();
+            if (!name) return null;
+            const same = siteBuildings.find(b => String(b.name).toLowerCase() === name.toLowerCase());
+            if (same) return same.id;
+            const id = uid(), sort = siteBuildings.length ? Math.max(...siteBuildings.map(b => b.sort || 0)) + 1 : 1;
+            await queueTableRow('site_buildings', { id, name, sort, created_by: technicianLabel() }, `Building added · ${name}`);
+            await queueSiteChange({ action: 'floor_plan', title: `Building "${name}" added` }, 'Building added · log');
+            await refreshSiteStateFromCache();
+            return id;
+        }
+        function renderMapPickers() {
+            const el = document.getElementById('mapPickers');
+            if (!el) return;
+            const b = mapBuildingId || '', plans = plansInBuilding(b);
+            el.innerHTML = PVR.pick({ k: 'b', items: buildingItems(), cur: b, none: 'Choose a building', cb: 'mapPickBuilding', search: 'Find a building...', foot: '<button type="button" class="pv-foot" onclick="mapNewBuilding(this)">+ New building</button>' })
+                + PVR.pick({ k: 'p', items: plans.map(m => [m.id, m.name, `${mapPinCounts(m.id).placed} station${mapPinCounts(m.id).placed === 1 ? '' : 's'}`]), cur: currentMapId, none: plans.length ? 'Choose a floor plan' : 'No floor plans yet', cb: 'mapPickPlan', search: 'Find a floor plan...', foot: '<button type="button" class="pv-foot" onclick="this.closest(\'.heat-dd-pop\').hidden = true; openMapEdit(\'new\')">+ New floor plan</button>' });
+        }
+        function mapPickBuilding(id) { mapBuildingId = id || ''; const plans = plansInBuilding(mapBuildingId); selectMap(plans.some(m => m.id === currentMapId) ? currentMapId : plans[0] ? plans[0].id : null); }
+        function mapPickPlan(id) { selectMap(id); }
+        async function mapNewBuilding(btn) { btn.closest('.heat-dd-pop').hidden = true; const id = await addBuilding(); if (id != null) { mapBuildingId = id; selectMap(plansInBuilding(id)[0] ? plansInBuilding(id)[0].id : null); } }
 
         // one tab per plan; the Draw button follows the plan that's open
         function renderMapTabs() {
@@ -9486,6 +9536,9 @@
                 document.getElementById('mapHeatBox').classList.add('hidden');
                 img.removeAttribute('src');
                 stage.style.visibility = 'hidden';
+                if (siteMaps.length) { const b = siteBuildings.find(x => x.id === mapBuildingId);
+                    showMapEmpty(`<div class="text-4xl">🏢</div><div class="font-black t-strong text-base">No floor plans in ${esc(b ? b.name : 'this building')} yet</div>
+                    <div class="flex flex-wrap justify-center gap-2"><button type="button" onclick="openMapEdit('new'); setMapHow('draw')" class="btn btn-primary">✏️ Draw a floor plan</button><button type="button" onclick="openMapEdit('new'); setMapHow('upload')" class="btn btn-secondary">📷 Upload a picture</button></div>`); return; }
                 showMapEmpty(`<div class="text-4xl">🗺️</div><div class="font-black t-strong text-base">No floor plans for this site yet</div>
                     <div class="text-xs t-muted max-w-sm">Make a plan for each area (for example Site External, Site Internal, Insect Monitoring), then drop each station onto it.</div>
                     <div class="flex flex-wrap justify-center gap-2"><button type="button" onclick="openMapEdit('new'); setMapHow('draw')" class="btn btn-primary">✏️ Draw a floor plan</button><button type="button" onclick="openMapEdit('new'); setMapHow('upload')" class="btn btn-secondary">📷 Upload a picture</button></div>`);
@@ -11476,7 +11529,7 @@
                 if (pe.bgBlob) blobs.push(pe.bgBlob);
                 const isNew = !pe.mapId, id = pe.mapId || uid(), tech = technicianLabel(), at = new Date().toISOString();
                 const row = isNew
-                    ? { id, name, width: d.w, height: d.h, sort: siteMaps.length ? Math.max(...siteMaps.map(x => x.order || 0)) + 1 : 1, created_by: tech, drawing }
+                    ? { id, name, width: d.w, height: d.h, sort: siteMaps.length ? Math.max(...siteMaps.map(x => x.order || 0)) + 1 : 1, created_by: tech, drawing, building_id: mapNewBuildingId || null }
                     : { id, name, width: d.w, height: d.h, drawing, updated_at: at };
                 if (isNew) row.updated_at = at;
                 const old = isNew ? null : currentMapById(id);
@@ -11516,8 +11569,11 @@
             const m = currentMap();
             if ((mode === 'rename' || mode === 'image') && !m) { alert('Add a floor plan first.'); return; }
             mapEditMode = mode; mapEditBlob = null; mapEditDims = null;
-            document.getElementById('mapEditTitle').textContent = mode === 'new' ? 'Add floor plan' : mode === 'rename' ? 'Rename floor plan' : 'Replace plan image';
+            document.getElementById('mapEditTitle').textContent = mode === 'new' ? 'Add floor plan' : mode === 'rename' ? 'Floor plan name and building' : 'Replace plan image';
             document.getElementById('mapEditNameRow').classList.toggle('hidden', mode === 'image');
+            document.getElementById('mapEditBuildingRow').classList.toggle('hidden', mode === 'image');
+            mapEditBuildingId = mode === 'new' ? (mapBuildingId || '') : mapBuildingOf(m);
+            renderMapEditBuilding();
             document.getElementById('mapEditImageRow').classList.toggle('hidden', mode === 'rename');
             document.getElementById('mapEditName').value = mode === 'new' ? '' : (m ? m.name : '');
             document.getElementById('mapEditFile').value = '';
@@ -11527,6 +11583,14 @@
             setMapHow('draw');
             if (mode !== 'image') setTimeout(() => document.getElementById('mapEditName').focus(), 50);
         }
+        let mapEditBuildingId = '';   // the building chosen in the add / rename dialog
+        let mapNewBuildingId = '';    // the building a plan being drawn goes in
+        function renderMapEditBuilding() {
+            document.getElementById('mapEditBuilding').innerHTML = PVR.pick({ k: 'b', items: siteBuildings.map(b => [b.id, b.name || 'Building']).concat([['', 'Not in a building']]), cur: mapEditBuildingId, cb: 'mapEditPickBuilding', search: 'Find a building...',
+                foot: '<button type="button" class="pv-foot" onclick="mapEditNewBuilding(this)">+ New building</button>' });
+        }
+        function mapEditPickBuilding(id) { mapEditBuildingId = id || ''; renderMapEditBuilding(); }
+        async function mapEditNewBuilding(btn) { btn.closest('.heat-dd-pop').hidden = true; const id = await addBuilding(); if (id != null) { mapEditBuildingId = id; renderMapEditBuilding(); } }
         function closeMapEdit() { document.getElementById('mapEditDialog').classList.add('hidden'); mapEditMode = null; mapEditBlob = null; }
         document.getElementById('mapEditFile').addEventListener('change', async e => {
             const file = e.target.files[0];
@@ -11549,6 +11613,7 @@
             if (mode !== 'image' && !name) { alert('Give the plan a location name, e.g. Site External.'); return; }
             if (mode === 'new' && mapHow === 'draw' && !mapEditBlob) {
                 if (siteMaps.some(x => x.name.toLowerCase() === name.toLowerCase())) { alert(`There's already a plan called "${name}".`); return; }
+                mapNewBuildingId = mapEditBuildingId;
                 closeMapEdit();
                 peOpen({ name });
                 return;
@@ -11556,6 +11621,7 @@
             if (mode === 'new' && mapHow === 'map') {
                 if (siteMaps.some(x => x.name.toLowerCase() === name.toLowerCase())) { alert(`There's already a plan called "${name}".`); return; }
                 if (!isOnline) { alert("The satellite map needs a connection - try again when you're back online."); return; }
+                mapNewBuildingId = mapEditBuildingId;
                 closeMapEdit();
                 await peOpen({ name });
                 document.getElementById('peWelcome').classList.add('hidden');
@@ -11573,12 +11639,15 @@
                 if (mode === 'new') {
                     id = uid();
                     const order = siteMaps.length ? Math.max(...siteMaps.map(x => x.order || 0)) + 1 : 1;
-                    await queueTableRow('site_maps', { id, name, width: mapEditDims.w, height: mapEditDims.h, sort: order, created_by: base.technician }, `Floor plan added · ${name}`, { blobs: [mapEditBlob], photoField: 'image_path', prefix: 'SITE_MAP' });
+                    await queueTableRow('site_maps', { id, name, width: mapEditDims.w, height: mapEditDims.h, sort: order, created_by: base.technician, building_id: mapEditBuildingId || null }, `Floor plan added · ${name}`, { blobs: [mapEditBlob], photoField: 'image_path', prefix: 'SITE_MAP' });
                     await queueSiteChange({ action: 'floor_plan', title: `Floor plan "${name}" added` }, 'Floor plan added · log');
                 } else if (mode === 'rename') {
                     id = m.id;
-                    await queueTableRow('site_maps', { id, name, updated_at: base.servicedAt }, `Floor plan renamed · ${name}`);
-                    await queueSiteChange({ action: 'floor_plan', title: `Floor plan "${m.name}" renamed to "${name}"` }, 'Floor plan renamed · log');
+                    const moved = (mapEditBuildingId || '') !== mapBuildingOf(m), bName = id2 => { const b = siteBuildings.find(x => x.id === id2); return b ? b.name : 'no building'; };
+                    await queueTableRow('site_maps', { id, name, updated_at: base.servicedAt, building_id: mapEditBuildingId || null }, `Floor plan ${name !== m.name ? 'renamed' : 'changed'} · ${name}`);
+                    if (name !== m.name) await queueSiteChange({ action: 'floor_plan', title: `Floor plan "${m.name}" renamed to "${name}"` }, 'Floor plan renamed · log');
+                    if (moved) await queueSiteChange({ action: 'floor_plan', title: `Floor plan "${name}" moved to ${bName(mapEditBuildingId)}` }, 'Floor plan moved · log');
+                    mapBuildingId = mapEditBuildingId || '';
                 } else {
                     id = m.id;
                     await queueTableRow('site_maps', { id, width: mapEditDims.w, height: mapEditDims.h, updated_at: base.servicedAt, drawing: m.drawing ? null : undefined }, `Floor plan image replaced · ${m.name}`, { blobs: [mapEditBlob], photoField: 'image_path', prefix: 'SITE_MAP' });
@@ -12690,12 +12759,23 @@
             opts.push('<option value="__add">+ Add a floor plan...</option>');
             sel.innerHTML = opts.join('');
             sel.value = pin && pin.mapId ? pin.mapId : '';
+            // what's shown: a building, then a floor plan in it (both searchable)
+            const m = pin && pin.mapId ? siteMaps.find(x => x.id === pin.mapId) : null;
+            if (m) stationBuildingId = mapBuildingOf(m);
+            else if (stationBuildingId == null || (stationBuildingId && !siteBuildings.some(b => b.id === stationBuildingId))) stationBuildingId = siteBuildings[0] ? siteBuildings[0].id : '';
+            const plans = plansInBuilding(stationBuildingId);
+            document.getElementById('stationPlanPick').innerHTML = PVR.pick({ k: 'b', label: 'Building', items: buildingItems(), cur: stationBuildingId, none: 'Choose a building', cb: 'stationPickBuilding', search: 'Find a building...', foot: '<button type="button" class="pv-foot" onclick="stationNewBuilding(this)">+ New building</button>' })
+                + PVR.pick({ k: 'p', label: 'Floor plan', items: plans.map(x => [x.id, x.name, pin && pin.mapId === x.id ? (pin.x != null ? 'pinned here' : 'pin not placed yet') : '']), cur: m ? m.id : '', all: 'Not on a floor plan', cb: 'stationMapChosen', search: 'Find a floor plan...',
+                    foot: '<button type="button" class="pv-foot" onclick="this.closest(\'.heat-dd-pop\').hidden = true; stationMapChosen(\'__add\')">+ Add a floor plan...</button>' });
         }
+        let stationBuildingId = null;   // the building chosen in the station form (its floor plans are listed)
+        function stationPickBuilding(id) { stationBuildingId = id || ''; if (currentBarcode) populateStationMapSelect(currentBarcode); }
+        async function stationNewBuilding(btn) { btn.closest('.heat-dd-pop').hidden = true; const id = await addBuilding(); if (id != null) { stationBuildingId = id; if (currentBarcode) populateStationMapSelect(currentBarcode); } }
         async function stationMapChosen(v) {
             const barcode = currentBarcode;
             if (!barcode) return;
             const pin = sitePins.get(barcode);
-            if (v === '__add') { populateStationMapSelect(barcode); openMapModal({ add: true, place: barcode }); return; }
+            if (v === '__add') { populateStationMapSelect(barcode); mapBuildingId = stationBuildingId || ''; openMapModal({ add: true, place: barcode }); return; }
             if (!v) {
                 if (pin && pin.mapId) await queuePin(barcode, null, null, null);
                 populateStationMapSelect(barcode);
@@ -14714,6 +14794,16 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r102', date: '2026-10-31', v: { svc: '2026.10.31-r102', adm: '2026.10.31-a42', cli: '2026.10.31-p57' },
+            svc: ['Buildings: a site can have several buildings, and each floor plan sits under a building. On the floor plan screen, choose the building, then the floor plan in it (both drop-downs can be searched). "+ New building" is in the building drop-down',
+                  'Adding or renaming a floor plan: choose its building ("Rename or move to another building" in the ⋯ menu moves a plan)',
+                  'Station form: choose the building, then the floor plan in it (both can be searched); a station\'s building comes from its floor plan'],
+            adm: ['Sites › each site page › Floor plans: choose the building and the floor plan from drop-downs, with the zoom buttons beside them',
+                  'Sites › Floor plans › "Buildings and floor plans": add, rename and remove buildings, and choose each floor plan\'s building. Removing a building keeps its floor plans (with no building)',
+                  'Sites › Stations: a "Building › floor plan" drop-down on every station to put it on a floor plan (its pin is then placed in the Service App)',
+                  'Reports › Critical limits: amber now means within 20% of the limit (it was 10%), and the insect labels in the red box are gone - use the Insect filter at the top'],
+            cli: ['Floor plans: the plans are grouped by building. When a plan is open, choose the building and the floor plan from drop-downs at the top (both can be searched), with the zoom buttons beside them',
+                  'Reports › Critical limits: amber now means within 20% of the limit (it was 10%), and the insect labels in the red box are gone - use the Insect filter at the top'] },
         { rev: 'r101', date: '2026-10-31', v: { svc: '2026.10.31-r101', cli: '2026.10.31-p56' },
             svc: ['Pest map (A4 PDF): the floor plan sits straight on the white page (no box or shadow round it) and takes up all the room, with a small margin'],
             cli: ['Pest map: the floor plan sits straight on the white page (no box or shadow round it) and takes up all the room, with a small margin'] },
@@ -15381,6 +15471,12 @@ const PVR = (() => {
 .heat-list{max-height:14rem;overflow-y:auto}
 .heat-list label{display:flex;align-items:center;gap:.45rem;padding:.3rem .4rem;border-radius:.35rem;cursor:pointer;font-weight:600}.heat-list label:hover{background:var(--surface2,#f1f5f9)}
 .heat-list input{width:15px;height:15px;accent-color:#ea580c}
+.pv-opt{display:flex;flex-direction:column;width:100%;text-align:left;font:inherit;font-size:12.5px;font-weight:700;color:var(--text,#0f172a);background:none;border:0;border-radius:.35rem;padding:.4rem .5rem;cursor:pointer}
+.pv-opt:hover,.pv-opt:focus-visible{background:var(--surface2,#f1f5f9);outline:none}.pv-opt.on{color:#ea580c}.pv-opt small{font-size:10.5px;font-weight:600;color:var(--faint,#64748b)}
+.pv-foot{display:block;width:100%;margin-top:.3rem;border-top:1px solid var(--border,#cbd5e1);padding:.45rem .5rem .2rem;text-align:left;font:inherit;font-size:12px;font-weight:800;color:#ea580c;background:none;border-left:0;border-right:0;border-bottom:0;cursor:pointer}
+.pv-pick .heat-dd-btn{font-size:13px;font-weight:800;padding-top:.45rem;padding-bottom:.45rem}
+.pz-ctl.pz-bar{position:static;flex-direction:row;gap:.3rem}.pz-ctl.pz-bar button{width:2.1rem;height:2.1rem}
+.pz-view.pz-full>.pz-ctl.pz-bar{position:absolute;right:.5rem;top:.5rem;flex-direction:column}
 .heat-ctrls{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem .9rem}
 .heat-key{display:flex;flex-direction:column;gap:.35rem;flex:0 1 26rem;min-width:14rem}.heat-scale{display:flex;align-items:center;gap:.5rem;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#64748b);white-space:nowrap}.heat-scale .heat-bar{flex:1}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
 .heat-bar-l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--faint,#64748b)}.heat-sum{font-weight:700;color:var(--muted,#475569);text-align:right}
@@ -15397,6 +15493,8 @@ body.pz-lock{overflow:hidden}`;
         document.head.appendChild(s);
         // tapping anywhere else closes an open pest list
         document.addEventListener('pointerdown', ev => { document.querySelectorAll('.heat-dd-pop:not([hidden])').forEach(p => { if (!p.parentElement.contains(ev.target)) p.hidden = true; }); });
+        // a list floating above the page closes when the page under it scrolls (its own list scrolling is fine)
+        document.addEventListener('scroll', ev => { document.querySelectorAll('.heat-dd-pop:not([hidden])').forEach(p => { if (p.style.position === 'fixed' && !(ev.target instanceof Node && p.contains(ev.target))) p.hidden = true; }); }, true);
     }
     function heatPanel(cb, st, pests, pts) {
         heatCss();
@@ -15418,13 +15516,42 @@ body.pz-lock{overflow:hidden}`;
     function heatOpen(el, open) {
         const pop = el.closest('.heat-dd').querySelector('.heat-dd-pop');
         pop.hidden = open === false ? true : open === true ? false : !pop.hidden;
-        // kept on the screen (a phone's right-hand edge)
-        if (!pop.hidden) { pop.style.left = '0px'; const r = pop.getBoundingClientRect(), over = r.right - (window.innerWidth - 8); if (over > 0) pop.style.left = -Math.min(over, r.left - 8) + 'px'; }
+        // kept on the screen (a phone's right-hand edge); inside something that scrolls or clips (a table, a sheet) it floats above it instead
+        if (!pop.hidden) {
+            pop.style.position = ''; pop.style.top = ''; pop.style.left = '0px';
+            let clip = false;
+            for (let a = pop.parentElement.parentElement; a && a !== document.body; a = a.parentElement) { const cs = getComputedStyle(a); if (/(auto|scroll|hidden)/.test(cs.overflowX + cs.overflowY)) { clip = true; break; } }
+            if (clip) {
+                const b = el.closest('.heat-dd').getBoundingClientRect();
+                pop.style.position = 'fixed'; pop.style.left = Math.max(8, Math.min(b.left, window.innerWidth - 8 - pop.offsetWidth)) + 'px';
+                pop.style.top = (b.bottom + 4 + pop.offsetHeight > window.innerHeight - 8 ? Math.max(8, b.top - 4 - pop.offsetHeight) : b.bottom + 4) + 'px';
+            } else { const r = pop.getBoundingClientRect(), over = r.right - (window.innerWidth - 8); if (over > 0) pop.style.left = -Math.min(over, r.left - 8) + 'px'; }
+        }
         if (!pop.hidden) { const q = pop.querySelector('input[type=search]'); if (q && window.matchMedia && window.matchMedia('(pointer: fine)').matches) q.focus(); }
     }
     function heatFilter(input) {
         const q = input.value.trim().toLowerCase(), box = input.closest('.heat-dd-pop');
-        if (box) box.querySelectorAll('.heat-list label').forEach(l => { l.style.display = !q || l.dataset.q.includes(q) ? '' : 'none'; });
+        if (box) box.querySelectorAll('.heat-list [data-q]').forEach(l => { l.style.display = !q || l.dataset.q.includes(q) ? '' : 'none'; });
+    }
+    // ---------- A drop-down you can search, for one choice (a building, a floor plan) ----------
+    // o = { k, items: [[value, text, small text], ..], cur, cb (name of the app's function, called cb(value, k)), all (text for "none chosen", optional),
+    //       label (shown above it, optional), search (placeholder), foot (more HTML at the bottom of the list, e.g. "+ New building"), cls }
+    function pick(o) {
+        heatCss();
+        const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const items = (o.all != null ? [['', o.all]] : []).concat(o.items || []);
+        const cur = items.find(x => String(x[0]) === String(o.cur == null ? '' : o.cur));
+        const txt = cur ? cur[1] : (o.none || 'Choose...');
+        const dd = `<div class="heat-dd pv-pick ${esc(o.cls || '')}" data-cb="${esc(o.cb)}" data-k="${esc(o.k || '')}">
+            <button type="button" class="heat-dd-btn" onclick="PVR.heatOpen(this)" aria-haspopup="listbox" title="${esc(txt)}">${esc(txt)}</button>
+            <div class="heat-dd-pop" hidden><input type="search" placeholder="${esc(o.search || 'Type to search...')}" aria-label="Search" oninput="PVR.heatFilter(this)">
+                <div class="heat-list" role="listbox">${items.map(x => `<button type="button" role="option" class="pv-opt ${cur && String(cur[0]) === String(x[0]) ? 'on' : ''}" data-v="${esc(x[0])}" data-q="${esc(String(x[1] + ' ' + (x[2] || '')).toLowerCase())}" onclick="PVR.pickGo(this)">${esc(x[1])}${x[2] ? `<small>${esc(x[2])}</small>` : ''}</button>`).join('') || '<div class="heat-bar-l" style="padding:.4rem">Nothing here yet</div>'}</div>${o.foot || ''}</div></div>`;
+        return o.label ? `<div class="heat-f pv-f"><span>${esc(o.label)}</span>${dd}</div>` : dd;
+    }
+    function pickGo(b) {
+        const dd = b.closest('.pv-pick'); dd.querySelector('.heat-dd-pop').hidden = true;
+        const name = String(dd.dataset.cb || ''), fn = name.split('.').reduce((o, k) => o && o[k], window);
+        if (typeof fn === 'function') fn(b.dataset.v, dd.dataset.k);
     }
     // puts the controls in box again, keeping the pest list open, what was typed in its search and where it was scrolled to
     function heatMount(box, html) {
@@ -15446,16 +15573,18 @@ body.pz-lock{overflow:hidden}`;
     // ---------- A floor plan you can move around: drag it, zoom in and out (buttons, the mouse wheel, two fingers), Fit, and Full screen ----------
     // view (.pz-view) holds stage (.pz-stage: the plan picture, the heat map and the pins, placed in shares of the plan); w x h is the
     // plan's size. Pins stay the same size on screen at every zoom (CSS var --pz-inv). A tap on a pin still works; a drag doesn't tap.
-    function panZoom(view, stage, w, h) {
+    // opts.bar: an element (e.g. in the plan's top bar) to hold the zoom buttons instead of the plan's corner (they move onto the plan in full screen)
+    function panZoom(view, stage, w, h, opts) {
         heatCss();
         if (view._pz) view._pz.stop();
+        const bar = opts && opts.bar;
         const v = { z: 1, x: 0, y: 0, fit: 1, atFit: true };
         stage.style.width = w + 'px'; stage.style.height = h + 'px';
-        let ctl = view.querySelector(':scope > .pz-ctl');
+        let ctl = bar ? bar.querySelector('.pz-ctl') : view.querySelector(':scope > .pz-ctl');
         if (!ctl) {
-            ctl = document.createElement('div'); ctl.className = 'pz-ctl';
+            ctl = document.createElement('div'); ctl.className = 'pz-ctl' + (bar ? ' pz-bar' : '');
             ctl.innerHTML = '<button type="button" data-pz="in" title="Zoom in" aria-label="Zoom in">+</button><button type="button" data-pz="out" title="Zoom out" aria-label="Zoom out">−</button><button type="button" data-pz="fit" class="pz-fit" title="Show the whole plan" aria-label="Show the whole plan">FIT</button><button type="button" data-pz="full" title="Full screen" aria-label="Full screen">⛶</button>';
-            view.appendChild(ctl);
+            (bar || view).appendChild(ctl);
         }
         const apply = () => { stage.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`; stage.style.setProperty('--pz-inv', String(1 / v.z)); };
         const size = () => {
@@ -15477,7 +15606,7 @@ body.pz-lock{overflow:hidden}`;
         const focus = (fx, fy) => { fit(); const z = v.fit * 3; v.z = z; v.x = view.clientWidth / 2 - fx * w * z; v.y = view.clientHeight / 2 - fy * h * z; v.atFit = false; apply(); };
         // full screen: the plan is lifted out to the page itself (a card's styling can't trap it), and put back after
         let spot = null;
-        const full = on => { if (on && !spot) { spot = document.createComment('pz'); view.before(spot); document.body.appendChild(view); } if (!on && spot) { spot.replaceWith(view); spot = null; } view.classList.toggle('pz-full', on); document.body.classList.toggle('pz-lock', on); const b = ctl.querySelector('[data-pz=full]'); b.textContent = on ? '✕' : '⛶'; b.title = on ? 'Close full screen' : 'Full screen'; requestAnimationFrame(fit); };
+        const full = on => { if (bar) { if (on) view.appendChild(ctl); else bar.appendChild(ctl); } if (on && !spot) { spot = document.createComment('pz'); view.before(spot); document.body.appendChild(view); } if (!on && spot) { spot.replaceWith(view); spot = null; } view.classList.toggle('pz-full', on); document.body.classList.toggle('pz-lock', on); const b = ctl.querySelector('[data-pz=full]'); b.textContent = on ? '✕' : '⛶'; b.title = on ? 'Close full screen' : 'Full screen'; requestAnimationFrame(fit); };
         const onCtl = ev => { const b = ev.target.closest('[data-pz]'); if (!b) return; ev.stopPropagation();
             const k = b.dataset.pz; if (k === 'in') zoomAt(1.4); if (k === 'out') zoomAt(1 / 1.4); if (k === 'fit') fit(); if (k === 'full') full(!view.classList.contains('pz-full')); };
         // dragging and pinching
@@ -15508,7 +15637,7 @@ body.pz-lock{overflow:hidden}`;
         return view._pz;
     }
 
-    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom };
+    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------

@@ -266,7 +266,7 @@ function canWrite(tn, op, row, me) {
     // (a site itself is deleted only by an admin, with everything on it: RPC.admin_delete_site)
     case 'clients': return op === 'delete' ? me.admin : me.approved;
     case 'service_logs': case 'recommendations': case 'recommendation_updates': case 'stations': case 'site_maps': case 'visits':
-    case 'site_events': return me.approved;
+    case 'site_events': case 'site_buildings': return me.approved;
     case 'site_documents': case 'site_document_folders': case 'site_limits': return me.admin;
     case 'pest_sightings': return op !== 'delete' && me.approved;
     case 'recommendation_views': case 'recommendation_view_log': return false;   // only through pestis_mark_rec_viewed
@@ -631,6 +631,8 @@ const TRIGGERS = {
   afterDelete: {
     clients: row => { sys.delete('service_logs', [['client_id', 'eq', row.id]]); },
     site_maps: row => { sys.update('stations', [['map_id', 'eq', row.id]], { map_id: null }); },
+    // a building removed: its floor plans stay, with no building
+    site_buildings: row => { sys.update('site_maps', [['building_id', 'eq', row.id]], { building_id: null }); },
     profiles: row => {
       sys.update('clients', [['assigned_to', 'eq', row.id]], { assigned_to: null });
       sys.update('clients', [['visit_started_by', 'eq', row.id]], { visit_started_by: null });

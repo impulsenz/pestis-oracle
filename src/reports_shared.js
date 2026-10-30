@@ -395,7 +395,7 @@ const PR = (() => {
         },
         // Critical limits, station by station and insect by insect, for the months chosen (this month to start with).
         // A limit applies to EACH station linked to it: a station is judged only on its own catches that month.
-        // red = this station caught more than its limit, amber = within 10% of it, green = under.
+        // red = this station caught more than its limit, amber = within 20% of it, green = under.
         // "Breached: Yes" (to start with) shows only the stations that breached, the latest breach first.
         limits(d, s, opts) {
             if (!d.limits.length) return { html: '<div class="pr-empty">No critical limits are set for this site.</div>', csv: [] };
@@ -411,7 +411,7 @@ const PR = (() => {
             // one insect at one station in one month: this station's catch against its limit
             const monthOf = (st, rule, mk) => {
                 const mine = stCount(st, rule, mk);
-                const status = mine > rule.max ? 'red' : rule.max > 0 && mine >= rule.max * .9 ? 'amber' : 'green';
+                const status = mine > rule.max ? 'red' : rule.max > 0 && mine >= rule.max * .8 ? 'amber' : 'green';
                 return { mk, mine, status };
             };
             const RANK = { red: 0, amber: 1, green: 2 };
@@ -484,11 +484,10 @@ const PR = (() => {
             const lastOf = g => Math.max(-1, ...g.over.flatMap(o => o.months.map(h => h.mk)));
             const glist = Array.from(groups.values()).sort((p, q) => RANK[p.status] - RANK[q.status] || lastOf(q) - lastOf(p));
             const redN = glist.filter(g => g.status === 'red').length;
-            // the summary: one heading, a chip per insect (tap one to show just that insect), then one short line per station
-            // and insect over its limit (the latest first, the first few shown, the rest behind "Show all"), so it stays easy to read
-            // however many breaches there are. Stations only close to a limit are counted on the chips (and listed when none are over).
+            // the summary: one heading, then one short line per station and insect over its limit (the latest first, the first few
+            // shown, the rest behind "Show all"), so it stays easy to read however many breaches there are (the Insect filter above
+            // picks one insect). Stations only close to a limit are listed when none are over.
             const SHOW = 5;
-            const chip = g => `<button type="button" class="pr-ab-chip ${g.status}" data-p="${e(g.species)}" onclick="PR.set(this, 'pest', [this.dataset.p])" title="Show only ${e(g.species)}">${g.status === 'red' ? '🔴' : '🟠'} <b>${e(g.species)}</b>${g.over.length ? ` · ${plural(g.over.length, 'station')} over` : ''}${g.near.length ? ` · ${g.near.length} close` : ''}</button>`;
             const overRows = glist.flatMap(g => g.over.map(o => ({ st: o.st, sp: g.species, max: o.max, h: o.months[0], n: o.months.length, red: true })))
                 .sort((p, q) => q.h.mk - p.h.mk || (q.h.mine - q.max) - (p.h.mine - p.max));
             const list = overRows.length ? overRows : glist.flatMap(g => g.near.map(o => ({ st: o.st, sp: g.species, max: o.max, h: o.h, n: 0, red: false }))).sort((p, q) => q.h.mine / (q.max || 1) - p.h.mine / (p.max || 1));
@@ -496,7 +495,6 @@ const PR = (() => {
                 <span class="pr-ab-when">${e(monthLong(x.h.mk))}${x.n > 1 ? ` <span class="pr-faint">· over in ${x.n} months</span>` : ''}</span>
                 <span class="pr-ab-n"><b>${x.h.mine}</b> of ${x.max}${x.red ? ` <span class="pr-ab-over">+${x.h.mine - x.max}</span>` : ''}</span></div>`;
             const alert = glist.length ? `<div class="pr-alert ${redN ? '' : 'pr-alert-amber'}"><b>${redN ? `⚠ ${breachedStsOf(rows)} over a critical limit in ${e(when)}` : `Getting close to a critical limit in ${e(when)}`}</b>
-                <div class="pr-ab-chips">${glist.map(chip).join('')}</div>
                 <div class="pr-ab-list"><div class="pr-ab-row pr-ab-head"><span>Station</span><span>Insect</span><span>${overRows.length ? 'Latest breach' : 'Month'}</span><span>Caught</span></div>
                     ${list.slice(0, SHOW).map(abRow).join('')}
                     ${list.length > SHOW ? `<details class="pr-ab-more"><summary>Show all ${list.length} ${overRows.length ? 'breaches' : 'stations'}</summary>${list.slice(SHOW).map(abRow).join('')}</details>` : ''}</div></div>`
@@ -510,7 +508,7 @@ const PR = (() => {
             return {
                 html: kpis([{ v: breachedSts, l: `stations that breached in ${when}`, c: breachedSts ? '#dc2626' : '#16a34a' }, { v: redN, l: 'insects over a station limit', c: redN ? '#dc2626' : '#16a34a' }, { v: breaches.length, l: 'breaches in these months' }, { v: onLimit, l: 'insect stations on a critical limit' }])
                     + alert
-                    + `<div class="pr-legend"><span><i style="background:#16a34a"></i>Under the limit</span><span><i style="background:#d97706"></i>Within 10% of the limit</span><span><i style="background:#dc2626"></i>Over the limit</span><span><i class="pr-dash" style="border-color:#dc2626"></i>Limit</span><span><i style="background:rgba(148,163,184,.3)"></i>Months chosen</span></div>`
+                    + `<div class="pr-legend"><span><i style="background:#16a34a"></i>Under the limit</span><span><i style="background:#d97706"></i>Within 20% of the limit</span><span><i style="background:#dc2626"></i>Over the limit</span><span><i class="pr-dash" style="border-color:#dc2626"></i>Limit</span><span><i style="background:rgba(148,163,184,.3)"></i>Months chosen</span></div>`
                     + `<div class="pr-lims">${cards || `<div class="pr-empty">${onlyBreached ? `No station breached a critical limit in ${e(when)}. 🎉 Choose more months, or Breached: No to see every station.` : 'No insect stations on a critical limit match these filters.'}</div>`}</div>`
                     + `<h4 class="pr-h4">Breaches by station</h4>` + table([{ t: 'Month' }, { t: 'Station' }, { t: 'Critical limit' }, { t: 'Insect' }, { t: 'Caught', num: true }, { t: 'Station limit', num: true }, { t: 'Over by', num: true }],
                         breaches.sort((p, q) => q.mk - p.mk).map(b => ({ _cls: 'pr-late', cells: [e(monthLong(b.mk)), stLink(opts, b.r.st), e(b.r.l.name), e(b.p.rule.species), b.h.mine, b.p.rule.max, b.h.mine - b.p.rule.max] })), { empty: `No breaches in ${e(when)} - every limit was kept. 🎉` }),

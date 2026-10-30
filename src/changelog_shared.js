@@ -3,6 +3,16 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r102', date: '2026-10-31', v: { svc: '2026.10.31-r102', adm: '2026.10.31-a42', cli: '2026.10.31-p57' },
+            svc: ['Buildings: a site can have several buildings, and each floor plan sits under a building. On the floor plan screen, choose the building, then the floor plan in it (both drop-downs can be searched). "+ New building" is in the building drop-down',
+                  'Adding or renaming a floor plan: choose its building ("Rename or move to another building" in the ⋯ menu moves a plan)',
+                  'Station form: choose the building, then the floor plan in it (both can be searched); a station\'s building comes from its floor plan'],
+            adm: ['Sites › each site page › Floor plans: choose the building and the floor plan from drop-downs, with the zoom buttons beside them',
+                  'Sites › Floor plans › "Buildings and floor plans": add, rename and remove buildings, and choose each floor plan\'s building. Removing a building keeps its floor plans (with no building)',
+                  'Sites › Stations: a "Building › floor plan" drop-down on every station to put it on a floor plan (its pin is then placed in the Service App)',
+                  'Reports › Critical limits: amber now means within 20% of the limit (it was 10%), and the insect labels in the red box are gone - use the Insect filter at the top'],
+            cli: ['Floor plans: the plans are grouped by building. When a plan is open, choose the building and the floor plan from drop-downs at the top (both can be searched), with the zoom buttons beside them',
+                  'Reports › Critical limits: amber now means within 20% of the limit (it was 10%), and the insect labels in the red box are gone - use the Insect filter at the top'] },
         { rev: 'r101', date: '2026-10-31', v: { svc: '2026.10.31-r101', cli: '2026.10.31-p56' },
             svc: ['Pest map (A4 PDF): the floor plan sits straight on the white page (no box or shadow round it) and takes up all the room, with a small margin'],
             cli: ['Pest map: the floor plan sits straight on the white page (no box or shadow round it) and takes up all the room, with a small margin'] },

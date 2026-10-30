@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.31-a41-oci
+    Version 2026.10.31-a42-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -708,6 +708,13 @@
         .map-top { background: var(--surface); border-bottom: 1px solid var(--border); padding: .5rem .6rem; display: flex; flex-direction: column; gap: .45rem; }
         .map-top-row { display: flex; align-items: center; gap: .45rem; min-width: 0; }
         .map-tools-row { flex-wrap: wrap; }
+        .map-pickers { display: flex; gap: .4rem; flex: 1 1 auto; min-width: 0; }
+        #mapSelect.hidden { display: none !important; }
+        @media (max-width: 639px) { .map-top > .map-top-row:first-child { flex-wrap: wrap; } .map-pickers { order: 10; flex: 1 0 100%; } .map-pickers .pv-pick { max-width: none; } }
+        .map-pickers .pv-pick { flex: 1 1 0; min-width: 0; max-width: 16rem; }
+        .st-plan-pick { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+        .st-plan-pick .pv-pick { max-width: none; }
+        @media (max-width: 480px) { .st-plan-pick { grid-template-columns: 1fr; } }
         .map-heat-box { flex: 1 0 100%; border-top: 1px dashed var(--border); padding-top: .5rem; }
         .map-heat-box .heat-list { max-height: 6.5rem; }
         @media (min-width: 900px) { .map-top { flex-wrap: wrap; } }
@@ -920,11 +927,6 @@
 .pr-lim-n strong { color: var(--text); }
 .pr-lim-more { margin-top: .3rem; border-top: 1px solid var(--border); padding-top: .4rem; }
 .pr-lim-more > summary { cursor: pointer; font-size: .74rem; font-weight: 700; color: #15803d; }
-.pr-ab-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
-.pr-ab-chip { font: inherit; font-size: .75rem; color: var(--text); background: var(--surface); border: 1px solid rgba(220, 38, 38, .35); border-radius: 999px; padding: .25rem .65rem; cursor: pointer; }
-.pr-ab-chip.amber { border-color: rgba(217, 119, 6, .45); }
-.pr-ab-chip:hover { border-color: #dc2626; }
-.pr-ab-chip b { color: var(--text) !important; font-size: .78rem !important; }
 .pr-ab-list { background: var(--surface); border: 1px solid rgba(148, 163, 184, .35); border-radius: .7rem; overflow: hidden; }
 .pr-ab-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.3fr) 7.5rem; gap: .5rem; align-items: center; padding: .45rem .7rem; border-top: 1px solid rgba(148, 163, 184, .25); font-size: .8rem; }
 .pr-ab-list > .pr-ab-row:first-child { border-top: 0; }
@@ -999,6 +1001,14 @@
         /* the site page's cards packed into columns (no gaps beside a short card); one column on narrow screens */
         .as-grid { column-gap: 1.25rem; }
         .as-pin { position: absolute; transform: translate(-50%, -100%) scale(var(--pz-inv, 1)); transform-origin: 50% 100%; }
+        .as-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; }
+        .as-bar .pv-pick { min-width: 10rem; max-width: 16rem; }
+        .as-bmgr { border: 1px solid var(--border); border-radius: .8rem; background: var(--surface2); }
+        .as-bmgr summary { cursor: pointer; padding: .7rem .9rem; font-weight: 900; color: var(--text); }
+        .as-bmgr summary span { font-weight: 600; color: var(--faint); font-size: 11px; margin-left: .3rem; }
+        .as-bmgr-body { padding: 0 .9rem .9rem; display: grid; gap: .9rem; }
+        @media (min-width: 900px) { .as-bmgr-body { grid-template-columns: 1fr 1fr; } .as-bmgr-body > p { grid-column: 1 / -1; } }
+        .as-bmgr .pv-pick, .as-st-pick { min-width: 11rem; max-width: 15rem; }
         .as-pin-label { position: absolute; left: calc(100% + 3px); top: 0; white-space: nowrap; font-style: normal; font-size: 11px; font-weight: 800; line-height: 1; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff; pointer-events: none; }
         .as-pin > span { display: block; width: 16px; height: 16px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 3px 8px -2px rgba(0, 0, 0, .6); }
         .as-grid > * { break-inside: avoid; margin-bottom: 1.25rem; }
@@ -3516,6 +3526,12 @@ const PVR = (() => {
 .heat-list{max-height:14rem;overflow-y:auto}
 .heat-list label{display:flex;align-items:center;gap:.45rem;padding:.3rem .4rem;border-radius:.35rem;cursor:pointer;font-weight:600}.heat-list label:hover{background:var(--surface2,#f1f5f9)}
 .heat-list input{width:15px;height:15px;accent-color:#ea580c}
+.pv-opt{display:flex;flex-direction:column;width:100%;text-align:left;font:inherit;font-size:12.5px;font-weight:700;color:var(--text,#0f172a);background:none;border:0;border-radius:.35rem;padding:.4rem .5rem;cursor:pointer}
+.pv-opt:hover,.pv-opt:focus-visible{background:var(--surface2,#f1f5f9);outline:none}.pv-opt.on{color:#ea580c}.pv-opt small{font-size:10.5px;font-weight:600;color:var(--faint,#64748b)}
+.pv-foot{display:block;width:100%;margin-top:.3rem;border-top:1px solid var(--border,#cbd5e1);padding:.45rem .5rem .2rem;text-align:left;font:inherit;font-size:12px;font-weight:800;color:#ea580c;background:none;border-left:0;border-right:0;border-bottom:0;cursor:pointer}
+.pv-pick .heat-dd-btn{font-size:13px;font-weight:800;padding-top:.45rem;padding-bottom:.45rem}
+.pz-ctl.pz-bar{position:static;flex-direction:row;gap:.3rem}.pz-ctl.pz-bar button{width:2.1rem;height:2.1rem}
+.pz-view.pz-full>.pz-ctl.pz-bar{position:absolute;right:.5rem;top:.5rem;flex-direction:column}
 .heat-ctrls{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem .9rem}
 .heat-key{display:flex;flex-direction:column;gap:.35rem;flex:0 1 26rem;min-width:14rem}.heat-scale{display:flex;align-items:center;gap:.5rem;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#64748b);white-space:nowrap}.heat-scale .heat-bar{flex:1}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
 .heat-bar-l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--faint,#64748b)}.heat-sum{font-weight:700;color:var(--muted,#475569);text-align:right}
@@ -3532,6 +3548,8 @@ body.pz-lock{overflow:hidden}`;
         document.head.appendChild(s);
         // tapping anywhere else closes an open pest list
         document.addEventListener('pointerdown', ev => { document.querySelectorAll('.heat-dd-pop:not([hidden])').forEach(p => { if (!p.parentElement.contains(ev.target)) p.hidden = true; }); });
+        // a list floating above the page closes when the page under it scrolls (its own list scrolling is fine)
+        document.addEventListener('scroll', ev => { document.querySelectorAll('.heat-dd-pop:not([hidden])').forEach(p => { if (p.style.position === 'fixed' && !(ev.target instanceof Node && p.contains(ev.target))) p.hidden = true; }); }, true);
     }
     function heatPanel(cb, st, pests, pts) {
         heatCss();
@@ -3553,13 +3571,42 @@ body.pz-lock{overflow:hidden}`;
     function heatOpen(el, open) {
         const pop = el.closest('.heat-dd').querySelector('.heat-dd-pop');
         pop.hidden = open === false ? true : open === true ? false : !pop.hidden;
-        // kept on the screen (a phone's right-hand edge)
-        if (!pop.hidden) { pop.style.left = '0px'; const r = pop.getBoundingClientRect(), over = r.right - (window.innerWidth - 8); if (over > 0) pop.style.left = -Math.min(over, r.left - 8) + 'px'; }
+        // kept on the screen (a phone's right-hand edge); inside something that scrolls or clips (a table, a sheet) it floats above it instead
+        if (!pop.hidden) {
+            pop.style.position = ''; pop.style.top = ''; pop.style.left = '0px';
+            let clip = false;
+            for (let a = pop.parentElement.parentElement; a && a !== document.body; a = a.parentElement) { const cs = getComputedStyle(a); if (/(auto|scroll|hidden)/.test(cs.overflowX + cs.overflowY)) { clip = true; break; } }
+            if (clip) {
+                const b = el.closest('.heat-dd').getBoundingClientRect();
+                pop.style.position = 'fixed'; pop.style.left = Math.max(8, Math.min(b.left, window.innerWidth - 8 - pop.offsetWidth)) + 'px';
+                pop.style.top = (b.bottom + 4 + pop.offsetHeight > window.innerHeight - 8 ? Math.max(8, b.top - 4 - pop.offsetHeight) : b.bottom + 4) + 'px';
+            } else { const r = pop.getBoundingClientRect(), over = r.right - (window.innerWidth - 8); if (over > 0) pop.style.left = -Math.min(over, r.left - 8) + 'px'; }
+        }
         if (!pop.hidden) { const q = pop.querySelector('input[type=search]'); if (q && window.matchMedia && window.matchMedia('(pointer: fine)').matches) q.focus(); }
     }
     function heatFilter(input) {
         const q = input.value.trim().toLowerCase(), box = input.closest('.heat-dd-pop');
-        if (box) box.querySelectorAll('.heat-list label').forEach(l => { l.style.display = !q || l.dataset.q.includes(q) ? '' : 'none'; });
+        if (box) box.querySelectorAll('.heat-list [data-q]').forEach(l => { l.style.display = !q || l.dataset.q.includes(q) ? '' : 'none'; });
+    }
+    // ---------- A drop-down you can search, for one choice (a building, a floor plan) ----------
+    // o = { k, items: [[value, text, small text], ..], cur, cb (name of the app's function, called cb(value, k)), all (text for "none chosen", optional),
+    //       label (shown above it, optional), search (placeholder), foot (more HTML at the bottom of the list, e.g. "+ New building"), cls }
+    function pick(o) {
+        heatCss();
+        const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const items = (o.all != null ? [['', o.all]] : []).concat(o.items || []);
+        const cur = items.find(x => String(x[0]) === String(o.cur == null ? '' : o.cur));
+        const txt = cur ? cur[1] : (o.none || 'Choose...');
+        const dd = `<div class="heat-dd pv-pick ${esc(o.cls || '')}" data-cb="${esc(o.cb)}" data-k="${esc(o.k || '')}">
+            <button type="button" class="heat-dd-btn" onclick="PVR.heatOpen(this)" aria-haspopup="listbox" title="${esc(txt)}">${esc(txt)}</button>
+            <div class="heat-dd-pop" hidden><input type="search" placeholder="${esc(o.search || 'Type to search...')}" aria-label="Search" oninput="PVR.heatFilter(this)">
+                <div class="heat-list" role="listbox">${items.map(x => `<button type="button" role="option" class="pv-opt ${cur && String(cur[0]) === String(x[0]) ? 'on' : ''}" data-v="${esc(x[0])}" data-q="${esc(String(x[1] + ' ' + (x[2] || '')).toLowerCase())}" onclick="PVR.pickGo(this)">${esc(x[1])}${x[2] ? `<small>${esc(x[2])}</small>` : ''}</button>`).join('') || '<div class="heat-bar-l" style="padding:.4rem">Nothing here yet</div>'}</div>${o.foot || ''}</div></div>`;
+        return o.label ? `<div class="heat-f pv-f"><span>${esc(o.label)}</span>${dd}</div>` : dd;
+    }
+    function pickGo(b) {
+        const dd = b.closest('.pv-pick'); dd.querySelector('.heat-dd-pop').hidden = true;
+        const name = String(dd.dataset.cb || ''), fn = name.split('.').reduce((o, k) => o && o[k], window);
+        if (typeof fn === 'function') fn(b.dataset.v, dd.dataset.k);
     }
     // puts the controls in box again, keeping the pest list open, what was typed in its search and where it was scrolled to
     function heatMount(box, html) {
@@ -3581,16 +3628,18 @@ body.pz-lock{overflow:hidden}`;
     // ---------- A floor plan you can move around: drag it, zoom in and out (buttons, the mouse wheel, two fingers), Fit, and Full screen ----------
     // view (.pz-view) holds stage (.pz-stage: the plan picture, the heat map and the pins, placed in shares of the plan); w x h is the
     // plan's size. Pins stay the same size on screen at every zoom (CSS var --pz-inv). A tap on a pin still works; a drag doesn't tap.
-    function panZoom(view, stage, w, h) {
+    // opts.bar: an element (e.g. in the plan's top bar) to hold the zoom buttons instead of the plan's corner (they move onto the plan in full screen)
+    function panZoom(view, stage, w, h, opts) {
         heatCss();
         if (view._pz) view._pz.stop();
+        const bar = opts && opts.bar;
         const v = { z: 1, x: 0, y: 0, fit: 1, atFit: true };
         stage.style.width = w + 'px'; stage.style.height = h + 'px';
-        let ctl = view.querySelector(':scope > .pz-ctl');
+        let ctl = bar ? bar.querySelector('.pz-ctl') : view.querySelector(':scope > .pz-ctl');
         if (!ctl) {
-            ctl = document.createElement('div'); ctl.className = 'pz-ctl';
+            ctl = document.createElement('div'); ctl.className = 'pz-ctl' + (bar ? ' pz-bar' : '');
             ctl.innerHTML = '<button type="button" data-pz="in" title="Zoom in" aria-label="Zoom in">+</button><button type="button" data-pz="out" title="Zoom out" aria-label="Zoom out">−</button><button type="button" data-pz="fit" class="pz-fit" title="Show the whole plan" aria-label="Show the whole plan">FIT</button><button type="button" data-pz="full" title="Full screen" aria-label="Full screen">⛶</button>';
-            view.appendChild(ctl);
+            (bar || view).appendChild(ctl);
         }
         const apply = () => { stage.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`; stage.style.setProperty('--pz-inv', String(1 / v.z)); };
         const size = () => {
@@ -3612,7 +3661,7 @@ body.pz-lock{overflow:hidden}`;
         const focus = (fx, fy) => { fit(); const z = v.fit * 3; v.z = z; v.x = view.clientWidth / 2 - fx * w * z; v.y = view.clientHeight / 2 - fy * h * z; v.atFit = false; apply(); };
         // full screen: the plan is lifted out to the page itself (a card's styling can't trap it), and put back after
         let spot = null;
-        const full = on => { if (on && !spot) { spot = document.createComment('pz'); view.before(spot); document.body.appendChild(view); } if (!on && spot) { spot.replaceWith(view); spot = null; } view.classList.toggle('pz-full', on); document.body.classList.toggle('pz-lock', on); const b = ctl.querySelector('[data-pz=full]'); b.textContent = on ? '✕' : '⛶'; b.title = on ? 'Close full screen' : 'Full screen'; requestAnimationFrame(fit); };
+        const full = on => { if (bar) { if (on) view.appendChild(ctl); else bar.appendChild(ctl); } if (on && !spot) { spot = document.createComment('pz'); view.before(spot); document.body.appendChild(view); } if (!on && spot) { spot.replaceWith(view); spot = null; } view.classList.toggle('pz-full', on); document.body.classList.toggle('pz-lock', on); const b = ctl.querySelector('[data-pz=full]'); b.textContent = on ? '✕' : '⛶'; b.title = on ? 'Close full screen' : 'Full screen'; requestAnimationFrame(fit); };
         const onCtl = ev => { const b = ev.target.closest('[data-pz]'); if (!b) return; ev.stopPropagation();
             const k = b.dataset.pz; if (k === 'in') zoomAt(1.4); if (k === 'out') zoomAt(1 / 1.4); if (k === 'fit') fit(); if (k === 'full') full(!view.classList.contains('pz-full')); };
         // dragging and pinching
@@ -3643,7 +3692,7 @@ body.pz-lock{overflow:hidden}`;
         return view._pz;
     }
 
-    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom };
+    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------
@@ -3826,6 +3875,16 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r102', date: '2026-10-31', v: { svc: '2026.10.31-r102', adm: '2026.10.31-a42', cli: '2026.10.31-p57' },
+            svc: ['Buildings: a site can have several buildings, and each floor plan sits under a building. On the floor plan screen, choose the building, then the floor plan in it (both drop-downs can be searched). "+ New building" is in the building drop-down',
+                  'Adding or renaming a floor plan: choose its building ("Rename or move to another building" in the ⋯ menu moves a plan)',
+                  'Station form: choose the building, then the floor plan in it (both can be searched); a station\'s building comes from its floor plan'],
+            adm: ['Sites › each site page › Floor plans: choose the building and the floor plan from drop-downs, with the zoom buttons beside them',
+                  'Sites › Floor plans › "Buildings and floor plans": add, rename and remove buildings, and choose each floor plan\'s building. Removing a building keeps its floor plans (with no building)',
+                  'Sites › Stations: a "Building › floor plan" drop-down on every station to put it on a floor plan (its pin is then placed in the Service App)',
+                  'Reports › Critical limits: amber now means within 20% of the limit (it was 10%), and the insect labels in the red box are gone - use the Insect filter at the top'],
+            cli: ['Floor plans: the plans are grouped by building. When a plan is open, choose the building and the floor plan from drop-downs at the top (both can be searched), with the zoom buttons beside them',
+                  'Reports › Critical limits: amber now means within 20% of the limit (it was 10%), and the insect labels in the red box are gone - use the Insect filter at the top'] },
         { rev: 'r101', date: '2026-10-31', v: { svc: '2026.10.31-r101', cli: '2026.10.31-p56' },
             svc: ['Pest map (A4 PDF): the floor plan sits straight on the white page (no box or shadow round it) and takes up all the room, with a small margin'],
             cli: ['Pest map: the floor plan sits straight on the white page (no box or shadow round it) and takes up all the room, with a small margin'] },
@@ -4543,7 +4602,7 @@ const PR = (() => {
         },
         // Critical limits, station by station and insect by insect, for the months chosen (this month to start with).
         // A limit applies to EACH station linked to it: a station is judged only on its own catches that month.
-        // red = this station caught more than its limit, amber = within 10% of it, green = under.
+        // red = this station caught more than its limit, amber = within 20% of it, green = under.
         // "Breached: Yes" (to start with) shows only the stations that breached, the latest breach first.
         limits(d, s, opts) {
             if (!d.limits.length) return { html: '<div class="pr-empty">No critical limits are set for this site.</div>', csv: [] };
@@ -4559,7 +4618,7 @@ const PR = (() => {
             // one insect at one station in one month: this station's catch against its limit
             const monthOf = (st, rule, mk) => {
                 const mine = stCount(st, rule, mk);
-                const status = mine > rule.max ? 'red' : rule.max > 0 && mine >= rule.max * .9 ? 'amber' : 'green';
+                const status = mine > rule.max ? 'red' : rule.max > 0 && mine >= rule.max * .8 ? 'amber' : 'green';
                 return { mk, mine, status };
             };
             const RANK = { red: 0, amber: 1, green: 2 };
@@ -4632,11 +4691,10 @@ const PR = (() => {
             const lastOf = g => Math.max(-1, ...g.over.flatMap(o => o.months.map(h => h.mk)));
             const glist = Array.from(groups.values()).sort((p, q) => RANK[p.status] - RANK[q.status] || lastOf(q) - lastOf(p));
             const redN = glist.filter(g => g.status === 'red').length;
-            // the summary: one heading, a chip per insect (tap one to show just that insect), then one short line per station
-            // and insect over its limit (the latest first, the first few shown, the rest behind "Show all"), so it stays easy to read
-            // however many breaches there are. Stations only close to a limit are counted on the chips (and listed when none are over).
+            // the summary: one heading, then one short line per station and insect over its limit (the latest first, the first few
+            // shown, the rest behind "Show all"), so it stays easy to read however many breaches there are (the Insect filter above
+            // picks one insect). Stations only close to a limit are listed when none are over.
             const SHOW = 5;
-            const chip = g => `<button type="button" class="pr-ab-chip ${g.status}" data-p="${e(g.species)}" onclick="PR.set(this, 'pest', [this.dataset.p])" title="Show only ${e(g.species)}">${g.status === 'red' ? '🔴' : '🟠'} <b>${e(g.species)}</b>${g.over.length ? ` · ${plural(g.over.length, 'station')} over` : ''}${g.near.length ? ` · ${g.near.length} close` : ''}</button>`;
             const overRows = glist.flatMap(g => g.over.map(o => ({ st: o.st, sp: g.species, max: o.max, h: o.months[0], n: o.months.length, red: true })))
                 .sort((p, q) => q.h.mk - p.h.mk || (q.h.mine - q.max) - (p.h.mine - p.max));
             const list = overRows.length ? overRows : glist.flatMap(g => g.near.map(o => ({ st: o.st, sp: g.species, max: o.max, h: o.h, n: 0, red: false }))).sort((p, q) => q.h.mine / (q.max || 1) - p.h.mine / (p.max || 1));
@@ -4644,7 +4702,6 @@ const PR = (() => {
                 <span class="pr-ab-when">${e(monthLong(x.h.mk))}${x.n > 1 ? ` <span class="pr-faint">· over in ${x.n} months</span>` : ''}</span>
                 <span class="pr-ab-n"><b>${x.h.mine}</b> of ${x.max}${x.red ? ` <span class="pr-ab-over">+${x.h.mine - x.max}</span>` : ''}</span></div>`;
             const alert = glist.length ? `<div class="pr-alert ${redN ? '' : 'pr-alert-amber'}"><b>${redN ? `⚠ ${breachedStsOf(rows)} over a critical limit in ${e(when)}` : `Getting close to a critical limit in ${e(when)}`}</b>
-                <div class="pr-ab-chips">${glist.map(chip).join('')}</div>
                 <div class="pr-ab-list"><div class="pr-ab-row pr-ab-head"><span>Station</span><span>Insect</span><span>${overRows.length ? 'Latest breach' : 'Month'}</span><span>Caught</span></div>
                     ${list.slice(0, SHOW).map(abRow).join('')}
                     ${list.length > SHOW ? `<details class="pr-ab-more"><summary>Show all ${list.length} ${overRows.length ? 'breaches' : 'stations'}</summary>${list.slice(SHOW).map(abRow).join('')}</details>` : ''}</div></div>`
@@ -4658,7 +4715,7 @@ const PR = (() => {
             return {
                 html: kpis([{ v: breachedSts, l: `stations that breached in ${when}`, c: breachedSts ? '#dc2626' : '#16a34a' }, { v: redN, l: 'insects over a station limit', c: redN ? '#dc2626' : '#16a34a' }, { v: breaches.length, l: 'breaches in these months' }, { v: onLimit, l: 'insect stations on a critical limit' }])
                     + alert
-                    + `<div class="pr-legend"><span><i style="background:#16a34a"></i>Under the limit</span><span><i style="background:#d97706"></i>Within 10% of the limit</span><span><i style="background:#dc2626"></i>Over the limit</span><span><i class="pr-dash" style="border-color:#dc2626"></i>Limit</span><span><i style="background:rgba(148,163,184,.3)"></i>Months chosen</span></div>`
+                    + `<div class="pr-legend"><span><i style="background:#16a34a"></i>Under the limit</span><span><i style="background:#d97706"></i>Within 20% of the limit</span><span><i style="background:#dc2626"></i>Over the limit</span><span><i class="pr-dash" style="border-color:#dc2626"></i>Limit</span><span><i style="background:rgba(148,163,184,.3)"></i>Months chosen</span></div>`
                     + `<div class="pr-lims">${cards || `<div class="pr-empty">${onlyBreached ? `No station breached a critical limit in ${e(when)}. 🎉 Choose more months, or Breached: No to see every station.` : 'No insect stations on a critical limit match these filters.'}</div>`}</div>`
                     + `<h4 class="pr-h4">Breaches by station</h4>` + table([{ t: 'Month' }, { t: 'Station' }, { t: 'Critical limit' }, { t: 'Insect' }, { t: 'Caught', num: true }, { t: 'Station limit', num: true }, { t: 'Over by', num: true }],
                         breaches.sort((p, q) => q.mk - p.mk).map(b => ({ _cls: 'pr-late', cells: [e(monthLong(b.mk)), stLink(opts, b.r.st), e(b.r.l.name), e(b.p.rule.species), b.h.mine, b.p.rule.max, b.h.mine - b.p.rule.max] })), { empty: `No breaches in ${e(when)} - every limit was kept. 🎉` }),
@@ -4842,7 +4899,7 @@ const PR = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a41-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a42-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');
@@ -5734,7 +5791,7 @@ const PR = (() => {
             if (Array.isArray(logs)) logs.forEach(l => { const at = Date.parse((l.payload && l.payload.servicedAt) || l.created_at); if (at && !(lastAt.get(l.barcode_id) > at)) lastAt.set(l.barcode_id, at); });
             const limName = id => (Array.isArray(limits) ? limits.find(l => String(l.id) === String(id)) : null) || null;
             const stTile = document.getElementById('asTileStations'); if (stTile) stTile.textContent = Array.isArray(stations) ? stations.length : '-';
-            put('asStations', failed(stations) || (stations.length ? `<div class="overflow-x-auto"><table class="w-full text-left"><thead class="t-faint"><tr><th class="py-1 pr-2">Station</th><th class="py-1 pr-2">Type</th><th class="py-1 pr-2">Critical limit</th><th class="py-1">Last checked</th></tr></thead><tbody>${stations.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' })).map(x => { const t = lastAt.get(x.barcode); const old = !t || Date.now() - t > 45 * 86400000; return `<tr class="border-t divider"><td class="py-1.5 pr-2"><b class="t-strong">${esc(x.name || x.barcode)}</b><div class="t-faint font-mono text-[10px]">${esc(x.barcode)}</div></td><td class="py-1.5 pr-2 t-muted">${esc(x.type || '-')}</td><td class="py-1.5 pr-2 t-muted">${esc(limName(x.limit_id) ? limName(x.limit_id).name : '-')}</td><td class="py-1.5" ${old ? 'style="color:#dc2626;font-weight:700;"' : ''}>${t ? esc(fmtDay(toDayStr(new Date(t)))) : 'Never'}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="row-item p-3 t-faint italic">No stations yet - they are added in the Service App when scanned.</div>'));
+            put('asStations', failed(stations) || (stations.length ? `<div class="overflow-x-auto"><table class="w-full text-left"><thead class="t-faint"><tr><th class="py-1 pr-2">Station</th><th class="py-1 pr-2">Type</th><th class="py-1 pr-2">Critical limit</th><th class="py-1 pr-2">Building › floor plan</th><th class="py-1">Last checked</th></tr></thead><tbody>${stations.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' })).map(x => { const t = lastAt.get(x.barcode); const old = !t || Date.now() - t > 45 * 86400000; return `<tr class="border-t divider"><td class="py-1.5 pr-2"><b class="t-strong">${esc(x.name || x.barcode)}</b><div class="t-faint font-mono text-[10px]">${esc(x.barcode)}</div></td><td class="py-1.5 pr-2 t-muted">${esc(x.type || '-')}</td><td class="py-1.5 pr-2 t-muted">${esc(limName(x.limit_id) ? limName(x.limit_id).name : '-')}</td><td class="py-1.5 pr-2 as-st-plan" data-st-plan="${esc(x.id)}"><span class="t-faint">…</span></td><td class="py-1.5" ${old ? 'style="color:#dc2626;font-weight:700;"' : ''}>${t ? esc(fmtDay(toDayStr(new Date(t)))) : 'Never'}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="row-item p-3 t-faint italic">No stations yet - they are added in the Service App when scanned.</div>'));
             // visits
             const lastTile = document.getElementById('asTileLast'); if (lastTile) lastTile.textContent = Array.isArray(visits) && visits[0] ? fmtDay(String(visits[0].completed_at).slice(0, 10)) : '-';
             const mins = v => { const a = Date.parse(v.signed_in_at || v.started_at), b = Date.parse(v.signed_out_at || v.completed_at); return a && b && b > a ? Math.round((b - a) / 60000) : null; };
@@ -5757,15 +5814,30 @@ const PR = (() => {
             put('asActivity', ev.length ? ev.map(e => `<div class="row-item p-2.5"><b class="t-strong">${esc(e.title || e.action || 'Change')}</b><div class="t-faint">${esc(fmtDay(String(e.at).slice(0, 10)))}${e.technician ? ' · ' + esc(e.technician) : ''}${e.detail ? ' · ' + esc(String(e.detail).slice(0, 140)) : ''}</div></div>`).join('') : '<div class="row-item p-3 t-faint italic">No changes in the last 30 days.</div>');
         }
         // ---------- the site's floor plans, with the heat map (each station's activity in the time frame, for the pests ticked) ----------
-        const adminPlan = { cid: null, maps: [], stations: [], id: null, entries: null, heat: { on: true, period: '12m', pests: [] } };
+        const adminPlan = { cid: null, maps: [], allMaps: [], buildings: [], stations: [], id: null, entries: null, heat: { on: true, period: '12m', pests: [] } };
+        // buildings: each floor plan sits under one ('' = not in a building, or its building has gone); a station is on a floor plan
+        const aBuildingOf = m => m && adminPlan.buildings.some(b => b.id === m.building_id) ? m.building_id : '';
+        const aPlansIn = (id, list) => (list || adminPlan.maps).filter(m => aBuildingOf(m) === (id || ''));
+        const aBuildingName = id => { const b = adminPlan.buildings.find(x => x.id === id); return b ? b.name : ''; };
+        function aBuildingItems(list) {
+            const items = adminPlan.buildings.map(b => [b.id, b.name || 'Building', `${aPlansIn(b.id, list).length} floor plan${aPlansIn(b.id, list).length === 1 ? '' : 's'}`]);
+            if (aPlansIn('', list).length || !adminPlan.buildings.length) items.push(['', adminPlan.buildings.length ? 'Not in a building' : 'All floor plans', `${aPlansIn('', list).length} floor plan${aPlansIn('', list).length === 1 ? '' : 's'}`]);
+            return items;
+        }
         async function loadAdminPlans(cid, stations) {
             const here = () => adminSitePage === cid && adminTab === 'sites';
-            let maps = [];
-            try { const r = await _supabase.from('site_maps').select('*').eq('client_id', String(cid)); if (r.error) throw r.error; maps = (r.data || []).filter(m => !m.deleted && m.image_path); }
+            let maps = [], allMaps = [], buildings = [];
+            try {
+                const [r, rb] = await Promise.all([_supabase.from('site_maps').select('*').eq('client_id', String(cid)), _supabase.from('site_buildings').select('*').eq('client_id', String(cid))]);
+                if (r.error) throw r.error;
+                allMaps = (r.data || []).filter(m => !m.deleted).sort((a, b) => (a.sort || 0) - (b.sort || 0)); maps = allMaps.filter(m => m.image_path);
+                buildings = (rb.data || []).sort((a, b) => (a.sort || 0) - (b.sort || 0) || String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }));
+            }
             catch (e) { const el = document.getElementById('asPlans'); if (el && here()) el.innerHTML = `<div class="row-item p-3" style="color:#dc2626;">Could not load: ${esc(e.message || e)}</div>`; return; }
             if (!here()) return;
-            Object.assign(adminPlan, { cid, maps, stations, id: maps.some(m => m.id === adminPlan.id) ? adminPlan.id : (maps[0] ? maps[0].id : null), entries: null });
+            Object.assign(adminPlan, { cid, maps, allMaps, buildings, stations, id: maps.some(m => m.id === adminPlan.id) ? adminPlan.id : (maps[0] ? maps[0].id : null), entries: null });
             renderAdminPlan();
+            fillAdminStationPlans();
             let logs = [];
             try { logs = await adminFetchAll('service_logs', cid, 'barcode_id, created_at, payload'); } catch (e) {}
             if (!here() || adminPlan.cid !== cid) return;
@@ -5775,13 +5847,13 @@ const PR = (() => {
         async function renderAdminPlan() {
             const box = document.getElementById('asPlans'), maps = adminPlan.maps, h = adminPlan.heat;
             if (!box) return;
-            if (!maps.length) { box.innerHTML = '<div class="row-item p-3 t-faint italic">No floor plans yet - they are added in the Service App.</div>'; return; }
-            const m = maps.find(x => x.id === adminPlan.id) || maps[0];
-            box.innerHTML = `<div class="flex flex-wrap items-center gap-2">${maps.map(x => `<button type="button" class="btn ${x.id === m.id ? 'btn-primary' : 'btn-secondary'} !py-1.5 !px-3 !text-xs" data-id="${esc(x.id)}" onclick="adminPlan.id = this.dataset.id; renderAdminPlan()">🗺️ ${esc(x.name || 'Floor plan')}</button>`).join('')}
+            if (!maps.length) { box.innerHTML = '<div class="row-item p-3 t-faint italic">No floor plans yet - they are added in the Service App.</div>' + adminBuildingsHtml(); return; }
+            const m = maps.find(x => x.id === adminPlan.id) || maps[0], bid = aBuildingOf(m);
+            box.innerHTML = `<div class="as-bar">${PVR.pick({ k: 'b', items: aBuildingItems(), cur: bid, cb: 'adminPickBuilding', search: 'Find a building...' })}${PVR.pick({ k: 'p', items: aPlansIn(bid).map(x => [x.id, x.name || 'Floor plan']), cur: m.id, cb: 'adminPickPlan', search: 'Find a floor plan...' })}<span id="asPlanZoom"></span>
                 <button type="button" class="btn ${h.on ? 'btn-primary' : 'btn-secondary'} !py-1.5 !px-3 !text-xs ml-auto" aria-pressed="${h.on}" onclick="adminPlan.heat.on = !adminPlan.heat.on; renderAdminPlan()" title="Colour the plan by pest activity">🔥 Heat map</button></div>
                 <div id="asHeatBox" class="row-item p-3 ${h.on ? '' : 'hidden'}"></div>
                 <div class="pz-view" id="asPlanView"><div class="pz-stage" id="asPlanStage"><div class="t-faint p-8">Loading floor plan...</div></div></div>
-                <p class="text-[11px] t-faint text-center">Drag to move around · + and − (or the mouse wheel) to zoom · ⛶ for full screen</p>`;
+                <p class="text-[11px] t-faint text-center">Drag to move around · + and − (or the mouse wheel) to zoom · ⛶ for full screen</p>${adminBuildingsHtml()}`;
             let url = null;
             try { const { data } = await _supabase.storage.from(PHOTO_BUCKET).createSignedUrl(m.image_path, 600); url = data && data.signedUrl; } catch (e) {}
             const stage = document.getElementById('asPlanStage');
@@ -5790,9 +5862,72 @@ const PR = (() => {
             const pins = adminPlan.stations.filter(x => String(x.map_id) === String(m.id) && x.pin_x != null && x.pin_y != null);
             stage.innerHTML = `<img src="${esc(url)}" alt="${esc(m.name || 'Floor plan')}">${pins.map(x => `<span class="as-pin" style="left:${x.pin_x * 100}%;top:${x.pin_y * 100}%;" title="${esc(x.name || x.barcode)} · ${esc(x.type || '')}"><span style="background:${stationColor(x.type).color}"></span><em class="as-pin-label" style="color:${stationColor(x.type).color}">${esc(x.name || x.barcode)}</em></span>`).join('')}`;
             const img = stage.querySelector('img');
-            const ready = () => { if (!img.isConnected) return; PVR.panZoom(document.getElementById('asPlanView'), stage, img.naturalWidth, img.naturalHeight); drawAdminPlanHeat(); };
+            const ready = () => { if (!img.isConnected) return; PVR.panZoom(document.getElementById('asPlanView'), stage, img.naturalWidth, img.naturalHeight, { bar: document.getElementById('asPlanZoom') }); drawAdminPlanHeat(); };
             drawAdminPlanHeat();
             if (img.complete && img.naturalWidth) ready(); else img.addEventListener('load', ready, { once: true });
+        }
+        function adminPickBuilding(id) { const p = aPlansIn(id); if (p.length) { adminPlan.id = p[0].id; renderAdminPlan(); } }
+        function adminPickPlan(id) { adminPlan.id = id; renderAdminPlan(); }
+        // managing buildings: add, rename, remove; and which building each floor plan is in
+        function adminBuildingsHtml() {
+            const bs = adminPlan.buildings, ms = adminPlan.allMaps, btn = (t, on) => `<button type="button" class="btn btn-secondary !py-1 !px-2.5 !text-[11px]" onclick="${on}">${t}</button>`;
+            return `<details class="as-bmgr" ${adminPlan.mgrOpen ? 'open' : ''} ontoggle="adminPlan.mgrOpen = this.open"><summary>🏢 Buildings and floor plans <span>${bs.length} building${bs.length === 1 ? '' : 's'} · ${ms.length} floor plan${ms.length === 1 ? '' : 's'}</span></summary>
+                <div class="as-bmgr-body"><div class="space-y-1.5"><div class="eyebrow t-faint">Buildings</div>
+                    ${bs.map(b => `<div class="row-item p-2.5 flex flex-wrap items-center justify-between gap-2"><span><b class="t-strong">${esc(b.name)}</b> <span class="t-faint">· ${aPlansIn(b.id, ms).length} floor plan${aPlansIn(b.id, ms).length === 1 ? '' : 's'}</span></span>
+                        <span class="flex gap-1.5">${btn('Rename', `adminRenameBuilding('${esc(b.id)}')`)}${btn('Remove', `adminDeleteBuilding('${esc(b.id)}')`)}</span></div>`).join('') || '<div class="row-item p-2.5 t-faint italic">No buildings yet.</div>'}
+                    <div>${btn('+ New building', 'adminAddBuilding()')}</div></div>
+                <div class="space-y-1.5"><div class="eyebrow t-faint">Each floor plan's building</div>
+                    ${ms.map(m => `<div class="row-item p-2.5 flex flex-wrap items-center justify-between gap-2"><b class="t-strong">${esc(m.name || 'Floor plan')}</b>${PVR.pick({ k: m.id, items: bs.map(b => [b.id, b.name]), all: 'Not in a building', cur: aBuildingOf(m), cb: 'adminPlanSetBuilding', search: 'Find a building...' })}</div>`).join('') || '<div class="row-item p-2.5 t-faint italic">No floor plans yet - they are added in the Service App.</div>'}</div>
+                <p class="text-[11px] t-faint">A station's building comes from its floor plan: choose each station's floor plan in the Stations box above (or in the Service App).</p></div></details>`;
+        }
+        const aNewId = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2));
+        async function adminPlanChanged(title) { const cid = adminPlan.cid; adminPlan.mgrOpen = true; try { await queueSiteChange({ client_id: cid, action: 'floor_plan', title }); } catch (e) {} adminToast('Saved'); loadAdminSitePage(cid); }
+        async function adminAddBuilding() {
+            const name = (prompt('Name of the new building (for example Building A, Warehouse):') || '').trim();
+            if (!name) return;
+            if (adminPlan.buildings.some(b => String(b.name).toLowerCase() === name.toLowerCase())) { alert(`There's already a building called "${name}".`); return; }
+            const sort = adminPlan.buildings.length ? Math.max(...adminPlan.buildings.map(b => b.sort || 0)) + 1 : 1;
+            const { error } = await _supabase.from('site_buildings').insert([{ id: aNewId(), client_id: String(adminPlan.cid), name, sort, created_by: technicianLabel() }]);
+            if (error) { alert('Could not add the building: ' + error.message); return; }
+            adminPlanChanged(`Building "${name}" added in Admin`);
+        }
+        async function adminRenameBuilding(id) {
+            const b = adminPlan.buildings.find(x => x.id === id); if (!b) return;
+            const name = (prompt('New name for the building:', b.name) || '').trim();
+            if (!name || name === b.name) return;
+            const { error } = await _supabase.from('site_buildings').update({ name, updated_at: new Date().toISOString() }).eq('id', id);
+            if (error) { alert('Could not rename the building: ' + error.message); return; }
+            adminPlanChanged(`Building "${b.name}" renamed to "${name}" in Admin`);
+        }
+        async function adminDeleteBuilding(id) {
+            const b = adminPlan.buildings.find(x => x.id === id); if (!b) return;
+            const n = aPlansIn(id, adminPlan.allMaps).length;
+            if (!confirm(`Remove the building "${b.name}"?${n ? `\n\nIts ${n} floor plan${n === 1 ? '' : 's'} stay, with no building, and their stations stay on them.` : ''}`)) return;
+            const { error } = await _supabase.from('site_buildings').delete().eq('id', id);
+            if (error) { alert('Could not remove the building: ' + error.message); return; }
+            adminPlanChanged(`Building "${b.name}" removed in Admin`);
+        }
+        async function adminPlanSetBuilding(bid, planId) {
+            const m = adminPlan.allMaps.find(x => x.id === planId); if (!m || (bid || '') === aBuildingOf(m)) return;
+            const { error } = await _supabase.from('site_maps').update({ building_id: bid || null, updated_at: new Date().toISOString() }).eq('id', planId);
+            if (error) { alert('Could not move the floor plan: ' + error.message); return; }
+            adminPlanChanged(`Floor plan "${m.name}" moved to ${aBuildingName(bid) || 'no building'} in Admin`);
+        }
+        // each station's floor plan (its building comes with it); a station moved to another plan is placed on it again in the Service App
+        function fillAdminStationPlans() {
+            const items = adminPlan.allMaps.map(m => [m.id, m.name || 'Floor plan', aBuildingName(aBuildingOf(m)) || (adminPlan.buildings.length ? 'Not in a building' : '')]);
+            document.querySelectorAll('#asStations [data-st-plan]').forEach(td => {
+                const st = adminPlan.stations.find(x => x.id === td.dataset.stPlan); if (!st) return;
+                td.innerHTML = PVR.pick({ k: st.id, items, all: 'Not on a floor plan', cur: st.map_id || '', cb: 'adminStationSetPlan', search: 'Find a building or floor plan...', cls: 'as-st-pick' });
+            });
+        }
+        async function adminStationSetPlan(mapId, stId) {
+            const st = adminPlan.stations.find(x => x.id === stId); if (!st || (mapId || '') === (st.map_id || '')) return;
+            const m = adminPlan.allMaps.find(x => x.id === mapId);
+            if (st.pin_x != null && !confirm(`Move ${st.name || st.barcode} to ${m ? `"${m.name}"` : 'no floor plan'}?\n\nIts pin comes off its current plan${m ? ' - place it on the new plan in the Service App' : ''}.`)) { fillAdminStationPlans(); return; }
+            const { error } = await _supabase.from('stations').update({ map_id: mapId || null, pin_x: null, pin_y: null, updated_at: new Date().toISOString() }).eq('id', stId);
+            if (error) { alert('Could not change the floor plan: ' + error.message); fillAdminStationPlans(); return; }
+            adminPlanChanged(`${st.name || st.barcode} put on ${m ? `"${m.name}"${aBuildingName(aBuildingOf(m)) ? ' in ' + aBuildingName(aBuildingOf(m)) : ''}` : 'no floor plan'} in Admin`);
         }
         function adminPlanHeatSet(k, v, on) { PVR.heatTick(adminPlan.heat, k, v, on); drawAdminPlanHeat(); }
         function drawAdminPlanHeat() {

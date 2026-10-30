@@ -344,6 +344,12 @@ const PVR = (() => {
 .heat-list{max-height:14rem;overflow-y:auto}
 .heat-list label{display:flex;align-items:center;gap:.45rem;padding:.3rem .4rem;border-radius:.35rem;cursor:pointer;font-weight:600}.heat-list label:hover{background:var(--surface2,#f1f5f9)}
 .heat-list input{width:15px;height:15px;accent-color:#ea580c}
+.pv-opt{display:flex;flex-direction:column;width:100%;text-align:left;font:inherit;font-size:12.5px;font-weight:700;color:var(--text,#0f172a);background:none;border:0;border-radius:.35rem;padding:.4rem .5rem;cursor:pointer}
+.pv-opt:hover,.pv-opt:focus-visible{background:var(--surface2,#f1f5f9);outline:none}.pv-opt.on{color:#ea580c}.pv-opt small{font-size:10.5px;font-weight:600;color:var(--faint,#64748b)}
+.pv-foot{display:block;width:100%;margin-top:.3rem;border-top:1px solid var(--border,#cbd5e1);padding:.45rem .5rem .2rem;text-align:left;font:inherit;font-size:12px;font-weight:800;color:#ea580c;background:none;border-left:0;border-right:0;border-bottom:0;cursor:pointer}
+.pv-pick .heat-dd-btn{font-size:13px;font-weight:800;padding-top:.45rem;padding-bottom:.45rem}
+.pz-ctl.pz-bar{position:static;flex-direction:row;gap:.3rem}.pz-ctl.pz-bar button{width:2.1rem;height:2.1rem}
+.pz-view.pz-full>.pz-ctl.pz-bar{position:absolute;right:.5rem;top:.5rem;flex-direction:column}
 .heat-ctrls{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem .9rem}
 .heat-key{display:flex;flex-direction:column;gap:.35rem;flex:0 1 26rem;min-width:14rem}.heat-scale{display:flex;align-items:center;gap:.5rem;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#64748b);white-space:nowrap}.heat-scale .heat-bar{flex:1}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
 .heat-bar-l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--faint,#64748b)}.heat-sum{font-weight:700;color:var(--muted,#475569);text-align:right}
@@ -360,6 +366,8 @@ body.pz-lock{overflow:hidden}`;
         document.head.appendChild(s);
         // tapping anywhere else closes an open pest list
         document.addEventListener('pointerdown', ev => { document.querySelectorAll('.heat-dd-pop:not([hidden])').forEach(p => { if (!p.parentElement.contains(ev.target)) p.hidden = true; }); });
+        // a list floating above the page closes when the page under it scrolls (its own list scrolling is fine)
+        document.addEventListener('scroll', ev => { document.querySelectorAll('.heat-dd-pop:not([hidden])').forEach(p => { if (p.style.position === 'fixed' && !(ev.target instanceof Node && p.contains(ev.target))) p.hidden = true; }); }, true);
     }
     function heatPanel(cb, st, pests, pts) {
         heatCss();
@@ -381,13 +389,42 @@ body.pz-lock{overflow:hidden}`;
     function heatOpen(el, open) {
         const pop = el.closest('.heat-dd').querySelector('.heat-dd-pop');
         pop.hidden = open === false ? true : open === true ? false : !pop.hidden;
-        // kept on the screen (a phone's right-hand edge)
-        if (!pop.hidden) { pop.style.left = '0px'; const r = pop.getBoundingClientRect(), over = r.right - (window.innerWidth - 8); if (over > 0) pop.style.left = -Math.min(over, r.left - 8) + 'px'; }
+        // kept on the screen (a phone's right-hand edge); inside something that scrolls or clips (a table, a sheet) it floats above it instead
+        if (!pop.hidden) {
+            pop.style.position = ''; pop.style.top = ''; pop.style.left = '0px';
+            let clip = false;
+            for (let a = pop.parentElement.parentElement; a && a !== document.body; a = a.parentElement) { const cs = getComputedStyle(a); if (/(auto|scroll|hidden)/.test(cs.overflowX + cs.overflowY)) { clip = true; break; } }
+            if (clip) {
+                const b = el.closest('.heat-dd').getBoundingClientRect();
+                pop.style.position = 'fixed'; pop.style.left = Math.max(8, Math.min(b.left, window.innerWidth - 8 - pop.offsetWidth)) + 'px';
+                pop.style.top = (b.bottom + 4 + pop.offsetHeight > window.innerHeight - 8 ? Math.max(8, b.top - 4 - pop.offsetHeight) : b.bottom + 4) + 'px';
+            } else { const r = pop.getBoundingClientRect(), over = r.right - (window.innerWidth - 8); if (over > 0) pop.style.left = -Math.min(over, r.left - 8) + 'px'; }
+        }
         if (!pop.hidden) { const q = pop.querySelector('input[type=search]'); if (q && window.matchMedia && window.matchMedia('(pointer: fine)').matches) q.focus(); }
     }
     function heatFilter(input) {
         const q = input.value.trim().toLowerCase(), box = input.closest('.heat-dd-pop');
-        if (box) box.querySelectorAll('.heat-list label').forEach(l => { l.style.display = !q || l.dataset.q.includes(q) ? '' : 'none'; });
+        if (box) box.querySelectorAll('.heat-list [data-q]').forEach(l => { l.style.display = !q || l.dataset.q.includes(q) ? '' : 'none'; });
+    }
+    // ---------- A drop-down you can search, for one choice (a building, a floor plan) ----------
+    // o = { k, items: [[value, text, small text], ..], cur, cb (name of the app's function, called cb(value, k)), all (text for "none chosen", optional),
+    //       label (shown above it, optional), search (placeholder), foot (more HTML at the bottom of the list, e.g. "+ New building"), cls }
+    function pick(o) {
+        heatCss();
+        const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const items = (o.all != null ? [['', o.all]] : []).concat(o.items || []);
+        const cur = items.find(x => String(x[0]) === String(o.cur == null ? '' : o.cur));
+        const txt = cur ? cur[1] : (o.none || 'Choose...');
+        const dd = `<div class="heat-dd pv-pick ${esc(o.cls || '')}" data-cb="${esc(o.cb)}" data-k="${esc(o.k || '')}">
+            <button type="button" class="heat-dd-btn" onclick="PVR.heatOpen(this)" aria-haspopup="listbox" title="${esc(txt)}">${esc(txt)}</button>
+            <div class="heat-dd-pop" hidden><input type="search" placeholder="${esc(o.search || 'Type to search...')}" aria-label="Search" oninput="PVR.heatFilter(this)">
+                <div class="heat-list" role="listbox">${items.map(x => `<button type="button" role="option" class="pv-opt ${cur && String(cur[0]) === String(x[0]) ? 'on' : ''}" data-v="${esc(x[0])}" data-q="${esc(String(x[1] + ' ' + (x[2] || '')).toLowerCase())}" onclick="PVR.pickGo(this)">${esc(x[1])}${x[2] ? `<small>${esc(x[2])}</small>` : ''}</button>`).join('') || '<div class="heat-bar-l" style="padding:.4rem">Nothing here yet</div>'}</div>${o.foot || ''}</div></div>`;
+        return o.label ? `<div class="heat-f pv-f"><span>${esc(o.label)}</span>${dd}</div>` : dd;
+    }
+    function pickGo(b) {
+        const dd = b.closest('.pv-pick'); dd.querySelector('.heat-dd-pop').hidden = true;
+        const name = String(dd.dataset.cb || ''), fn = name.split('.').reduce((o, k) => o && o[k], window);
+        if (typeof fn === 'function') fn(b.dataset.v, dd.dataset.k);
     }
     // puts the controls in box again, keeping the pest list open, what was typed in its search and where it was scrolled to
     function heatMount(box, html) {
@@ -409,16 +446,18 @@ body.pz-lock{overflow:hidden}`;
     // ---------- A floor plan you can move around: drag it, zoom in and out (buttons, the mouse wheel, two fingers), Fit, and Full screen ----------
     // view (.pz-view) holds stage (.pz-stage: the plan picture, the heat map and the pins, placed in shares of the plan); w x h is the
     // plan's size. Pins stay the same size on screen at every zoom (CSS var --pz-inv). A tap on a pin still works; a drag doesn't tap.
-    function panZoom(view, stage, w, h) {
+    // opts.bar: an element (e.g. in the plan's top bar) to hold the zoom buttons instead of the plan's corner (they move onto the plan in full screen)
+    function panZoom(view, stage, w, h, opts) {
         heatCss();
         if (view._pz) view._pz.stop();
+        const bar = opts && opts.bar;
         const v = { z: 1, x: 0, y: 0, fit: 1, atFit: true };
         stage.style.width = w + 'px'; stage.style.height = h + 'px';
-        let ctl = view.querySelector(':scope > .pz-ctl');
+        let ctl = bar ? bar.querySelector('.pz-ctl') : view.querySelector(':scope > .pz-ctl');
         if (!ctl) {
-            ctl = document.createElement('div'); ctl.className = 'pz-ctl';
+            ctl = document.createElement('div'); ctl.className = 'pz-ctl' + (bar ? ' pz-bar' : '');
             ctl.innerHTML = '<button type="button" data-pz="in" title="Zoom in" aria-label="Zoom in">+</button><button type="button" data-pz="out" title="Zoom out" aria-label="Zoom out">−</button><button type="button" data-pz="fit" class="pz-fit" title="Show the whole plan" aria-label="Show the whole plan">FIT</button><button type="button" data-pz="full" title="Full screen" aria-label="Full screen">⛶</button>';
-            view.appendChild(ctl);
+            (bar || view).appendChild(ctl);
         }
         const apply = () => { stage.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`; stage.style.setProperty('--pz-inv', String(1 / v.z)); };
         const size = () => {
@@ -440,7 +479,7 @@ body.pz-lock{overflow:hidden}`;
         const focus = (fx, fy) => { fit(); const z = v.fit * 3; v.z = z; v.x = view.clientWidth / 2 - fx * w * z; v.y = view.clientHeight / 2 - fy * h * z; v.atFit = false; apply(); };
         // full screen: the plan is lifted out to the page itself (a card's styling can't trap it), and put back after
         let spot = null;
-        const full = on => { if (on && !spot) { spot = document.createComment('pz'); view.before(spot); document.body.appendChild(view); } if (!on && spot) { spot.replaceWith(view); spot = null; } view.classList.toggle('pz-full', on); document.body.classList.toggle('pz-lock', on); const b = ctl.querySelector('[data-pz=full]'); b.textContent = on ? '✕' : '⛶'; b.title = on ? 'Close full screen' : 'Full screen'; requestAnimationFrame(fit); };
+        const full = on => { if (bar) { if (on) view.appendChild(ctl); else bar.appendChild(ctl); } if (on && !spot) { spot = document.createComment('pz'); view.before(spot); document.body.appendChild(view); } if (!on && spot) { spot.replaceWith(view); spot = null; } view.classList.toggle('pz-full', on); document.body.classList.toggle('pz-lock', on); const b = ctl.querySelector('[data-pz=full]'); b.textContent = on ? '✕' : '⛶'; b.title = on ? 'Close full screen' : 'Full screen'; requestAnimationFrame(fit); };
         const onCtl = ev => { const b = ev.target.closest('[data-pz]'); if (!b) return; ev.stopPropagation();
             const k = b.dataset.pz; if (k === 'in') zoomAt(1.4); if (k === 'out') zoomAt(1 / 1.4); if (k === 'fit') fit(); if (k === 'full') full(!view.classList.contains('pz-full')); };
         // dragging and pinching
@@ -471,7 +510,7 @@ body.pz-lock{overflow:hidden}`;
         return view._pz;
     }
 
-    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom };
+    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------

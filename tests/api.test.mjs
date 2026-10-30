@@ -200,6 +200,19 @@ try {
   ok(!r.error && r.data[0].updated_by === 'Cara · Acme (client)', 'client adds contact to own site', r);
   r = await cl.from('site_contacts').insert([{ client_id: '2', name: 'Nope' }]);
   ok(r.error && r.error.code === '42501', 'not to another site', r.error);
+  // buildings: staff add them and put floor plans under them; a client login reads its own site's, and can't change them
+  r = await tech.from('site_buildings').insert([{ id: 'bA', client_id: '1', name: 'Building A' }, { id: 'bZ', client_id: '2', name: 'Other site building' }]).select('*');
+  ok(!r.error && r.data.length === 2, 'staff add buildings', r.error);
+  r = await tech.from('site_maps').insert([{ id: 'mapB1', client_id: '1', name: 'Internal', building_id: 'bA' }]).select('*');
+  ok(!r.error && r.data[0].building_id === 'bA', 'a floor plan sits under a building', r);
+  r = await cl.from('site_buildings').select('id, name');
+  ok(!r.error && JSON.stringify(r.data.map(x => x.id)) === '["bA"]', "a client login reads its own site's buildings only", r);
+  r = await cl.from('site_buildings').insert([{ id: 'bC', client_id: '1', name: 'Client building' }]);
+  ok(r.error && r.error.code === '42501', 'a client login cannot add a building', r.error);
+  await tech.from('site_buildings').delete().eq('id', 'bA');
+  r = await tech.from('site_maps').select('building_id').eq('id', 'mapB1');
+  ok(!r.error && r.data[0].building_id === null, 'a building removed: its floor plans stay, with no building', r);
+  await tech.from('site_maps').delete().eq('id', 'mapB1'); await tech.from('site_buildings').delete().eq('id', 'bZ');
   r = await cl.rpc('portal_update_recommendation', { p_rec_id: 'rec-a', p_status: 'pending', p_note: 'Not fixed', p_photos: ['1/CLIENT_x.jpg'] });
   ok(!r.error && r.data.status === 'pending', 'client updates a rec', r);
   r = await cl.rpc('portal_update_recommendation', { p_rec_id: 'rec-b', p_status: 'pending', p_note: 'x' });
