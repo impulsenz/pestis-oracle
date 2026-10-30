@@ -3,6 +3,15 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r98', date: '2026-10-31', v: { svc: '2026.10.31-r98', adm: '2026.10.31-a40', cli: '2026.10.31-p53' },
+            svc: ['Floor plans: the heat map pests are a compact drop-down - tap it, search, and tick the pests you want'],
+            adm: ['Sites › Floor plans: drag the plan to move around, zoom in and out (+ and −, or the mouse wheel), FIT to see the whole plan, and ⛶ for full screen',
+                  'Floor plans: the heat map pests are a compact drop-down - tap it, search, and tick the pests you want',
+                  'Reports › Critical limits: the red box is easier to read with lots of breaches - a chip for each insect (tap one to show just that insect), then one line per station with its latest breach, and "Show all" for the rest'],
+            cli: ['Floor plans: drag the plan to move around, zoom in and out (+ and −, two fingers, or the mouse wheel), FIT to see the whole plan, and ⛶ for full screen',
+                  'Floor plans: the heat map pests are a compact drop-down - tap it, search, and tick the pests you want',
+                  'Reports › Critical limits: the red box is easier to read with lots of breaches - a chip for each insect (tap one to show just that insect), then one line per station with its latest breach, and "Show all" for the rest',
+                  'Fixed: a notification now goes away once you tap it (critical limit notifications stayed)'] },
         { rev: 'r97', date: '2026-10-31', v: { svc: '2026.10.31-r97', adm: '2026.10.31-a39', cli: '2026.10.31-p52' },
             svc: ['Floor plans: a Heat map tick box colours the plan by pest activity (blue for a little, up to red for the most) - choose the time frame, and tick the pests to show (type to search them)'],
             adm: ['Sites › each site page: a new Floor plans box shows each plan with its stations and a heat map of pest activity - choose the time frame and tick the pests to show',

@@ -301,12 +301,15 @@ try {
   await lc.goto(`${BASE}/client.html#/site/${sid}/overview`); await sleep(3500);
   const limBell = await lc.evaluate("bellItems(true).filter(i => i.key.startsWith('lim:')).map(i => i.sub)");
   ok(limBell.length === 1 && /Blowfly: 7 this month/.test(limBell[0]), 'limit notification: per station - only Blowfly at the Dock is over; stations under their own limit and a rodent station never count', limBell);
+  // tapping the notification opens the report, and the notification goes away
+  await lc.evaluate(() => { toggleBell(); const b = Array.from(document.querySelectorAll('#bellPanel button[data-key^="lim:"]'))[0]; b.click(); }); await sleep(1000);
+  ok((await lc.evaluate("bellItems().filter(i => i.key.startsWith('lim:')).length")) === 0 && (await lc.evaluate("state.tab")) === 'reports', 'limit notification: tapping it opens the critical limits report and clears it');
   await lc.evaluate("openLimitReport('ILT-E1')"); await sleep(1000);
   const lim = await lc.evaluate(() => ({ filters: Array.from(document.querySelectorAll('.pr-f')).map(f => f.textContent.replace(/\s+/g, ' ').trim()),
     alert: (document.querySelector('.pr-alert') || {}).innerText || '', pests: Array.from(document.querySelectorAll('.pr-lim-p > .pr-lim-ph b')).map(b => b.textContent) }));
   ok(!lim.filters.some(f => /^Month/.test(f)) && lim.filters.some(f => /Insect/.test(f)), 'critical limits: no month filter, an insect filter', lim.filters);
   ok(lim.filters.some(f => /Flying Insect Monitoring/.test(f)) && !lim.filters.some(f => /Rodent/.test(f)), 'critical limits: only insect station types', lim.filters);
-  ok(/Blowfly\s+Over at: Dock ILT \([A-Z][a-z]+ \d{4}: 7 of 5\)/.test(lim.alert) && !/House Fly/.test(lim.alert), 'critical limits: the alert names the insect, the station over its own limit, and the month', lim.alert);
+  ok(/Blowfly · 1 station over/.test(lim.alert) && /Dock ILT\s+Blowfly\s+[A-Z][a-z]+ \d{4}\s+7 of 5 \+2/.test(lim.alert) && !/House Fly/.test(lim.alert), 'critical limits: the alert names the insect, the station over its own limit, and the month', lim.alert);
   ok(lim.pests[0] === 'Blowfly' && lim.pests.includes('House Fly'), 'critical limits: a section per insect, the one over first', lim.pests);
   ok(lim.filters.some(f => /^From/.test(f)) && lim.filters.some(f => /^To/.test(f)) && lim.filters.some(f => /^Breached.*Yes/.test(f)), 'critical limits: From and To months, and Breached (Yes to start with)', lim.filters);
   // Breached: Yes shows only the stations that breached; No shows every insect station on a limit
@@ -428,13 +431,54 @@ try {
   const heat1 = await hp.evaluate(() => ({ layer: !!document.querySelector('#planStage canvas.heat-layer'), sum: (document.querySelector('#planHeatBox .heat-sum') || {}).textContent }));
   ok(heat1.layer && /^4 stations with activity · most at Dock ILT/.test(heat1.sum) && (await px('#planStage .heat-layer', .25, .3)) > 0 && !(await px('#planStage .heat-layer', .1, .8)), 'portal heat map: drawn over the plan, hot where there was activity and not at a quiet station', heat1);
   await hp.screenshot({ path: SHOTS + '/heat-portal-390.png', fullPage: true });
-  await hp.evaluate("planHeatSet('pest', 'Rat', true)"); await sleep(300);
+  // the pests are a drop-down with tick boxes and a search; it stays open while ticking
+  await hp.click('#planHeatBox .heat-dd-btn'); await sleep(200);
+  await hp.fill('#planHeatBox .heat-dd-pop input[type=search]', 'ra'); await sleep(100);
+  const ddShown = await hp.evaluate(() => Array.from(document.querySelectorAll('#planHeatBox .heat-list label')).filter(l => l.style.display !== 'none').map(l => l.textContent.trim()));
+  await hp.screenshot({ path: SHOTS + '/heat-dropdown-390.png' });
+  await hp.click('#planHeatBox .heat-list input[value="Rat"]'); await sleep(300);
+  const dd = await hp.evaluate(() => ({ open: !document.querySelector('#planHeatBox .heat-dd-pop').hidden, btn: document.querySelector('#planHeatBox .heat-dd-btn').textContent, q: document.querySelector('#planHeatBox .heat-dd-pop input[type=search]').value }));
+  ok(JSON.stringify(ddShown) === '["Rat"]' && dd.open && dd.btn === 'Rat' && dd.q === 'ra', 'heat map: pests are a drop-down with a search and tick boxes, kept open while ticking', { ddShown, dd });
+  await hp.click('#planHeatBox .heat-done'); await sleep(200);
+  ok(await hp.evaluate(() => document.querySelector('#planHeatBox .heat-dd-pop').hidden), 'heat map: Done closes the pest drop-down');
+  // the plan can be zoomed and dragged; a drag doesn't open a station, a tap on a pin does
+  const zoomOf = () => hp.evaluate(() => { const m = /scale\(([\d.]+)\)/.exec(document.getElementById('planStage').style.transform); return m ? Number(m[1]) : null; });
+  const z0 = await zoomOf();
+  await hp.click('#planView .pz-ctl [data-pz=in]'); await sleep(200);
+  const z1 = await zoomOf();
+  await hp.evaluate(() => document.getElementById('planView').scrollIntoView({ block: 'center' })); await sleep(200);
+  const box = await hp.evaluate(() => { const r = document.getElementById('planView').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+  const tr0 = await hp.evaluate(() => document.getElementById('planStage').style.transform);
+  await hp.mouse.move(box.x - 60, box.y); await hp.mouse.down(); await hp.mouse.move(box.x + 40, box.y + 20, { steps: 8 }); await hp.mouse.up(); await sleep(300);
+  const tr1 = await hp.evaluate(() => document.getElementById('planStage').style.transform);
+  const opened = await hp.evaluate(() => !document.getElementById('modal').classList.contains('hidden'));
+  ok(z0 > 0 && z1 > z0 * 1.3 && tr0 !== tr1 && !opened, 'floor plan: + zooms in, dragging moves it (and does not open a station)', { z0, z1, tr0, tr1, opened });
+  await hp.click('#planView .pz-ctl [data-pz=full]'); await sleep(300);
+  const full = await hp.evaluate(() => { const r = document.getElementById('planView').getBoundingClientRect(); return { full: document.getElementById('planView').classList.contains('pz-full'), w: r.width, h: r.height }; });
+  await hp.screenshot({ path: SHOTS + '/plan-full-390.png' });
+  await hp.keyboard.press('Escape'); await sleep(200);
+  ok(full.full && full.w === 390 && full.h > 800 && !(await hp.evaluate(() => document.getElementById('planView').classList.contains('pz-full'))), 'floor plan: full screen fills the screen, Escape closes it', full);
+  await hp.click('#planView .pz-ctl [data-pz=fit]'); await sleep(200);
+  await hp.evaluate("planHeatSet('pests', [])"); await hp.evaluate("planHeatSet('pest', 'Rat', true)"); await sleep(300);
   const heat2 = await hp.evaluate(() => (document.querySelector('#planHeatBox .heat-sum') || {}).textContent);
   ok(/^1 station with activity · most at Store trap/.test(heat2) && (await px('#planStage .heat-layer', .7, .6)) > 0 && !(await px('#planStage .heat-layer', .25, .3)), 'portal heat map: ticking a pest shows only its activity', heat2);
   await hp.evaluate("planHeatSet('period', '1m')"); await sleep(300);
   ok(/^1 station/.test(await hp.evaluate(() => document.querySelector('#planHeatBox .heat-sum').textContent)), 'portal heat map: the time frame can be changed');
   await hp.setViewportSize({ width: 1280, height: 900 }); await sleep(400);
   await hp.screenshot({ path: SHOTS + '/heat-portal-1280.png', fullPage: true });
+  // the critical limits box stays readable with lots of breaches: a chip per insect, the first few lines, then Show all
+  await api(b2)('site_limits', { op: 'insert', values: [{ id: 'limH', client_id: hid, name: 'Production', rules: [{ species: 'Blowfly', max: 5 }, { species: 'House Fly', max: 10 }] }] });
+  await api(t2)('stations', { op: 'insert', values: Array.from({ length: 8 }, (_, i) => ({ id: 'hm' + i, client_id: hid, barcode: 'ILT-M' + i, name: 'Line ' + (i + 1) + ' ILT', type: 'Flying Insect Monitoring', limit_id: 'limH' })) });
+  await api(t2)('service_logs', { op: 'insert', values: Array.from({ length: 8 }, (_, i) => hlg('ILT-M' + i, 'Line ' + (i + 1) + ' ILT', 'Flying Insect Monitoring', 1, { activityLevel: 'Caught', speciesCaught: 'Blowfly', pestCount: 6 + i, morePests: i < 3 ? [{ species: 'House Fly', count: 12 }] : [] })) });
+  await hp.evaluate('loadSite && loadSite(state.site.id)').catch(() => {}); await hp.reload(); await sleep(3500);
+  await hp.evaluate("openLimitReport('ILT-M0')"); await sleep(800);
+  await hp.evaluate("PR.show(state.prBox, 'limits', { station: [] })"); await sleep(600);
+  const ab = await hp.evaluate(() => ({ chips: Array.from(document.querySelectorAll('.pr-ab-chip')).map(c => c.textContent.trim()), rows: document.querySelectorAll('.pr-ab-list > .pr-ab-row:not(.pr-ab-head)').length, more: (document.querySelector('.pr-ab-more summary') || {}).textContent, first: (document.querySelector('.pr-ab-list > .pr-ab-row:not(.pr-ab-head)') || {}).innerText }));
+  await hp.evaluate(() => document.querySelector('.pr-alert').scrollIntoView()); await hp.screenshot({ path: SHOTS + '/limits-box-1280.png' });
+  await hp.setViewportSize({ width: 390, height: 900 }); await sleep(300); await hp.evaluate(() => document.querySelector('.pr-alert').scrollIntoView()); await hp.screenshot({ path: SHOTS + '/limits-box-390.png' }); await hp.setViewportSize({ width: 1280, height: 900 });
+  ok(ab.chips.some(c => /Blowfly · 8 stations over/.test(c)) && ab.chips.some(c => /House Fly · 3 stations over/.test(c)) && ab.rows === 5 && ab.more === 'Show all 11 breaches' && /Line 8 ILT/.test(ab.first), 'critical limits box: a chip per insect, 5 lines (the most over first), Show all for the rest', ab);
+  await hp.evaluate(() => document.querySelector('.pr-ab-chip[data-p="House Fly"]').click()); await sleep(400);
+  ok((await hp.evaluate(() => document.querySelectorAll('.pr-lim').length)) === 3, 'critical limits box: tapping an insect chip shows just that insect');
   ok(hp.errors.length === 0, 'tick-box filters and portal heat map: no errors', hp.errors);
   // Admin: the site page shows its floor plans with the heat map
   await ad.reload(); await sleep(4000);

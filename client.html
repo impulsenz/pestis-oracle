@@ -186,12 +186,10 @@
         .legend-key i { width: .9rem; height: 3px; border-radius: 2px; display: inline-block; }
 
         /* Floor plan */
-        .plan-stage { position: relative; display: inline-block; max-width: 100%; }
-        .plan-stage img { display: block; max-width: 100%; max-height: 70vh; border-radius: .6rem; }
         .plan-pin.plan-focus { z-index: 5; }
         .plan-pin.plan-focus::after { content: ''; position: absolute; left: 50%; top: 100%; width: 2.6rem; height: 2.6rem; margin: -1.3rem 0 0 -1.3rem; border-radius: 999px; border: 3px solid #dc2626; animation: planFocus 1.4s ease-out infinite; pointer-events: none; }
         @keyframes planFocus { from { transform: scale(.5); opacity: 1; } to { transform: scale(1.6); opacity: 0; } }
-        .plan-pin { position: absolute; transform: translate(-50%, -100%); cursor: pointer; background: none; border: 0; padding: 0; }
+        .plan-pin { position: absolute; transform: translate(-50%, -100%) scale(var(--pz-inv, 1)); transform-origin: 50% 100%; cursor: pointer; background: none; border: 0; padding: 0; }
         .plan-pin span { display: block; width: 20px; height: 20px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 3px 8px -2px rgba(0, 0, 0, .6); }
         .plan-pin.overdue span { outline: 3px solid #dc2626; outline-offset: 1px; }
         .rec-card.rec-unread { outline: 3px solid rgb(var(--b500)); outline-offset: -1px; box-shadow: 0 0 0 6px rgb(var(--b500) / .16), var(--shadow); }
@@ -379,9 +377,25 @@
 .pr-lim-n strong { color: var(--text); }
 .pr-lim-more { margin-top: .3rem; border-top: 1px solid var(--border); padding-top: .4rem; }
 .pr-lim-more > summary { cursor: pointer; font-size: .74rem; font-weight: 700; color: #15803d; }
-.pr-alert-g { display: grid; gap: .15rem; padding: .35rem 0 0; border-top: 1px solid rgba(148, 163, 184, .3); }
-.pr-alert-g:first-of-type { border-top: 0; }
-.pr-alert-g .pr-alert-st { font-size: .76rem; }
+.pr-ab-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.pr-ab-chip { font: inherit; font-size: .75rem; color: var(--text); background: var(--surface); border: 1px solid rgba(220, 38, 38, .35); border-radius: 999px; padding: .25rem .65rem; cursor: pointer; }
+.pr-ab-chip.amber { border-color: rgba(217, 119, 6, .45); }
+.pr-ab-chip:hover { border-color: #dc2626; }
+.pr-ab-chip b { color: var(--text) !important; font-size: .78rem !important; }
+.pr-ab-list { background: var(--surface); border: 1px solid rgba(148, 163, 184, .35); border-radius: .7rem; overflow: hidden; }
+.pr-ab-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.3fr) 7.5rem; gap: .5rem; align-items: center; padding: .45rem .7rem; border-top: 1px solid rgba(148, 163, 184, .25); font-size: .8rem; }
+.pr-ab-list > .pr-ab-row:first-child { border-top: 0; }
+.pr-ab-head { font-size: .66rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); background: var(--surface2); }
+.pr-ab-n { text-align: right; white-space: nowrap; }
+.pr-ab-n b { color: var(--text) !important; font-size: .85rem !important; }
+.pr-ab-over { display: inline-block; font-size: .7rem; font-weight: 800; color: #fff; background: #dc2626; border-radius: 999px; padding: 0 .4rem; margin-left: .2rem; }
+.pr-ab-more summary { cursor: pointer; font-size: .76rem; font-weight: 700; color: #dc2626; padding: .45rem .7rem; border-top: 1px solid rgba(148, 163, 184, .25); }
+@media (max-width: 640px) {
+  .pr-ab-row { grid-template-columns: minmax(0, 1fr) 6.5rem; gap: .1rem .5rem; }
+  .pr-ab-head { display: none; }
+  .pr-ab-ins, .pr-ab-when { grid-column: 1; font-size: .74rem; color: var(--muted, var(--text)); }
+  .pr-ab-n { grid-column: 2; grid-row: 1 / span 3; }
+}
 .pr-legend .pr-dash { height: 0; width: 1.1rem; border-radius: 0; border-top: 2px dashed; vertical-align: 3px; }
 .pr-chip { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .68rem; font-weight: 800; }
 .pr-chip.red { background: rgba(220, 38, 38, .14); color: #dc2626; }
@@ -699,7 +713,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (on the server); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.31-p52-oci';
+const PORTAL_VERSION = '2026.10.31-p53-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -1003,7 +1017,7 @@ function renderBell() {
     c.textContent = items.length > 99 ? '99+' : items.length;
     c.classList.toggle('hidden', !items.length);
     $('bellPanel').innerHTML = `<div class="flex items-center justify-between gap-2 px-1"><span class="eyebrow t-accent">Notifications</span>${items.length ? '<button type="button" id="bellSeenBtn" class="link-btn !text-[11px]" onclick="markAllBellSeen()">Mark all as seen</button>' : ''}</div>` + (items.map(it => `
-        <button type="button" class="row-item clickable w-full text-left p-2.5 flex gap-2 items-start" onclick="$('bellPanel').classList.add('hidden'); ${it.go}" ${it.red ? 'style="border-color:#ef4444;"' : ''}>
+        <button type="button" class="row-item clickable w-full text-left p-2.5 flex gap-2 items-start" data-key="${esc(it.key)}" onclick="$('bellPanel').classList.add('hidden'); markBellKeySeen(this.dataset.key); ${it.go}" ${it.red ? 'style="border-color:#ef4444;"' : ''}>
             <span>${it.icon}</span><span class="min-w-0"><span class="block font-bold t-strong">${esc(it.title)}</span><span class="block t-muted break-words">${esc(it.sub)}</span></span></button>`).join('') || '<div class="row-item p-3 t-faint italic text-center">Nothing new.</div>');
 }
 function toggleBell() { renderBell(); $('bellPanel').classList.toggle('hidden'); keepOnScreen($('bellPanel')); }
@@ -3351,7 +3365,8 @@ async function renderPlans() {
             </div>
         </div>
         <div id="planHeatBox" class="row-item p-3 ${planHeat.on ? '' : 'hidden'}"></div>
-        <div class="text-center"><div class="plan-stage" id="planStage"><div class="t-faint text-xs p-10">Loading floor plan...</div></div></div>
+        <div class="pz-view" id="planView"><div class="pz-stage" id="planStage"><div class="t-faint text-xs p-10">Loading floor plan...</div></div></div>
+        <p class="text-[11px] t-faint text-center -mt-2">Drag to move around · + and − (or two fingers, or the mouse wheel) to zoom · ⛶ for full screen</p>
         <div class="flex flex-wrap gap-x-4 gap-y-1 text-[11px] t-muted justify-center">${Array.from(new Set(pins.map(x => x.type))).map(t => `<span class="inline-flex items-center gap-1.5">${typeDot(t)}${esc(t)}</span>`).join('')}</div>
     </div>`;
     const [url] = await signPaths([plan.image_path]);
@@ -3360,9 +3375,15 @@ async function renderPlans() {
     const labels = planLabelsOn();
     stage.innerHTML = url ? `<img src="${esc(url)}" alt="${esc(plan.name)}">${pins.map(x => `<button type="button" class="plan-pin ${x.overdue ? 'overdue' : ''} ${x.barcode === planFocus ? 'plan-focus' : ''}" style="left:${x.x * 100}%;top:${x.y * 100}%;" title="${esc(x.name)}" onclick="showStation(${jsArg(x.barcode)})"><span style="background:${stationColor(x.type)}"></span>${labels ? `<em class="plan-pin-label">${esc(x.name)}</em>` : ''}</button>`).join('')}` : '<div class="t-faint text-xs p-10">The floor plan image could not be loaded.</div>';
     const pImg = stage.querySelector('img');
-    if (pImg) { if (pImg.complete && pImg.naturalWidth) drawPlanHeat(); else pImg.addEventListener('load', drawPlanHeat, { once: true }); }
-    const focusPin = stage.querySelector('.plan-focus');
-    if (focusPin) setTimeout(() => { try { focusPin.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch (e) {} }, 150);
+    // drag, zoom and full screen; a station pointed out is shown zoomed in, in the middle
+    const ready = () => {
+        if (!pImg.isConnected) return;
+        const pz = PVR.panZoom($('planView'), stage, pImg.naturalWidth, pImg.naturalHeight);
+        const f = pins.find(x => x.barcode === planFocus);
+        if (f) { pz.focus(f.x, f.y); const v = $('planView'); if (v) setTimeout(() => { try { v.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {} }, 150); }
+        drawPlanHeat();
+    };
+    if (pImg) { if (pImg.complete && pImg.naturalWidth) ready(); else pImg.addEventListener('load', ready, { once: true }); }
 }
 // the heat map: each station's activity (from its checks) in the time frame and for the pests ticked, over the open plan
 function togglePlanHeat() { planHeat.on = !planHeat.on; const b = $('planHeatBtn'); if (b) { b.classList.toggle('btn-primary', planHeat.on); b.classList.toggle('btn-secondary', !planHeat.on); b.setAttribute('aria-pressed', String(planHeat.on)); } drawPlanHeat(); }
@@ -4370,11 +4391,22 @@ const PR = (() => {
             const lastOf = g => Math.max(-1, ...g.over.flatMap(o => o.months.map(h => h.mk)));
             const glist = Array.from(groups.values()).sort((p, q) => RANK[p.status] - RANK[q.status] || lastOf(q) - lastOf(p));
             const redN = glist.filter(g => g.status === 'red').length;
-            const overTxt = o => `${stLink(opts, o.st)} (${o.months.map(h => `${e(monthLong(h.mk))}: ${h.mine} of ${o.max}`).join(', ')})`;
-            const nearTxt = o => `${stLink(opts, o.st)} (${o.h.mine} of ${o.max})`;
-            const alert = glist.length ? `<div class="pr-alert ${redN ? '' : 'pr-alert-amber'}"><b>${redN ? `⚠ ${breachedStsOf(rows)} over its critical limit in ${e(when)}` : `Getting close to a critical limit in ${e(when)}`}</b>
-                ${glist.map(g => `<div class="pr-alert-g"><div>${g.status === 'red' ? '🔴' : '🟠'} <strong>${e(g.species)}</strong></div>
-                    ${g.over.length ? `<div class="pr-alert-st">Over at: ${g.over.map(overTxt).join(', ')}</div>` : ''}${g.near.length ? `<div class="pr-alert-st">Close at: ${g.near.map(nearTxt).join(', ')}</div>` : ''}</div>`).join('')}</div>`
+            // the summary: one heading, a chip per insect (tap one to show just that insect), then one short line per station
+            // and insect over its limit (the latest first, the first few shown, the rest behind "Show all"), so it stays easy to read
+            // however many breaches there are. Stations only close to a limit are counted on the chips (and listed when none are over).
+            const SHOW = 5;
+            const chip = g => `<button type="button" class="pr-ab-chip ${g.status}" data-p="${e(g.species)}" onclick="PR.set(this, 'pest', [this.dataset.p])" title="Show only ${e(g.species)}">${g.status === 'red' ? '🔴' : '🟠'} <b>${e(g.species)}</b>${g.over.length ? ` · ${plural(g.over.length, 'station')} over` : ''}${g.near.length ? ` · ${g.near.length} close` : ''}</button>`;
+            const overRows = glist.flatMap(g => g.over.map(o => ({ st: o.st, sp: g.species, max: o.max, h: o.months[0], n: o.months.length, red: true })))
+                .sort((p, q) => q.h.mk - p.h.mk || (q.h.mine - q.max) - (p.h.mine - p.max));
+            const list = overRows.length ? overRows : glist.flatMap(g => g.near.map(o => ({ st: o.st, sp: g.species, max: o.max, h: o.h, n: 0, red: false }))).sort((p, q) => q.h.mine / (q.max || 1) - p.h.mine / (p.max || 1));
+            const abRow = x => `<div class="pr-ab-row"><span class="pr-ab-st">${stLink(opts, x.st)}</span><span class="pr-ab-ins">${e(x.sp)}</span>
+                <span class="pr-ab-when">${e(monthLong(x.h.mk))}${x.n > 1 ? ` <span class="pr-faint">· over in ${x.n} months</span>` : ''}</span>
+                <span class="pr-ab-n"><b>${x.h.mine}</b> of ${x.max}${x.red ? ` <span class="pr-ab-over">+${x.h.mine - x.max}</span>` : ''}</span></div>`;
+            const alert = glist.length ? `<div class="pr-alert ${redN ? '' : 'pr-alert-amber'}"><b>${redN ? `⚠ ${breachedStsOf(rows)} over a critical limit in ${e(when)}` : `Getting close to a critical limit in ${e(when)}`}</b>
+                <div class="pr-ab-chips">${glist.map(chip).join('')}</div>
+                <div class="pr-ab-list"><div class="pr-ab-row pr-ab-head"><span>Station</span><span>Insect</span><span>${overRows.length ? 'Latest breach' : 'Month'}</span><span>Caught</span></div>
+                    ${list.slice(0, SHOW).map(abRow).join('')}
+                    ${list.length > SHOW ? `<details class="pr-ab-more"><summary>Show all ${list.length} ${overRows.length ? 'breaches' : 'stations'}</summary>${list.slice(SHOW).map(abRow).join('')}</details>` : ''}</div></div>`
                 : `<div class="pr-alert pr-alert-ok"><b>✓ Every station was within its critical limits in ${e(when)}.</b></div>`;
             function breachedStsOf(list) { const n = list.filter(r => r.lastMk >= 0).length; return n === 1 ? 'A station went' : n + ' stations went'; }
             const breaches = [];
@@ -4574,6 +4606,15 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r98', date: '2026-10-31', v: { svc: '2026.10.31-r98', adm: '2026.10.31-a40', cli: '2026.10.31-p53' },
+            svc: ['Floor plans: the heat map pests are a compact drop-down - tap it, search, and tick the pests you want'],
+            adm: ['Sites › Floor plans: drag the plan to move around, zoom in and out (+ and −, or the mouse wheel), FIT to see the whole plan, and ⛶ for full screen',
+                  'Floor plans: the heat map pests are a compact drop-down - tap it, search, and tick the pests you want',
+                  'Reports › Critical limits: the red box is easier to read with lots of breaches - a chip for each insect (tap one to show just that insect), then one line per station with its latest breach, and "Show all" for the rest'],
+            cli: ['Floor plans: drag the plan to move around, zoom in and out (+ and −, two fingers, or the mouse wheel), FIT to see the whole plan, and ⛶ for full screen',
+                  'Floor plans: the heat map pests are a compact drop-down - tap it, search, and tick the pests you want',
+                  'Reports › Critical limits: the red box is easier to read with lots of breaches - a chip for each insect (tap one to show just that insect), then one line per station with its latest breach, and "Show all" for the rest',
+                  'Fixed: a notification now goes away once you tap it (critical limit notifications stayed)'] },
         { rev: 'r97', date: '2026-10-31', v: { svc: '2026.10.31-r97', adm: '2026.10.31-a39', cli: '2026.10.31-p52' },
             svc: ['Floor plans: a Heat map tick box colours the plan by pest activity (blue for a little, up to red for the most) - choose the time frame, and tick the pests to show (type to search them)'],
             adm: ['Sites › each site page: a new Floor plans box shows each plan with its stations and a heat map of pest activity - choose the time frame and tick the pests to show',
@@ -5189,42 +5230,71 @@ const PVR = (() => {
     function heatCss() {
         if (heatCssDone || typeof document === 'undefined') return; heatCssDone = true;
         const s = document.createElement('style');
-        s.textContent = `.heat-panel{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.6rem .9rem;font-size:12px;color:var(--text,#0f172a);text-align:left}
-.heat-panel select,.heat-panel input[type=search]{font:inherit;font-weight:600;color:var(--text,#0f172a);background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.35rem .5rem}
+        s.textContent = `.heat-panel{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem .9rem;font-size:12px;color:var(--text,#0f172a);text-align:left}
+.heat-panel select,.heat-dd-pop input[type=search]{font:inherit;font-weight:600;color:var(--text,#0f172a);background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.35rem .5rem}
 .heat-f{display:flex;flex-direction:column;gap:.25rem}.heat-f>span{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#64748b)}
-.heat-pests{min-width:13rem;flex:1 1 13rem;max-width:22rem}.heat-list{max-height:9.5rem;overflow-y:auto;border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.2rem;margin-top:.3rem;background:var(--surface,#fff)}
-.heat-list label{display:flex;align-items:center;gap:.45rem;padding:.25rem .4rem;border-radius:.35rem;cursor:pointer;font-weight:600}.heat-list label:hover{background:var(--surface2,#f1f5f9)}
-.heat-list input{width:15px;height:15px;accent-color:#ea580c}.heat-pest-top{display:flex;gap:.4rem;align-items:center}.heat-pest-top input{flex:1;min-width:0}
-.heat-clear{font:inherit;font-weight:700;font-size:11px;color:var(--muted,#475569);background:none;border:0;text-decoration:underline;cursor:pointer;padding:.2rem}
-.heat-key{display:flex;flex-direction:column;gap:.3rem;min-width:10rem}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
+.heat-dd{position:relative;min-width:11rem;max-width:18rem}
+.heat-dd-btn{width:100%;text-align:left;font:inherit;font-weight:600;color:var(--text,#0f172a);background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.35rem 1.7rem .35rem .55rem;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative}
+.heat-dd-btn::after{content:'';position:absolute;right:.6rem;top:50%;width:.4rem;height:.4rem;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-70%) rotate(45deg);opacity:.55}
+.heat-dd-btn.on{border-color:#ea580c;box-shadow:0 0 0 1px #ea580c inset}
+.heat-dd-pop{position:absolute;z-index:95;top:calc(100% + 4px);left:0;width:max(100%,15rem);max-width:90vw;background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.7rem;box-shadow:0 14px 34px rgba(0,0,0,.22);padding:.4rem}
+.heat-dd-pop[hidden]{display:none}.heat-dd-pop input[type=search]{width:100%;margin-bottom:.3rem}
+.heat-dd-bar{display:flex;gap:.3rem;margin-bottom:.3rem}.heat-dd-bar button{font:inherit;font-size:11px;font-weight:700;color:var(--muted,#475569);background:var(--surface2,#f1f5f9);border:1px solid var(--border,#cbd5e1);border-radius:.45rem;padding:.25rem .55rem;cursor:pointer}
+.heat-dd-bar .heat-done{margin-left:auto;color:#fff;background:#ea580c;border-color:transparent}
+.heat-list{max-height:14rem;overflow-y:auto}
+.heat-list label{display:flex;align-items:center;gap:.45rem;padding:.3rem .4rem;border-radius:.35rem;cursor:pointer;font-weight:600}.heat-list label:hover{background:var(--surface2,#f1f5f9)}
+.heat-list input{width:15px;height:15px;accent-color:#ea580c}
+.heat-key{display:flex;flex-direction:column;gap:.3rem;min-width:10rem;flex:1 1 12rem;max-width:22rem}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
 .heat-bar-l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--faint,#64748b)}.heat-sum{font-weight:700;color:var(--muted,#475569)}
 .heat-layer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-@media (max-width:640px){.heat-panel{gap:.45rem .7rem}.heat-list{max-height:5.4rem}.heat-key{flex:1 1 100%}.heat-key>.heat-f{display:none}}`;
+@media (max-width:640px){.heat-panel{gap:.45rem .6rem}.heat-key{flex:1 1 100%;max-width:none}.heat-key>.heat-f{display:none}.heat-dd{min-width:9rem}}
+.pz-view{position:relative;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;background:var(--surface2,#f1f5f9);border-radius:.7rem;cursor:grab;height:min(70vh,560px);min-height:240px}
+.pz-view.pz-drag{cursor:grabbing}.pz-stage{position:absolute;left:0;top:0;transform-origin:0 0}
+.pz-stage>img{display:block;max-width:none;width:100%;height:100%;pointer-events:none;-webkit-user-drag:none}
+.pz-ctl{position:absolute;right:.5rem;top:.5rem;z-index:20;display:flex;flex-direction:column;gap:.3rem}
+.pz-ctl button{width:2.25rem;height:2.25rem;border-radius:.6rem;border:1px solid var(--border,#cbd5e1);background:var(--surface,#fff);color:var(--text,#0f172a);font-weight:900;font-size:1rem;line-height:1;cursor:pointer;box-shadow:0 4px 12px -4px rgba(0,0,0,.35)}
+.pz-ctl button.pz-fit{font-size:9px}
+.pz-view.pz-full{position:fixed;inset:0;z-index:2000;height:auto;min-height:0;border-radius:0;background:var(--bg,#fff)}
+body.pz-lock{overflow:hidden}`;
         document.head.appendChild(s);
+        // tapping anywhere else closes an open pest list
+        document.addEventListener('pointerdown', ev => { document.querySelectorAll('.heat-dd-pop:not([hidden])').forEach(p => { if (!p.parentElement.contains(ev.target)) p.hidden = true; }); });
     }
     function heatPanel(cb, st, pests, pts) {
         heatCss();
         const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         const on = new Set((st.pests || []).map(heatKey)), hot = (pts || []).filter(p => p.v > 0), top = hot.slice().sort((p, q) => q.v - p.v)[0];
+        const ticked = pests.filter(p => on.has(heatKey(p))), txt = !on.size ? 'All pests' : ticked.length === 1 ? ticked[0] : `${on.size} pests`;
         return `<div class="heat-panel" data-heat-cb="${esc(cb)}">
             <label class="heat-f"><span>Time frame</span><select onchange="${esc(cb)}('period', this.value)">${HEAT_PERIODS.map(([v, l]) => `<option value="${v}" ${st.period === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-            <div class="heat-f heat-pests"><span>Pests ${on.size ? `(${on.size} ticked)` : '(all)'}</span>
-                <div class="heat-pest-top"><input type="search" placeholder="Search pests..." aria-label="Search pests" oninput="PVR.heatFilter(this)">${on.size ? `<button type="button" class="heat-clear" onclick="${esc(cb)}('pests', [])">Clear</button>` : ''}</div>
-                <div class="heat-list">${pests.map(p => `<label data-q="${esc(String(p).toLowerCase())}"><input type="checkbox" value="${esc(p)}" ${on.has(heatKey(p)) ? 'checked' : ''} onchange="${esc(cb)}('pest', this.value, this.checked)">${esc(p)}</label>`).join('') || '<div class="heat-bar-l" style="padding:.4rem">No pests recorded yet</div>'}</div></div>
+            <div class="heat-f"><span>Pests</span><div class="heat-dd">
+                <button type="button" class="heat-dd-btn ${on.size ? 'on' : ''}" onclick="PVR.heatOpen(this)" aria-haspopup="listbox" title="${esc(ticked.join(', ') || txt)}">${esc(txt)}</button>
+                <div class="heat-dd-pop" hidden><input type="search" placeholder="Search pests..." aria-label="Search pests" oninput="PVR.heatFilter(this)">
+                    <div class="heat-dd-bar"><button type="button" onclick="${esc(cb)}('pests', [])">Clear (all pests)</button><button type="button" class="heat-done" onclick="PVR.heatOpen(this, false)">Done</button></div>
+                    <div class="heat-list" role="listbox" aria-multiselectable="true">${pests.map(p => `<label data-q="${esc(String(p).toLowerCase())}"><input type="checkbox" value="${esc(p)}" ${on.has(heatKey(p)) ? 'checked' : ''} onchange="${esc(cb)}('pest', this.value, this.checked)">${esc(p)}</label>`).join('') || '<div class="heat-bar-l" style="padding:.4rem">No pests recorded yet</div>'}</div></div></div></div>
             <div class="heat-key"><span class="heat-f"><span>Activity</span></span><div class="heat-bar"></div><div class="heat-bar-l"><span>A little</span><span>The most</span></div>
                 <div class="heat-sum">${hot.length ? `${hot.length} station${hot.length === 1 ? '' : 's'} with activity${top ? ` · most at ${esc(top.name)} (${Math.round(top.v * 10) / 10})` : ''}` : 'No activity for this choice'}</div></div>
         </div>`;
     }
+    // the pest drop-down: open (or close) it; it stays open while pests are ticked
+    function heatOpen(el, open) {
+        const pop = el.closest('.heat-dd').querySelector('.heat-dd-pop');
+        pop.hidden = open === false ? true : open === true ? false : !pop.hidden;
+        // kept on the screen (a phone's right-hand edge)
+        if (!pop.hidden) { pop.style.left = '0px'; const r = pop.getBoundingClientRect(), over = r.right - (window.innerWidth - 8); if (over > 0) pop.style.left = -Math.min(over, r.left - 8) + 'px'; }
+        if (!pop.hidden) { const q = pop.querySelector('input[type=search]'); if (q && window.matchMedia && window.matchMedia('(pointer: fine)').matches) q.focus(); }
+    }
     function heatFilter(input) {
-        const q = input.value.trim().toLowerCase(), box = input.closest('.heat-pests');
+        const q = input.value.trim().toLowerCase(), box = input.closest('.heat-dd-pop');
         if (box) box.querySelectorAll('.heat-list label').forEach(l => { l.style.display = !q || l.dataset.q.includes(q) ? '' : 'none'; });
     }
-    // puts the controls in box again, keeping what was typed in the search and where the pest list was scrolled to
+    // puts the controls in box again, keeping the pest list open, what was typed in its search and where it was scrolled to
     function heatMount(box, html) {
         if (!box) return;
-        const old = box.querySelector('.heat-pests input[type=search]'), q = old ? old.value : '', l = box.querySelector('.heat-list'), top = l ? l.scrollTop : 0;
+        const pop = box.querySelector('.heat-dd-pop'), open = pop && !pop.hidden, old = box.querySelector('.heat-dd-pop input[type=search]'), q = old ? old.value : '', l = box.querySelector('.heat-list'), top = l ? l.scrollTop : 0;
         box.innerHTML = html;
-        const n = box.querySelector('.heat-pests input[type=search]'); if (n && q) { n.value = q; heatFilter(n); }
+        const p2 = box.querySelector('.heat-dd-pop'); if (p2 && open) { p2.hidden = false; p2.style.left = pop.style.left; }
+        const n = box.querySelector('.heat-dd-pop input[type=search]'); if (n && q) { n.value = q; heatFilter(n); }
         const l2 = box.querySelector('.heat-list'); if (l2) l2.scrollTop = top;
     }
     // the pests ticked, after cb('pest', name, on) / cb('pests', [])
@@ -5235,7 +5305,66 @@ const PVR = (() => {
         return st;
     }
 
-    return { build, logo, pestMap, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatFilter, heatTick, heatMount };
+    // ---------- A floor plan you can move around: drag it, zoom in and out (buttons, the mouse wheel, two fingers), Fit, and Full screen ----------
+    // view (.pz-view) holds stage (.pz-stage: the plan picture, the heat map and the pins, placed in shares of the plan); w x h is the
+    // plan's size. Pins stay the same size on screen at every zoom (CSS var --pz-inv). A tap on a pin still works; a drag doesn't tap.
+    function panZoom(view, stage, w, h) {
+        heatCss();
+        if (view._pz) view._pz.stop();
+        const v = { z: 1, x: 0, y: 0, fit: 1, atFit: true };
+        stage.style.width = w + 'px'; stage.style.height = h + 'px';
+        let ctl = view.querySelector(':scope > .pz-ctl');
+        if (!ctl) {
+            ctl = document.createElement('div'); ctl.className = 'pz-ctl';
+            ctl.innerHTML = '<button type="button" data-pz="in" title="Zoom in" aria-label="Zoom in">+</button><button type="button" data-pz="out" title="Zoom out" aria-label="Zoom out">−</button><button type="button" data-pz="fit" class="pz-fit" title="Show the whole plan" aria-label="Show the whole plan">FIT</button><button type="button" data-pz="full" title="Full screen" aria-label="Full screen">⛶</button>';
+            view.appendChild(ctl);
+        }
+        const apply = () => { stage.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`; stage.style.setProperty('--pz-inv', String(1 / v.z)); };
+        const fit = () => {
+            const vw = view.clientWidth, vh = view.clientHeight; if (!vw || !vh) return;
+            v.fit = Math.min(vw / w, vh / h) * .96; v.z = v.fit; v.x = (vw - w * v.z) / 2; v.y = (vh - h * v.z) / 2; v.atFit = true; apply();
+        };
+        const zoomAt = (f, cx, cy) => {
+            if (cx == null) { cx = view.clientWidth / 2; cy = view.clientHeight / 2; }
+            const nz = Math.min(Math.max(v.z * f, v.fit * .6), v.fit * 14);
+            v.x = cx - (cx - v.x) * (nz / v.z); v.y = cy - (cy - v.y) * (nz / v.z); v.z = nz; v.atFit = false; apply();
+        };
+        // a spot on the plan (shares) in the middle, zoomed in
+        const focus = (fx, fy) => { fit(); const z = v.fit * 3; v.z = z; v.x = view.clientWidth / 2 - fx * w * z; v.y = view.clientHeight / 2 - fy * h * z; v.atFit = false; apply(); };
+        // full screen: the plan is lifted out to the page itself (a card's styling can't trap it), and put back after
+        let spot = null;
+        const full = on => { if (on && !spot) { spot = document.createComment('pz'); view.before(spot); document.body.appendChild(view); } if (!on && spot) { spot.replaceWith(view); spot = null; } view.classList.toggle('pz-full', on); document.body.classList.toggle('pz-lock', on); const b = ctl.querySelector('[data-pz=full]'); b.textContent = on ? '✕' : '⛶'; b.title = on ? 'Close full screen' : 'Full screen'; requestAnimationFrame(fit); };
+        const onCtl = ev => { const b = ev.target.closest('[data-pz]'); if (!b) return; ev.stopPropagation();
+            const k = b.dataset.pz; if (k === 'in') zoomAt(1.4); if (k === 'out') zoomAt(1 / 1.4); if (k === 'fit') fit(); if (k === 'full') full(!view.classList.contains('pz-full')); };
+        // dragging and pinching
+        const pts = new Map(); let moved = 0, pinch = null, last = null;
+        const local = e => { const r = view.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+        const down = e => { if (e.target.closest('.pz-ctl')) return; pts.set(e.pointerId, local(e)); moved = 0; last = local(e); if (pts.size === 2) { const [a, b] = Array.from(pts.values()); pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; } };
+        const move = e => {
+            if (!pts.has(e.pointerId)) return;
+            const p = local(e); pts.set(e.pointerId, p);
+            if (pts.size === 2 && pinch) { const [a, b] = Array.from(pts.values()), d = Math.hypot(a.x - b.x, a.y - b.y); if (pinch.d) zoomAt(d / pinch.d, (a.x + b.x) / 2, (a.y + b.y) / 2); pinch.d = d; moved += 10; return; }
+            const dx = p.x - last.x, dy = p.y - last.y; last = p; moved += Math.abs(dx) + Math.abs(dy);
+            if (moved > 6) { if (!view.classList.contains('pz-drag')) { view.classList.add('pz-drag'); try { view.setPointerCapture(e.pointerId); } catch (x) {} } v.x += dx; v.y += dy; v.atFit = false; apply(); }
+        };
+        const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (pts.size === 1) last = Array.from(pts.values())[0]; if (!pts.size) view.classList.remove('pz-drag'); };
+        // a drag isn't a tap; a tap on a pin in full screen leaves full screen first (so what it opens shows on top)
+        const click = e => { if (e.target.closest('.pz-ctl')) return; if (moved > 6) { e.stopPropagation(); e.preventDefault(); } else if (view.classList.contains('pz-full') && e.target.closest('button, a, [onclick]') && e.target.closest('.pz-stage')) full(false); moved = 0; };
+        const wheel = e => { e.preventDefault(); const p = local(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y); };
+        const key = e => { if (e.key === 'Escape' && view.classList.contains('pz-full')) full(false); };
+        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { if (v.atFit) fit(); }) : null;
+        ctl.addEventListener('click', onCtl);
+        view.addEventListener('pointerdown', down); view.addEventListener('pointermove', move); view.addEventListener('pointerup', up); view.addEventListener('pointercancel', up);
+        view.addEventListener('click', click, true); view.addEventListener('wheel', wheel, { passive: false }); document.addEventListener('keydown', key);
+        if (ro) ro.observe(view);
+        const stop = () => { ctl.removeEventListener('click', onCtl); view.removeEventListener('pointerdown', down); view.removeEventListener('pointermove', move); view.removeEventListener('pointerup', up); view.removeEventListener('pointercancel', up);
+            view.removeEventListener('click', click, true); view.removeEventListener('wheel', wheel); document.removeEventListener('keydown', key); if (ro) ro.disconnect(); document.body.classList.remove('pz-lock'); if (spot) { spot.replaceWith(view); spot = null; view.classList.remove('pz-full'); } };
+        fit();
+        view._pz = { fit, zoomAt, focus, full, stop, view: v };
+        return view._pz;
+    }
+
+    return { build, logo, pestMap, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------

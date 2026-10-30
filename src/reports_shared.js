@@ -484,11 +484,22 @@ const PR = (() => {
             const lastOf = g => Math.max(-1, ...g.over.flatMap(o => o.months.map(h => h.mk)));
             const glist = Array.from(groups.values()).sort((p, q) => RANK[p.status] - RANK[q.status] || lastOf(q) - lastOf(p));
             const redN = glist.filter(g => g.status === 'red').length;
-            const overTxt = o => `${stLink(opts, o.st)} (${o.months.map(h => `${e(monthLong(h.mk))}: ${h.mine} of ${o.max}`).join(', ')})`;
-            const nearTxt = o => `${stLink(opts, o.st)} (${o.h.mine} of ${o.max})`;
-            const alert = glist.length ? `<div class="pr-alert ${redN ? '' : 'pr-alert-amber'}"><b>${redN ? `⚠ ${breachedStsOf(rows)} over its critical limit in ${e(when)}` : `Getting close to a critical limit in ${e(when)}`}</b>
-                ${glist.map(g => `<div class="pr-alert-g"><div>${g.status === 'red' ? '🔴' : '🟠'} <strong>${e(g.species)}</strong></div>
-                    ${g.over.length ? `<div class="pr-alert-st">Over at: ${g.over.map(overTxt).join(', ')}</div>` : ''}${g.near.length ? `<div class="pr-alert-st">Close at: ${g.near.map(nearTxt).join(', ')}</div>` : ''}</div>`).join('')}</div>`
+            // the summary: one heading, a chip per insect (tap one to show just that insect), then one short line per station
+            // and insect over its limit (the latest first, the first few shown, the rest behind "Show all"), so it stays easy to read
+            // however many breaches there are. Stations only close to a limit are counted on the chips (and listed when none are over).
+            const SHOW = 5;
+            const chip = g => `<button type="button" class="pr-ab-chip ${g.status}" data-p="${e(g.species)}" onclick="PR.set(this, 'pest', [this.dataset.p])" title="Show only ${e(g.species)}">${g.status === 'red' ? '🔴' : '🟠'} <b>${e(g.species)}</b>${g.over.length ? ` · ${plural(g.over.length, 'station')} over` : ''}${g.near.length ? ` · ${g.near.length} close` : ''}</button>`;
+            const overRows = glist.flatMap(g => g.over.map(o => ({ st: o.st, sp: g.species, max: o.max, h: o.months[0], n: o.months.length, red: true })))
+                .sort((p, q) => q.h.mk - p.h.mk || (q.h.mine - q.max) - (p.h.mine - p.max));
+            const list = overRows.length ? overRows : glist.flatMap(g => g.near.map(o => ({ st: o.st, sp: g.species, max: o.max, h: o.h, n: 0, red: false }))).sort((p, q) => q.h.mine / (q.max || 1) - p.h.mine / (p.max || 1));
+            const abRow = x => `<div class="pr-ab-row"><span class="pr-ab-st">${stLink(opts, x.st)}</span><span class="pr-ab-ins">${e(x.sp)}</span>
+                <span class="pr-ab-when">${e(monthLong(x.h.mk))}${x.n > 1 ? ` <span class="pr-faint">· over in ${x.n} months</span>` : ''}</span>
+                <span class="pr-ab-n"><b>${x.h.mine}</b> of ${x.max}${x.red ? ` <span class="pr-ab-over">+${x.h.mine - x.max}</span>` : ''}</span></div>`;
+            const alert = glist.length ? `<div class="pr-alert ${redN ? '' : 'pr-alert-amber'}"><b>${redN ? `⚠ ${breachedStsOf(rows)} over a critical limit in ${e(when)}` : `Getting close to a critical limit in ${e(when)}`}</b>
+                <div class="pr-ab-chips">${glist.map(chip).join('')}</div>
+                <div class="pr-ab-list"><div class="pr-ab-row pr-ab-head"><span>Station</span><span>Insect</span><span>${overRows.length ? 'Latest breach' : 'Month'}</span><span>Caught</span></div>
+                    ${list.slice(0, SHOW).map(abRow).join('')}
+                    ${list.length > SHOW ? `<details class="pr-ab-more"><summary>Show all ${list.length} ${overRows.length ? 'breaches' : 'stations'}</summary>${list.slice(SHOW).map(abRow).join('')}</details>` : ''}</div></div>`
                 : `<div class="pr-alert pr-alert-ok"><b>✓ Every station was within its critical limits in ${e(when)}.</b></div>`;
             function breachedStsOf(list) { const n = list.filter(r => r.lastMk >= 0).length; return n === 1 ? 'A station went' : n + ' stations went'; }
             const breaches = [];

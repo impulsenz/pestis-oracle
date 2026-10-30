@@ -317,42 +317,71 @@ const PVR = (() => {
     function heatCss() {
         if (heatCssDone || typeof document === 'undefined') return; heatCssDone = true;
         const s = document.createElement('style');
-        s.textContent = `.heat-panel{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.6rem .9rem;font-size:12px;color:var(--text,#0f172a);text-align:left}
-.heat-panel select,.heat-panel input[type=search]{font:inherit;font-weight:600;color:var(--text,#0f172a);background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.35rem .5rem}
+        s.textContent = `.heat-panel{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem .9rem;font-size:12px;color:var(--text,#0f172a);text-align:left}
+.heat-panel select,.heat-dd-pop input[type=search]{font:inherit;font-weight:600;color:var(--text,#0f172a);background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.35rem .5rem}
 .heat-f{display:flex;flex-direction:column;gap:.25rem}.heat-f>span{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#64748b)}
-.heat-pests{min-width:13rem;flex:1 1 13rem;max-width:22rem}.heat-list{max-height:9.5rem;overflow-y:auto;border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.2rem;margin-top:.3rem;background:var(--surface,#fff)}
-.heat-list label{display:flex;align-items:center;gap:.45rem;padding:.25rem .4rem;border-radius:.35rem;cursor:pointer;font-weight:600}.heat-list label:hover{background:var(--surface2,#f1f5f9)}
-.heat-list input{width:15px;height:15px;accent-color:#ea580c}.heat-pest-top{display:flex;gap:.4rem;align-items:center}.heat-pest-top input{flex:1;min-width:0}
-.heat-clear{font:inherit;font-weight:700;font-size:11px;color:var(--muted,#475569);background:none;border:0;text-decoration:underline;cursor:pointer;padding:.2rem}
-.heat-key{display:flex;flex-direction:column;gap:.3rem;min-width:10rem}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
+.heat-dd{position:relative;min-width:11rem;max-width:18rem}
+.heat-dd-btn{width:100%;text-align:left;font:inherit;font-weight:600;color:var(--text,#0f172a);background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.35rem 1.7rem .35rem .55rem;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative}
+.heat-dd-btn::after{content:'';position:absolute;right:.6rem;top:50%;width:.4rem;height:.4rem;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-70%) rotate(45deg);opacity:.55}
+.heat-dd-btn.on{border-color:#ea580c;box-shadow:0 0 0 1px #ea580c inset}
+.heat-dd-pop{position:absolute;z-index:95;top:calc(100% + 4px);left:0;width:max(100%,15rem);max-width:90vw;background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.7rem;box-shadow:0 14px 34px rgba(0,0,0,.22);padding:.4rem}
+.heat-dd-pop[hidden]{display:none}.heat-dd-pop input[type=search]{width:100%;margin-bottom:.3rem}
+.heat-dd-bar{display:flex;gap:.3rem;margin-bottom:.3rem}.heat-dd-bar button{font:inherit;font-size:11px;font-weight:700;color:var(--muted,#475569);background:var(--surface2,#f1f5f9);border:1px solid var(--border,#cbd5e1);border-radius:.45rem;padding:.25rem .55rem;cursor:pointer}
+.heat-dd-bar .heat-done{margin-left:auto;color:#fff;background:#ea580c;border-color:transparent}
+.heat-list{max-height:14rem;overflow-y:auto}
+.heat-list label{display:flex;align-items:center;gap:.45rem;padding:.3rem .4rem;border-radius:.35rem;cursor:pointer;font-weight:600}.heat-list label:hover{background:var(--surface2,#f1f5f9)}
+.heat-list input{width:15px;height:15px;accent-color:#ea580c}
+.heat-key{display:flex;flex-direction:column;gap:.3rem;min-width:10rem;flex:1 1 12rem;max-width:22rem}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
 .heat-bar-l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--faint,#64748b)}.heat-sum{font-weight:700;color:var(--muted,#475569)}
 .heat-layer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-@media (max-width:640px){.heat-panel{gap:.45rem .7rem}.heat-list{max-height:5.4rem}.heat-key{flex:1 1 100%}.heat-key>.heat-f{display:none}}`;
+@media (max-width:640px){.heat-panel{gap:.45rem .6rem}.heat-key{flex:1 1 100%;max-width:none}.heat-key>.heat-f{display:none}.heat-dd{min-width:9rem}}
+.pz-view{position:relative;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;background:var(--surface2,#f1f5f9);border-radius:.7rem;cursor:grab;height:min(70vh,560px);min-height:240px}
+.pz-view.pz-drag{cursor:grabbing}.pz-stage{position:absolute;left:0;top:0;transform-origin:0 0}
+.pz-stage>img{display:block;max-width:none;width:100%;height:100%;pointer-events:none;-webkit-user-drag:none}
+.pz-ctl{position:absolute;right:.5rem;top:.5rem;z-index:20;display:flex;flex-direction:column;gap:.3rem}
+.pz-ctl button{width:2.25rem;height:2.25rem;border-radius:.6rem;border:1px solid var(--border,#cbd5e1);background:var(--surface,#fff);color:var(--text,#0f172a);font-weight:900;font-size:1rem;line-height:1;cursor:pointer;box-shadow:0 4px 12px -4px rgba(0,0,0,.35)}
+.pz-ctl button.pz-fit{font-size:9px}
+.pz-view.pz-full{position:fixed;inset:0;z-index:2000;height:auto;min-height:0;border-radius:0;background:var(--bg,#fff)}
+body.pz-lock{overflow:hidden}`;
         document.head.appendChild(s);
+        // tapping anywhere else closes an open pest list
+        document.addEventListener('pointerdown', ev => { document.querySelectorAll('.heat-dd-pop:not([hidden])').forEach(p => { if (!p.parentElement.contains(ev.target)) p.hidden = true; }); });
     }
     function heatPanel(cb, st, pests, pts) {
         heatCss();
         const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         const on = new Set((st.pests || []).map(heatKey)), hot = (pts || []).filter(p => p.v > 0), top = hot.slice().sort((p, q) => q.v - p.v)[0];
+        const ticked = pests.filter(p => on.has(heatKey(p))), txt = !on.size ? 'All pests' : ticked.length === 1 ? ticked[0] : `${on.size} pests`;
         return `<div class="heat-panel" data-heat-cb="${esc(cb)}">
             <label class="heat-f"><span>Time frame</span><select onchange="${esc(cb)}('period', this.value)">${HEAT_PERIODS.map(([v, l]) => `<option value="${v}" ${st.period === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-            <div class="heat-f heat-pests"><span>Pests ${on.size ? `(${on.size} ticked)` : '(all)'}</span>
-                <div class="heat-pest-top"><input type="search" placeholder="Search pests..." aria-label="Search pests" oninput="PVR.heatFilter(this)">${on.size ? `<button type="button" class="heat-clear" onclick="${esc(cb)}('pests', [])">Clear</button>` : ''}</div>
-                <div class="heat-list">${pests.map(p => `<label data-q="${esc(String(p).toLowerCase())}"><input type="checkbox" value="${esc(p)}" ${on.has(heatKey(p)) ? 'checked' : ''} onchange="${esc(cb)}('pest', this.value, this.checked)">${esc(p)}</label>`).join('') || '<div class="heat-bar-l" style="padding:.4rem">No pests recorded yet</div>'}</div></div>
+            <div class="heat-f"><span>Pests</span><div class="heat-dd">
+                <button type="button" class="heat-dd-btn ${on.size ? 'on' : ''}" onclick="PVR.heatOpen(this)" aria-haspopup="listbox" title="${esc(ticked.join(', ') || txt)}">${esc(txt)}</button>
+                <div class="heat-dd-pop" hidden><input type="search" placeholder="Search pests..." aria-label="Search pests" oninput="PVR.heatFilter(this)">
+                    <div class="heat-dd-bar"><button type="button" onclick="${esc(cb)}('pests', [])">Clear (all pests)</button><button type="button" class="heat-done" onclick="PVR.heatOpen(this, false)">Done</button></div>
+                    <div class="heat-list" role="listbox" aria-multiselectable="true">${pests.map(p => `<label data-q="${esc(String(p).toLowerCase())}"><input type="checkbox" value="${esc(p)}" ${on.has(heatKey(p)) ? 'checked' : ''} onchange="${esc(cb)}('pest', this.value, this.checked)">${esc(p)}</label>`).join('') || '<div class="heat-bar-l" style="padding:.4rem">No pests recorded yet</div>'}</div></div></div></div>
             <div class="heat-key"><span class="heat-f"><span>Activity</span></span><div class="heat-bar"></div><div class="heat-bar-l"><span>A little</span><span>The most</span></div>
                 <div class="heat-sum">${hot.length ? `${hot.length} station${hot.length === 1 ? '' : 's'} with activity${top ? ` · most at ${esc(top.name)} (${Math.round(top.v * 10) / 10})` : ''}` : 'No activity for this choice'}</div></div>
         </div>`;
     }
+    // the pest drop-down: open (or close) it; it stays open while pests are ticked
+    function heatOpen(el, open) {
+        const pop = el.closest('.heat-dd').querySelector('.heat-dd-pop');
+        pop.hidden = open === false ? true : open === true ? false : !pop.hidden;
+        // kept on the screen (a phone's right-hand edge)
+        if (!pop.hidden) { pop.style.left = '0px'; const r = pop.getBoundingClientRect(), over = r.right - (window.innerWidth - 8); if (over > 0) pop.style.left = -Math.min(over, r.left - 8) + 'px'; }
+        if (!pop.hidden) { const q = pop.querySelector('input[type=search]'); if (q && window.matchMedia && window.matchMedia('(pointer: fine)').matches) q.focus(); }
+    }
     function heatFilter(input) {
-        const q = input.value.trim().toLowerCase(), box = input.closest('.heat-pests');
+        const q = input.value.trim().toLowerCase(), box = input.closest('.heat-dd-pop');
         if (box) box.querySelectorAll('.heat-list label').forEach(l => { l.style.display = !q || l.dataset.q.includes(q) ? '' : 'none'; });
     }
-    // puts the controls in box again, keeping what was typed in the search and where the pest list was scrolled to
+    // puts the controls in box again, keeping the pest list open, what was typed in its search and where it was scrolled to
     function heatMount(box, html) {
         if (!box) return;
-        const old = box.querySelector('.heat-pests input[type=search]'), q = old ? old.value : '', l = box.querySelector('.heat-list'), top = l ? l.scrollTop : 0;
+        const pop = box.querySelector('.heat-dd-pop'), open = pop && !pop.hidden, old = box.querySelector('.heat-dd-pop input[type=search]'), q = old ? old.value : '', l = box.querySelector('.heat-list'), top = l ? l.scrollTop : 0;
         box.innerHTML = html;
-        const n = box.querySelector('.heat-pests input[type=search]'); if (n && q) { n.value = q; heatFilter(n); }
+        const p2 = box.querySelector('.heat-dd-pop'); if (p2 && open) { p2.hidden = false; p2.style.left = pop.style.left; }
+        const n = box.querySelector('.heat-dd-pop input[type=search]'); if (n && q) { n.value = q; heatFilter(n); }
         const l2 = box.querySelector('.heat-list'); if (l2) l2.scrollTop = top;
     }
     // the pests ticked, after cb('pest', name, on) / cb('pests', [])
@@ -363,7 +392,66 @@ const PVR = (() => {
         return st;
     }
 
-    return { build, logo, pestMap, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatFilter, heatTick, heatMount };
+    // ---------- A floor plan you can move around: drag it, zoom in and out (buttons, the mouse wheel, two fingers), Fit, and Full screen ----------
+    // view (.pz-view) holds stage (.pz-stage: the plan picture, the heat map and the pins, placed in shares of the plan); w x h is the
+    // plan's size. Pins stay the same size on screen at every zoom (CSS var --pz-inv). A tap on a pin still works; a drag doesn't tap.
+    function panZoom(view, stage, w, h) {
+        heatCss();
+        if (view._pz) view._pz.stop();
+        const v = { z: 1, x: 0, y: 0, fit: 1, atFit: true };
+        stage.style.width = w + 'px'; stage.style.height = h + 'px';
+        let ctl = view.querySelector(':scope > .pz-ctl');
+        if (!ctl) {
+            ctl = document.createElement('div'); ctl.className = 'pz-ctl';
+            ctl.innerHTML = '<button type="button" data-pz="in" title="Zoom in" aria-label="Zoom in">+</button><button type="button" data-pz="out" title="Zoom out" aria-label="Zoom out">−</button><button type="button" data-pz="fit" class="pz-fit" title="Show the whole plan" aria-label="Show the whole plan">FIT</button><button type="button" data-pz="full" title="Full screen" aria-label="Full screen">⛶</button>';
+            view.appendChild(ctl);
+        }
+        const apply = () => { stage.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`; stage.style.setProperty('--pz-inv', String(1 / v.z)); };
+        const fit = () => {
+            const vw = view.clientWidth, vh = view.clientHeight; if (!vw || !vh) return;
+            v.fit = Math.min(vw / w, vh / h) * .96; v.z = v.fit; v.x = (vw - w * v.z) / 2; v.y = (vh - h * v.z) / 2; v.atFit = true; apply();
+        };
+        const zoomAt = (f, cx, cy) => {
+            if (cx == null) { cx = view.clientWidth / 2; cy = view.clientHeight / 2; }
+            const nz = Math.min(Math.max(v.z * f, v.fit * .6), v.fit * 14);
+            v.x = cx - (cx - v.x) * (nz / v.z); v.y = cy - (cy - v.y) * (nz / v.z); v.z = nz; v.atFit = false; apply();
+        };
+        // a spot on the plan (shares) in the middle, zoomed in
+        const focus = (fx, fy) => { fit(); const z = v.fit * 3; v.z = z; v.x = view.clientWidth / 2 - fx * w * z; v.y = view.clientHeight / 2 - fy * h * z; v.atFit = false; apply(); };
+        // full screen: the plan is lifted out to the page itself (a card's styling can't trap it), and put back after
+        let spot = null;
+        const full = on => { if (on && !spot) { spot = document.createComment('pz'); view.before(spot); document.body.appendChild(view); } if (!on && spot) { spot.replaceWith(view); spot = null; } view.classList.toggle('pz-full', on); document.body.classList.toggle('pz-lock', on); const b = ctl.querySelector('[data-pz=full]'); b.textContent = on ? '✕' : '⛶'; b.title = on ? 'Close full screen' : 'Full screen'; requestAnimationFrame(fit); };
+        const onCtl = ev => { const b = ev.target.closest('[data-pz]'); if (!b) return; ev.stopPropagation();
+            const k = b.dataset.pz; if (k === 'in') zoomAt(1.4); if (k === 'out') zoomAt(1 / 1.4); if (k === 'fit') fit(); if (k === 'full') full(!view.classList.contains('pz-full')); };
+        // dragging and pinching
+        const pts = new Map(); let moved = 0, pinch = null, last = null;
+        const local = e => { const r = view.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+        const down = e => { if (e.target.closest('.pz-ctl')) return; pts.set(e.pointerId, local(e)); moved = 0; last = local(e); if (pts.size === 2) { const [a, b] = Array.from(pts.values()); pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) }; } };
+        const move = e => {
+            if (!pts.has(e.pointerId)) return;
+            const p = local(e); pts.set(e.pointerId, p);
+            if (pts.size === 2 && pinch) { const [a, b] = Array.from(pts.values()), d = Math.hypot(a.x - b.x, a.y - b.y); if (pinch.d) zoomAt(d / pinch.d, (a.x + b.x) / 2, (a.y + b.y) / 2); pinch.d = d; moved += 10; return; }
+            const dx = p.x - last.x, dy = p.y - last.y; last = p; moved += Math.abs(dx) + Math.abs(dy);
+            if (moved > 6) { if (!view.classList.contains('pz-drag')) { view.classList.add('pz-drag'); try { view.setPointerCapture(e.pointerId); } catch (x) {} } v.x += dx; v.y += dy; v.atFit = false; apply(); }
+        };
+        const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; if (pts.size === 1) last = Array.from(pts.values())[0]; if (!pts.size) view.classList.remove('pz-drag'); };
+        // a drag isn't a tap; a tap on a pin in full screen leaves full screen first (so what it opens shows on top)
+        const click = e => { if (e.target.closest('.pz-ctl')) return; if (moved > 6) { e.stopPropagation(); e.preventDefault(); } else if (view.classList.contains('pz-full') && e.target.closest('button, a, [onclick]') && e.target.closest('.pz-stage')) full(false); moved = 0; };
+        const wheel = e => { e.preventDefault(); const p = local(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y); };
+        const key = e => { if (e.key === 'Escape' && view.classList.contains('pz-full')) full(false); };
+        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { if (v.atFit) fit(); }) : null;
+        ctl.addEventListener('click', onCtl);
+        view.addEventListener('pointerdown', down); view.addEventListener('pointermove', move); view.addEventListener('pointerup', up); view.addEventListener('pointercancel', up);
+        view.addEventListener('click', click, true); view.addEventListener('wheel', wheel, { passive: false }); document.addEventListener('keydown', key);
+        if (ro) ro.observe(view);
+        const stop = () => { ctl.removeEventListener('click', onCtl); view.removeEventListener('pointerdown', down); view.removeEventListener('pointermove', move); view.removeEventListener('pointerup', up); view.removeEventListener('pointercancel', up);
+            view.removeEventListener('click', click, true); view.removeEventListener('wheel', wheel); document.removeEventListener('keydown', key); if (ro) ro.disconnect(); document.body.classList.remove('pz-lock'); if (spot) { spot.replaceWith(view); spot = null; view.classList.remove('pz-full'); } };
+        fit();
+        view._pz = { fit, zoomAt, focus, full, stop, view: v };
+        return view._pz;
+    }
+
+    return { build, logo, pestMap, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------

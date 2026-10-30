@@ -62,9 +62,25 @@
 .pr-lim-n strong { color: var(--text); }
 .pr-lim-more { margin-top: .3rem; border-top: 1px solid var(--border); padding-top: .4rem; }
 .pr-lim-more > summary { cursor: pointer; font-size: .74rem; font-weight: 700; color: #15803d; }
-.pr-alert-g { display: grid; gap: .15rem; padding: .35rem 0 0; border-top: 1px solid rgba(148, 163, 184, .3); }
-.pr-alert-g:first-of-type { border-top: 0; }
-.pr-alert-g .pr-alert-st { font-size: .76rem; }
+.pr-ab-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.pr-ab-chip { font: inherit; font-size: .75rem; color: var(--text); background: var(--surface); border: 1px solid rgba(220, 38, 38, .35); border-radius: 999px; padding: .25rem .65rem; cursor: pointer; }
+.pr-ab-chip.amber { border-color: rgba(217, 119, 6, .45); }
+.pr-ab-chip:hover { border-color: #dc2626; }
+.pr-ab-chip b { color: var(--text) !important; font-size: .78rem !important; }
+.pr-ab-list { background: var(--surface); border: 1px solid rgba(148, 163, 184, .35); border-radius: .7rem; overflow: hidden; }
+.pr-ab-row { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.3fr) 7.5rem; gap: .5rem; align-items: center; padding: .45rem .7rem; border-top: 1px solid rgba(148, 163, 184, .25); font-size: .8rem; }
+.pr-ab-list > .pr-ab-row:first-child { border-top: 0; }
+.pr-ab-head { font-size: .66rem; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); background: var(--surface2); }
+.pr-ab-n { text-align: right; white-space: nowrap; }
+.pr-ab-n b { color: var(--text) !important; font-size: .85rem !important; }
+.pr-ab-over { display: inline-block; font-size: .7rem; font-weight: 800; color: #fff; background: #dc2626; border-radius: 999px; padding: 0 .4rem; margin-left: .2rem; }
+.pr-ab-more summary { cursor: pointer; font-size: .76rem; font-weight: 700; color: #dc2626; padding: .45rem .7rem; border-top: 1px solid rgba(148, 163, 184, .25); }
+@media (max-width: 640px) {
+  .pr-ab-row { grid-template-columns: minmax(0, 1fr) 6.5rem; gap: .1rem .5rem; }
+  .pr-ab-head { display: none; }
+  .pr-ab-ins, .pr-ab-when { grid-column: 1; font-size: .74rem; color: var(--muted, var(--text)); }
+  .pr-ab-n { grid-column: 2; grid-row: 1 / span 3; }
+}
 .pr-legend .pr-dash { height: 0; width: 1.1rem; border-radius: 0; border-top: 2px dashed; vertical-align: 3px; }
 .pr-chip { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .68rem; font-weight: 800; }
 .pr-chip.red { background: rgba(220, 38, 38, .14); color: #dc2626; }
