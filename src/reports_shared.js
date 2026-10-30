@@ -137,15 +137,6 @@ const PR = (() => {
         const max = Math.max(1, ...rows.map(r => r.v));
         return `<div class="pr-bars">${rows.map(r => `<div class="pr-bar-row"><span class="pr-bar-l" title="${e(r.l)}">${e(r.l)}</span><span class="pr-bar-t"><span class="pr-bar-f" style="width:${Math.max(1.5, r.v / max * 100)}%;background:${r.c || 'var(--pr-accent)'}"></span></span><span class="pr-bar-v">${e(opts.fmt ? opts.fmt(r.v) : r.v)}</span></div>`).join('') || '<div class="pr-empty">Nothing to show for this choice.</div>'}</div>`;
     }
-    function colBars(vals, keys, opts) {
-        opts = opts || {};
-        const W = 760, H = 220, pl = 36, pb = 30, pt = 10, n = keys.length, max = Math.max(1, ...vals), bw = (W - pl - 8) / Math.max(1, n);
-        const every = Math.ceil(n / 12);
-        return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(opts.label || 'Chart')}">
-            ${[0, .5, 1].map(f => { const v = Math.round(max * f), yy = pt + (H - pt - pb) * (1 - f); return `<line x1="${pl}" x2="${W - 8}" y1="${yy}" y2="${yy}" class="pr-grid"/><text x="${pl - 5}" y="${yy + 4}" text-anchor="end" class="pr-ax">${v}</text>`; }).join('')}
-            ${vals.map((v, i) => { const h = (H - pt - pb) * v / max; return `<rect x="${pl + i * bw + 3}" y="${H - pb - h}" width="${Math.max(2, bw - 6)}" height="${h}" rx="3" fill="${opts.color || 'var(--pr-accent)'}"><title>${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${v}</title></rect>${i % every === 0 ? `<text x="${pl + i * bw + bw / 2}" y="${H - 10}" text-anchor="middle" class="pr-ax">${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}</text>` : ''}`; }).join('')}
-        </svg>`;
-    }
     const table = (head, rows, opts) => `<div class="pr-tbl-wrap"><table class="pr-tbl"><thead><tr>${head.map(h => `<th class="${h.num ? 'num' : ''}">${e(h.t)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map(r => `<tr${r._cls ? ` class="${r._cls}"` : ''}>${r.cells.map((c, i) => `<td class="${head[i] && head[i].num ? 'num' : ''}">${c}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${head.length}" class="pr-empty">${e((opts && opts.empty) || 'No records for this choice.')}</td></tr>`}</tbody></table></div>`;
     const kpis = list => `<div class="pr-kpis">${list.map(k => `<div class="pr-kpi"><div class="pr-kpi-v" ${k.c ? `style="color:${k.c}"` : ''}>${e(k.v)}</div><div class="pr-kpi-l">${e(k.l)}</div></div>`).join('')}</div>`;
 

@@ -439,7 +439,14 @@ function sqliteError(e, t) {
 }
 const getByRowid = (t, rowid) => decodeRow(t, db.prepare(`SELECT * FROM ${q(t.name)} WHERE rowid = ?`).get(rowid));
 
+// a field the table doesn't have yet becomes a new column only when approved staff (or the server) save it: a client
+// login (e.g. adding a site contact) can't change the database's shape
+function guardNewColumns(t, row, me) {
+  if (me.system || me.approved) return;
+  for (const [k, v] of Object.entries(row)) if (v !== undefined && !t.cols.has(k)) throw new PgError('42703', `column "${k}" of relation "${t.name}" does not exist`);
+}
 function insertRow(t, input, me, opts = {}) {
+  guardNewColumns(t, input, me);
   let row = fillDefaults(t, input, me);
   row = TRIGGERS.beforeInsert[t.name] ? TRIGGERS.beforeInsert[t.name](row, me) : row;
   if (!opts.skipCheck && !canWrite(t.name, 'insert', row, me)) throw rlsError(t.name);
@@ -454,6 +461,7 @@ function insertRow(t, input, me, opts = {}) {
   return saved;
 }
 function updateRow(t, rowid, old, patch, me, opts = {}) {
+  guardNewColumns(t, patch, me);
   let row = Object.assign({}, old, patch);
   row = TRIGGERS.beforeUpdate[t.name] ? TRIGGERS.beforeUpdate[t.name](row, old, me) : row;
   if (!opts.skipCheck && !canWrite(t.name, 'update', row, me)) throw rlsError(t.name);
@@ -1395,10 +1403,14 @@ function serveFile(req, res, parts, url) {
   const o = db.prepare('SELECT * FROM storage_objects WHERE bucket = ? AND name = ?').get(bucket, p);
   const file = diskPath(bucket, p);
   let st; try { st = fs.statSync(file); } catch { return send(res, 404, 'Not found', 'text/plain'); }
-  const headers = { 'Content-Type': (o && o.mime) || 'application/octet-stream', 'Accept-Ranges': 'bytes',
+  // photos, videos, sound and PDFs open in the browser; anything else (a type the uploader chose, e.g. a web page) is
+  // downloaded, and can never run as part of this site
+  const mime = (o && o.mime) || 'application/octet-stream';
+  const viewable = /^(image\/(jpeg|png|gif|webp|heic|heif|avif|bmp)|video\/[\w.+-]+|audio\/[\w.+-]+|application\/pdf)$/i.test(mime);
+  const headers = { 'Content-Type': viewable ? mime : 'application/octet-stream', 'Accept-Ranges': 'bytes',
     'Cache-Control': `private, max-age=${Math.max(0, Math.floor(exp - Date.now() / 1000))}`, 'X-Content-Type-Options': 'nosniff',
-    'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(p.split('/').pop())}` };
-  if (/^text\/html|svg/i.test(headers['Content-Type'])) headers['Content-Security-Policy'] = "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox";
+    'Content-Disposition': `${viewable ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(p.split('/').pop())}` };
+  if (!viewable) headers['Content-Security-Policy'] = "default-src 'none'; sandbox";
   const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range || ''));
   if (range && (range[1] || range[2])) {
     let start = range[1] ? Number(range[1]) : st.size - Number(range[2]), end = range[1] && range[2] ? Number(range[2]) : st.size - 1;
@@ -1496,7 +1508,9 @@ function serveStatic(req, res, pathname) {
   if (!file.startsWith(PUBLIC_DIR + path.sep)) return send(res, 403, 'Forbidden', 'text/plain');
   fs.readFile(file, (err, data) => {
     if (err) return send(res, 404, 'Not found', 'text/plain');
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file).toLowerCase()], 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
+    // the apps can't be shown inside another website (stops someone tricking a click through a hidden frame)
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file).toLowerCase()], 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'SAMEORIGIN', 'Content-Security-Policy': "frame-ancestors 'self'" });
     res.end(req.method === 'HEAD' ? undefined : data);
   });
 }
@@ -1553,7 +1567,8 @@ const server = http.createServer(async (req, res) => {
   } catch (e) {
     const code = e.status || 500;
     if (code === 500) console.error(e);
-    if (!res.headersSent) json(res, code, { message: code === 413 ? 'Too large' : code === 400 ? e.message : 'Server error', error: code === 500 ? 'Server error: ' + e.message : e.message });
+    // (the details of an unexpected error stay in the server's log, not in the answer)
+    if (!res.headersSent) json(res, code, { message: code === 413 ? 'Too large' : code === 400 ? e.message : 'Server error', error: code === 500 ? 'Server error (see the server log)' : e.message });
     else try { res.end(); } catch {}
   }
 });

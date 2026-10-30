@@ -3,7 +3,7 @@ import re, json, sys, tempfile
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
 SP = ROOT + 'src/'
-ADMIN_VERSION = '2026.10.30-a35-oci'   # bump the a-number when Admin changes
+ADMIN_VERSION = '2026.10.30-a36-oci'   # bump the a-number when Admin changes
 idx = open(ROOT + 'index.html').read()
 src = open(SP + 'admin_src.html').read()          # the add-on version of admin.html (template + addonScript)
 
@@ -185,11 +185,6 @@ SYSTEM = r'''
         function pestisAdoptSignIn(oldKey) {   // a sign-in saved by an older version of this app (under its own key) is kept, once
             try { const v = localStorage.getItem(oldKey); if (v && !localStorage.getItem(PESTIS_AUTH_KEY)) localStorage.setItem(PESTIS_AUTH_KEY, v); localStorage.removeItem(oldKey); } catch (e) {}
         }
-        // "Not used for a while" counts activity in any Pestis app, so working in one doesn't sign you out of another
-        const PESTIS_ACTIVE_KEY = 'pestis-last-active';
-        let pestisActiveWritten = 0;
-        function pestisMarkActive() { const t = Date.now(); if (t - pestisActiveWritten < 5000) return; pestisActiveWritten = t; try { localStorage.setItem(PESTIS_ACTIVE_KEY, String(t)); } catch (e) {} }
-        function pestisLastActive() { try { return Number(localStorage.getItem(PESTIS_ACTIVE_KEY)) || 0; } catch (e) { return 0; } }
 
         pestisAdoptSignIn('sb-pestis-admin-auth-token');
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -238,7 +233,7 @@ SYSTEM = r'''
                     res = await _supabase.from(table).upsert([Object.assign({}, base, extra)], { onConflict: 'id' });
                     if (res.error && Object.keys(extra).length && cols.some(c => (res.error.message || '').includes(c))) {
                         res = await _supabase.from(table).upsert([base], { onConflict: 'id' });
-                        if (!res.error) alert('Saved, but the SDS / pest guide details need pestis_client_portal.sql to be run on the Pestis server (it updates the database itself when it restarts).');
+                        if (!res.error) alert('Saved, but the SDS / pest guide details were not saved yet - the server adds the missing part itself when it restarts, so wait a couple of minutes.');
                     }
                 }
             } else if (item.kind === 'save_setting') {

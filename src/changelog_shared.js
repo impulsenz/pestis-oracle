@@ -3,6 +3,12 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r93', date: '2026-10-30', v: { svc: '2026.10.30-r93', adm: '2026.10.30-a36', cli: '2026.10.30-p49' },
+            svc: ['Tidy-up: old unused code removed, and error messages no longer mention running database scripts (the server sorts that out itself)',
+                  'Security: files that are not photos, videos or PDFs now download instead of opening, and the app can no longer be shown inside another website'],
+            adm: ['Tidy-up: old unused code removed, and error messages no longer mention running database scripts (the server sorts that out itself)',
+                  'Security: files that are not photos, videos or PDFs now download instead of opening, the apps can no longer be shown inside another website, and client logins can no longer add new fields to the database'],
+            cli: ['Behind the scenes: tidier code and extra security checks'] },
         { rev: 'r92', date: '2026-10-30', v: { adm: '2026.10.30-a35' },
             adm: ['Sites › each site page: the boxes now sit neatly in two columns with no gaps beside a short box, and the browser no longer pops up its saved-details list over the site details'] },
         { rev: 'r91', date: '2026-10-30', v: { adm: '2026.10.30-a34' },

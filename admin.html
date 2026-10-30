@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.30-a35-oci
+    Version 2026.10.30-a36-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -688,7 +688,6 @@
         .sight-thumb img, .sight-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
         .sight-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.4rem; text-shadow: 0 2px 8px rgba(0, 0, 0, .6); }
         /* signed out soon */
-        .idle-warn { position: fixed; inset: 0; z-index: 9000; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgba(2, 6, 23, .6); backdrop-filter: blur(3px); }
         /* start / end day */
         .day-card { display: flex; align-items: center; gap: .75rem; padding: .7rem .85rem; border-radius: 1rem; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,.06)); }
         .day-card.on { border-color: rgba(16, 185, 129, .5); background: linear-gradient(90deg, rgba(16, 185, 129, .08), transparent 60%), var(--surface); }
@@ -1438,11 +1437,6 @@
         function pestisAdoptSignIn(oldKey) {   // a sign-in saved by an older version of this app (under its own key) is kept, once
             try { const v = localStorage.getItem(oldKey); if (v && !localStorage.getItem(PESTIS_AUTH_KEY)) localStorage.setItem(PESTIS_AUTH_KEY, v); localStorage.removeItem(oldKey); } catch (e) {}
         }
-        // "Not used for a while" counts activity in any Pestis app, so working in one doesn't sign you out of another
-        const PESTIS_ACTIVE_KEY = 'pestis-last-active';
-        let pestisActiveWritten = 0;
-        function pestisMarkActive() { const t = Date.now(); if (t - pestisActiveWritten < 5000) return; pestisActiveWritten = t; try { localStorage.setItem(PESTIS_ACTIVE_KEY, String(t)); } catch (e) {} }
-        function pestisLastActive() { try { return Number(localStorage.getItem(PESTIS_ACTIVE_KEY)) || 0; } catch (e) { return 0; } }
 
         pestisAdoptSignIn('sb-pestis-admin-auth-token');
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -1491,7 +1485,7 @@
                     res = await _supabase.from(table).upsert([Object.assign({}, base, extra)], { onConflict: 'id' });
                     if (res.error && Object.keys(extra).length && cols.some(c => (res.error.message || '').includes(c))) {
                         res = await _supabase.from(table).upsert([base], { onConflict: 'id' });
-                        if (!res.error) alert('Saved, but the SDS / pest guide details need pestis_client_portal.sql to be run on the Pestis server (it updates the database itself when it restarts).');
+                        if (!res.error) alert('Saved, but the SDS / pest guide details were not saved yet - the server adds the missing part itself when it restarts, so wait a couple of minutes.');
                     }
                 }
             } else if (item.kind === 'save_setting') {
@@ -2018,7 +2012,7 @@
 
         const portalMissing = e => /client_users|client_access|site_documents|by_client|does not exist|schema cache|could not find/i.test((e && e.message) || '');
 
-        const PORTAL_SQL_NOTE = 'Run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts) to switch on the Client Portal.';
+        const PORTAL_SQL_NOTE = 'The server adds this itself when it restarts - wait a couple of minutes and try again.';
 
         async function copyPortalLink() {
             try { await navigator.clipboard.writeText(portalUrl()); alert('Client Portal link copied:\n' + portalUrl()); }
@@ -3585,6 +3579,12 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r93', date: '2026-10-30', v: { svc: '2026.10.30-r93', adm: '2026.10.30-a36', cli: '2026.10.30-p49' },
+            svc: ['Tidy-up: old unused code removed, and error messages no longer mention running database scripts (the server sorts that out itself)',
+                  'Security: files that are not photos, videos or PDFs now download instead of opening, and the app can no longer be shown inside another website'],
+            adm: ['Tidy-up: old unused code removed, and error messages no longer mention running database scripts (the server sorts that out itself)',
+                  'Security: files that are not photos, videos or PDFs now download instead of opening, the apps can no longer be shown inside another website, and client logins can no longer add new fields to the database'],
+            cli: ['Behind the scenes: tidier code and extra security checks'] },
         { rev: 'r92', date: '2026-10-30', v: { adm: '2026.10.30-a35' },
             adm: ['Sites › each site page: the boxes now sit neatly in two columns with no gaps beside a short box, and the browser no longer pops up its saved-details list over the site details'] },
         { rev: 'r91', date: '2026-10-30', v: { adm: '2026.10.30-a34' },
@@ -3995,15 +3995,6 @@ const PR = (() => {
         opts = opts || {};
         const max = Math.max(1, ...rows.map(r => r.v));
         return `<div class="pr-bars">${rows.map(r => `<div class="pr-bar-row"><span class="pr-bar-l" title="${e(r.l)}">${e(r.l)}</span><span class="pr-bar-t"><span class="pr-bar-f" style="width:${Math.max(1.5, r.v / max * 100)}%;background:${r.c || 'var(--pr-accent)'}"></span></span><span class="pr-bar-v">${e(opts.fmt ? opts.fmt(r.v) : r.v)}</span></div>`).join('') || '<div class="pr-empty">Nothing to show for this choice.</div>'}</div>`;
-    }
-    function colBars(vals, keys, opts) {
-        opts = opts || {};
-        const W = 760, H = 220, pl = 36, pb = 30, pt = 10, n = keys.length, max = Math.max(1, ...vals), bw = (W - pl - 8) / Math.max(1, n);
-        const every = Math.ceil(n / 12);
-        return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(opts.label || 'Chart')}">
-            ${[0, .5, 1].map(f => { const v = Math.round(max * f), yy = pt + (H - pt - pb) * (1 - f); return `<line x1="${pl}" x2="${W - 8}" y1="${yy}" y2="${yy}" class="pr-grid"/><text x="${pl - 5}" y="${yy + 4}" text-anchor="end" class="pr-ax">${v}</text>`; }).join('')}
-            ${vals.map((v, i) => { const h = (H - pt - pb) * v / max; return `<rect x="${pl + i * bw + 3}" y="${H - pb - h}" width="${Math.max(2, bw - 6)}" height="${h}" rx="3" fill="${opts.color || 'var(--pr-accent)'}"><title>${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${v}</title></rect>${i % every === 0 ? `<text x="${pl + i * bw + bw / 2}" y="${H - 10}" text-anchor="middle" class="pr-ax">${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}</text>` : ''}`; }).join('')}
-        </svg>`;
     }
     const table = (head, rows, opts) => `<div class="pr-tbl-wrap"><table class="pr-tbl"><thead><tr>${head.map(h => `<th class="${h.num ? 'num' : ''}">${e(h.t)}</th>`).join('')}</tr></thead><tbody>${rows.length ? rows.map(r => `<tr${r._cls ? ` class="${r._cls}"` : ''}>${r.cells.map((c, i) => `<td class="${head[i] && head[i].num ? 'num' : ''}">${c}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${head.length}" class="pr-empty">${e((opts && opts.empty) || 'No records for this choice.')}</td></tr>`}</tbody></table></div>`;
     const kpis = list => `<div class="pr-kpis">${list.map(k => `<div class="pr-kpi"><div class="pr-kpi-v" ${k.c ? `style="color:${k.c}"` : ''}>${e(k.v)}</div><div class="pr-kpi-l">${e(k.l)}</div></div>`).join('')}</div>`;
@@ -4483,7 +4474,7 @@ const PR = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a35-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a36-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');
@@ -4865,7 +4856,7 @@ const PR = (() => {
                     + (cur.savedAt ? `<div class="text-[11px] t-faint">Last saved ${esc(fmtDateTimeLong(new Date(cur.savedAt).toISOString()).date)}</div>` : '<div class="text-[11px] t-faint">They haven\'t saved any settings yet - these are the defaults.</div>');
             } catch (e) {
                 if (spEditing !== u) return;
-                box.innerHTML = `<div style="color:#dc2626;">${/admin_get_user_prefs|function|schema cache/i.test(e.message || '') ? 'Run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts) to edit people\'s settings here.' : 'Could not load their settings: ' + esc(e.message || e)}</div>`;
+                box.innerHTML = `<div style="color:#dc2626;">${/admin_get_user_prefs|function|schema cache/i.test(e.message || '') ? 'The server adds this itself when it restarts - wait a couple of minutes to edit people\'s settings here.' : 'Could not load their settings: ' + esc(e.message || e)}</div>`;
             }
         }
         function collectPersonSettings() {
@@ -5429,7 +5420,7 @@ const PR = (() => {
                 const main = list.filter(x => x.is_primary).sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')))[0] || list[0];
                 list.forEach(x => { x._main = x === main; });
                 adminCt.list = list.sort((a, b) => (b._main - a._main) || String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }));
-            } catch (e) { adminCt.error = /site_contacts|does not exist|schema cache/i.test(e.message || '') ? 'The database needs updating for site contacts: run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts).' : (e.message || String(e)); }
+            } catch (e) { adminCt.error = /site_contacts|does not exist|schema cache/i.test(e.message || '') ? 'The database needs updating for site contacts: the server adds this itself when it restarts - wait a couple of minutes.' : (e.message || String(e)); }
             renderAdminContacts();
         }
         function renderAdminContacts() {
@@ -5470,7 +5461,7 @@ const PR = (() => {
                 await queueSiteChange({ client_id: adminCt.cid, action: 'site_edit', title: `Site contact ${id ? 'updated' : 'added'}: ${name}${row.role ? ' (' + row.role + ')' : ''}` });
                 await loadAdminContacts();
             } catch (e) {
-                alert('Could not save the contact: ' + (/site_contacts|does not exist|schema cache/i.test(e.message || '') ? 'run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts) first.' : (e.message || e)));
+                alert('Could not save the contact: ' + (/site_contacts|does not exist|schema cache/i.test(e.message || '') ? 'the server adds this itself when it restarts - wait a couple of minutes first.' : (e.message || e)));
                 btn.disabled = false; btn.textContent = 'Save contact';
             }
         }
@@ -5506,7 +5497,7 @@ const PR = (() => {
                 if (document.getElementById('limSite').value !== cid) return;
                 adminLim.list = list.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' }));
                 adminLim.stations = stations.sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }));
-            } catch (e) { adminLim.error = /site_limits|does not exist|schema cache|limit_id/i.test(e.message || '') ? 'The database needs updating for critical limits: run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts).' : (e.message || String(e)); }
+            } catch (e) { adminLim.error = /site_limits|does not exist|schema cache|limit_id/i.test(e.message || '') ? 'The database needs updating for critical limits: the server adds this itself when it restarts - wait a couple of minutes.' : (e.message || String(e)); }
             renderAdminLimits();
         }
         function renderAdminLimits() {
@@ -5579,7 +5570,7 @@ const PR = (() => {
                 await queueSiteChange({ client_id: cid, action: 'limit', title: `Critical limit ${id ? 'changed' : 'added'}: ${name}`, detail: rules.map(r => `${r.species} ${r.max}/month`).join(', ') });
                 await loadAdminLimits();
             } catch (e) {
-                alert('Could not save the critical limit: ' + (/site_limits|limit_id|does not exist|schema cache/i.test(e.message || '') ? 'run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts) first.' : (e.message || e)));
+                alert('Could not save the critical limit: ' + (/site_limits|limit_id|does not exist|schema cache/i.test(e.message || '') ? 'the server adds this itself when it restarts - wait a couple of minutes first.' : (e.message || e)));
                 btn.disabled = false; btn.textContent = 'Save';
             }
         }
@@ -5755,7 +5746,7 @@ const PR = (() => {
                 const { data, error } = await _supabase.from('staff_days').select('*').gte('started_at', new Date(m0.getTime() - 86400000).toISOString()).lt('started_at', m1.toISOString()).order('started_at', { ascending: true });
                 if (error) throw error;
                 dayLog.rows = data || []; dayLog.error = '';
-            } catch (e) { dayLog.rows = []; dayLog.error = /staff_days|does not exist|schema cache/i.test(e.message || '') ? 'The day log needs pestis_client_portal.sql to be run on the Pestis server (it updates the database itself when it restarts).' : (e.message || String(e)); }
+            } catch (e) { dayLog.rows = []; dayLog.error = /staff_days|does not exist|schema cache/i.test(e.message || '') ? 'The day log is not ready yet - the server adds it itself when it restarts, so wait a couple of minutes.' : (e.message || String(e)); }
             renderDayLog();
         }
         function dayLogName(r) { const u = adminProfiles.find(p => p.id === r.user_id); return (u && (u.full_name || u.email)) || r.technician || 'Someone'; }

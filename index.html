@@ -683,7 +683,6 @@
         .sight-thumb img, .sight-thumb video { width: 100%; height: 100%; object-fit: cover; display: block; }
         .sight-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 1.4rem; text-shadow: 0 2px 8px rgba(0, 0, 0, .6); }
         /* signed out soon */
-        .idle-warn { position: fixed; inset: 0; z-index: 9000; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgba(2, 6, 23, .6); backdrop-filter: blur(3px); }
         /* start / end day */
         .day-card { display: flex; align-items: center; gap: .75rem; padding: .7rem .85rem; border-radius: 1rem; border: 1px solid var(--border); background: var(--surface); box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,.06)); }
         .day-card.on { border-color: rgba(16, 185, 129, .5); background: linear-gradient(90deg, rgba(16, 185, 129, .08), transparent 60%), var(--surface); }
@@ -2259,10 +2258,9 @@
         const PHOTO_BUCKET = 'station-photos';
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
-        const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r90-oci';
-        // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
-        const LIMITS_ON = true;   // critical limits (rebuilt in r65)
+        const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
+        const APP_VERSION = '2026.10.30-r93-oci';
+        const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
         // New Zealand date style everywhere: day/month/year
@@ -2336,11 +2334,6 @@
         function pestisAdoptSignIn(oldKey) {   // a sign-in saved by an older version of this app (under its own key) is kept, once
             try { const v = localStorage.getItem(oldKey); if (v && !localStorage.getItem(PESTIS_AUTH_KEY)) localStorage.setItem(PESTIS_AUTH_KEY, v); localStorage.removeItem(oldKey); } catch (e) {}
         }
-        // "Not used for a while" counts activity in any Pestis app, so working in one doesn't sign you out of another
-        const PESTIS_ACTIVE_KEY = 'pestis-last-active';
-        let pestisActiveWritten = 0;
-        function pestisMarkActive() { const t = Date.now(); if (t - pestisActiveWritten < 5000) return; pestisActiveWritten = t; try { localStorage.setItem(PESTIS_ACTIVE_KEY, String(t)); } catch (e) {} }
-        function pestisLastActive() { try { return Number(localStorage.getItem(PESTIS_ACTIVE_KEY)) || 0; } catch (e) { return 0; } }
 
         const _supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
             auth: {
@@ -2501,25 +2494,10 @@
             return /failed to fetch|networkerror|network request failed|load failed|timed out|fetch failed|aborted|retryable/i.test(msg);
         }
 
-        // Which SQL script adds which column
-        const COLUMN_FIX_SCRIPT = {
-            image_path: 'pestis_offline_sites_update.sql', services: 'pestis_offline_sites_update.sql',
-            contract_start: 'pestis_contracts_team_update.sql', contract_end: 'pestis_contracts_team_update.sql',
-            contract_notes: 'pestis_contracts_team_update.sql', assigned_to: 'pestis_contracts_team_update.sql',
-            visit_started_at: 'pestis_visit_status.sql', visit_started_by: 'pestis_visit_status.sql', visit_type: 'pestis_visit_and_station_types.sql'
-        };
         function friendlyError(err) {
             const msg = (err && err.message) || String(err);
-            const m = msg.match(/could not find the '([^']+)' column of '([^']+)'/i) || msg.match(/column "?([\w ]+)"? of relation "?(\w+)"? does not exist/i);
-            if (m) {
-                const col = m[1], table = m[2];
-                const script = COLUMN_FIX_SCRIPT[col] || 'pestis_fix_client_columns.sql';
-                return `The "${table}" table in the database has no "${col}" column. Run ${script} on the Pestis server (it updates the database itself when it restarts), then tap Retry.`;
-            }
-            if (/operator does not exist: json/i.test(msg)) return 'The database rejected this because of the earlier recommendation-number script. Run pestis_recommendations.sql on the Pestis server (it updates the database itself when it restarts) (it fixes this), then tap Sync Now.';
-            if (/recommendations'|recommendations"|relation "public\.recommendations"|table 'public\.recommendations'/i.test(msg) && /does not exist|schema cache|could not find the table/i.test(msg)) return 'The database has no recommendations table yet. Run pestis_recommendations.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.';
-            if (/(stations|site_maps|visits|recommendation_updates|site_events|preparations|species|station_types|app_settings)/i.test(msg) && /does not exist|schema cache|could not find the table/i.test(msg)) return "The database doesn't have the new tables yet. Run pestis_split_tables.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.";
-            if (/column .* does not exist|schema cache/i.test(msg)) return msg + '.' + SQL_HINT;
+            // a table or column the server hasn't added yet (it adds them itself when it restarts)
+            if (/does not exist|schema cache|could not find the/i.test(msg)) return msg + '. The server adds this itself when it restarts - wait a couple of minutes and try again.';
             return msg;
         }
 
@@ -2775,32 +2753,6 @@
             if (error) showLoginMessage('Sign-in failed: ' + error.message);
         }
 
-        // Check for updates: clears what this app has saved on the device (site data, saved app files, photo links),
-        // signs out and loads the newest version fresh. Records not uploaded yet are kept and upload after signing back in.
-        async function checkForUpdates() {
-            if (!isOnline) { alert("You're offline. Connect to the internet first so the newest version can download."); return; }
-            const unsent = unsentItems().length;
-            const msg = 'This clears the site data saved on this device, signs you out and downloads the newest version of Pestis.\n\n'
-                + (unsent ? `${unsent} item${unsent === 1 ? ' has' : 's have'} not uploaded yet. ${unsent === 1 ? 'It is' : 'They are'} kept and will upload after you sign back in.\n\n` : '')
-                + 'Sites download again the next time you open them. Continue?';
-            if (!confirm(msg)) return;
-            const btn = document.getElementById('checkUpdatesBtn');
-            if (btn) { btn.disabled = true; btn.textContent = 'Clearing...'; }
-            try { await stopFullscreenCameraScanner(); } catch (e) {}
-            appStarted = false;
-            // 1. saved site data (records not uploaded yet, and their photos, stay)
-            try { await IDB.clear('cache'); } catch (e) {}
-            if (!unsent) { try { await IDB.clear('queue'); await IDB.clear('blobs'); } catch (e) {} }
-            ['pestis-signed-urls', 'pestis-team-settings', 'pestis-client-columns', 'pestis-sync-log', 'pestis-errors'].forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
-            // 2. the saved copy of the app itself
-            try { if (window.caches) { const keys = await caches.keys(); await Promise.all(keys.map(k => caches.delete(k))); } } catch (e) {}
-            try { if (navigator.serviceWorker) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r => r.unregister())); } } catch (e) {}
-            // 3. sign out and load fresh
-            try { await withTimeout(_supabase.auth.signOut(), 5000, 'Sign out'); } catch (e) {}
-            clearStoredSession();
-            clearIdentity();
-            location.replace(window.location.origin + window.location.pathname + '?fresh=' + Date.now());
-        }
 
 
         async function signOut() {
@@ -3193,12 +3145,12 @@
 
         // ===================================================================
         //  CLIENT PORTAL: client accounts (admins), site documents, client updates
-        //  The database decides what clients can see and do (pestis_client_portal.sql); this is the staff side.
+        //  The server decides what clients can see and do; this is the staff side.
         // ===================================================================
         const PORTAL_PAGE = 'client.html';
         function portalUrl() { return window.location.origin + window.location.pathname.replace(/[^/]*$/, '') + PORTAL_PAGE; }
         const portalMissing = e => /client_users|client_access|site_documents|by_client|does not exist|schema cache|could not find/i.test((e && e.message) || '');
-        const PORTAL_SQL_NOTE = 'Run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts) to switch on the Client Portal.';
+        const PORTAL_SQL_NOTE = 'The server adds this itself when it restarts - wait a couple of minutes and try again.';
         async function copyPortalLink() {
             try { await navigator.clipboard.writeText(portalUrl()); alert('Client Portal link copied:\n' + portalUrl()); }
             catch (e) { prompt('Copy the Client Portal link:', portalUrl()); }
@@ -4102,7 +4054,7 @@
                 let { data, error } = await _supabase.from(table).update(row).eq('id', row.id).select('*');
                 if (!error && !(data && data.length)) ({ data, error } = await _supabase.from(table).insert([row]).select('*'));
                 if (error && table === 'site_maps' && 'drawing' in row && /drawing/i.test(error.message || '') && /column|schema cache/i.test(error.message || '')) {
-                    drawingColumnMissing = true;   // pestis_client_portal.sql not run yet: keep the picture, skip the drawing
+                    drawingColumnMissing = true;   // the server has no drawing column yet: keep the picture, skip the drawing
                     delete row.drawing;
                     ({ data, error } = await _supabase.from(table).update(row).eq('id', row.id).select('*'));
                     if (!error && !(data && data.length)) ({ data, error } = await _supabase.from(table).insert([row]).select('*'));
@@ -4125,7 +4077,7 @@
                 const row = Object.assign({}, item.data.row);
                 let { data, error } = await _supabase.from('staff_days').update(row).eq('id', row.id).select('id');
                 if (!error && !(data && data.length)) ({ error } = await _supabase.from('staff_days').insert([row]));
-                if (error && /staff_days/i.test(error.message || '') && /does not exist|schema cache|could not find/i.test(error.message || '')) throw new Error('The database has no day log yet. Run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.');
+                if (error && /staff_days/i.test(error.message || '') && /does not exist|schema cache|could not find/i.test(error.message || '')) throw new Error('The database has no day log yet. The server adds this itself when it restarts - wait a couple of minutes, then tap Retry.');
                 if (error) throw error;
                 return;
             }
@@ -4144,7 +4096,7 @@
             if (item.kind === 'update_client') {
                 const { data, error } = await _supabase.from('clients').update(toDbClientFields(item.data.fields)).eq('id', item.clientId).select('id');
                 if (error) throw error;
-                if (!data || data.length === 0) throw new Error('The database refused the site update (permission denied).' + SQL_HINT);
+                if (!data || data.length === 0) throw new Error('The database refused the site update (permission denied).' + PERM_HINT);
                 if (item.data.removePaths) await removePhotos(item.data.removePaths);
                 return;
             }
@@ -4155,7 +4107,7 @@
                 if (!ph.uploaded) await uploadQueuedPhoto(item, ph, 0, 1);
                 const { data, error } = await _supabase.from('clients').update({ image_path: ph.path }).eq('id', item.clientId).select('id');
                 if (error) throw error;
-                if (!data || data.length === 0) throw new Error('The database refused the site photo update (permission denied).' + SQL_HINT);
+                if (!data || data.length === 0) throw new Error('The database refused the site photo update (permission denied).' + PERM_HINT);
                 if (item.data.oldPath && item.data.oldPath !== ph.path) await removePhotos([item.data.oldPath]);
                 const c = clientsData.find(x => String(x.id) === String(item.clientId));
                 if (c) { c.image_path = ph.path; cacheSet('clients', clientsData); }
@@ -4172,7 +4124,7 @@
                     const { data: deleted, error: delErr } = await build(_supabase.from('service_logs').delete()).select('barcode_id');
                     if (delErr) throw delErr;
                     if ((deleted || []).length === 0) {
-                        throw new Error('Permission denied. Run the delete-permissions SQL script in Supabase (pestis_update_delete_permissions.sql).');
+                        throw new Error('Permission denied. Only approved staff can delete this.');
                     }
                     removed.push(...rows);
                 };
@@ -4244,7 +4196,7 @@
                         .eq('client_id', cid).in('barcode_id', barcodes).select('barcode_id');
                     if (delErr) throw delErr;
                     if ((deleted || []).length === 0) {
-                        throw new Error('Permission denied. Run the delete-permissions SQL script in Supabase (pestis_update_delete_permissions.sql).');
+                        throw new Error('Permission denied. Only approved staff can delete this.');
                     }
                     await removePhotos(allPhotoPaths(rows));
                 }
@@ -4286,7 +4238,7 @@
                     const { count, error: cErr } = await _supabase.from('service_logs').select('barcode_id', { count: 'exact', head: true })
                         .eq('client_id', cid).eq('barcode_id', item.data.from);
                     if (cErr) throw cErr;
-                    if (count) throw new Error('The database refused to move the records (permission denied). Run pestis_r14_update.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry. The app already shows the new barcode.');
+                    if (count) throw new Error('The database refused to move the records (permission denied) - only approved staff can move records. The app already shows the new barcode.');
                 }
                 return;
             }
@@ -4311,7 +4263,7 @@
                 if (res.error && item.kind === 'add_option' && Object.keys(extra).length && extraCols.some(c => (res.error.message || '').includes(c))) {
                     listExtrasMissing = true;
                     res = await _supabase.from(table).upsert([base], { onConflict: 'id' });
-                    if (!res.error) throw new Error('Saved, but the SDS / pest guide details need pestis_client_portal.sql to be run on the Pestis server (it updates the database itself when it restarts). Run it, then tap Retry.');
+                    if (!res.error) throw new Error('Saved, but the SDS / pest guide details were not saved yet - the server adds the missing part itself when it restarts, so wait a couple of minutes, then tap Retry.');
                 }
                 if (!res.error) return;
                 if (!/does not exist|schema cache|could not find the table/i.test(res.error.message || '')) throw new Error(friendlyOptionsError(res.error));
@@ -4716,13 +4668,6 @@
             setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
         }
 
-        async function manualSyncNow() {
-            isOnline = await probeOnline();
-            if (!isOnline) { updateSyncBadge(); alert("Still offline. Your items are safe on this device and will upload when the connection returns."); return; }
-            queueItems.forEach(i => { if (i.status === 'failed') { i.status = 'pending'; i.parked = false; i.lastTriedAt = 0; } });
-            lastFailAt = 0;
-            await flushQueue();
-        }
 
         async function retryQueueItem(key) {
             const item = queueItems.find(i => i.key === key);
@@ -6983,7 +6928,7 @@
         // Turns saved rows (+ anything still in the upload queue) into the site dashboard state
         let photosAwaitingLinks = [];
         let siteMaps = [];              // floor plans: [{ id, name, path, local, w, h, drawing }]
-        let drawingColumnMissing = false;   // the database can't keep plan drawings yet (pestis_client_portal.sql)
+        let drawingColumnMissing = false;   // the database can't keep plan drawings yet
         let sitePins = new Map();       // barcode -> { mapId, x, y, at, by }
         let siteEvents = [];            // activity log, newest first
         let currentVisitEntries = [];   // station records made since the last closed visit
@@ -6993,7 +6938,7 @@
         let splitTablesMissing = false; // the database doesn't have the stations / plans / visits tables yet
         let siteStations = new Map();   // barcode -> row in the stations table
         const SITE_TABLES = ['stations', 'site_maps', 'visits', 'recommendation_updates', 'site_events', 'site_limits', 'pest_sightings', 'site_contacts'];
-        const OPTIONAL_SITE_TABLES = ['site_limits', 'pest_sightings', 'site_contacts'];   // added by pestis_client_portal.sql: missing just means none yet
+        const OPTIONAL_SITE_TABLES = ['site_limits', 'pest_sightings', 'site_contacts'];   // missing just means none yet
         let siteSightings = [];         // pest sightings the client reported in the Client Portal
         let siteContacts = [];          // the site's contacts (main contact first): [{ id, name, role, phone, email, notes, is_primary }]
         let siteLimits = [];            // critical limits: [{ id, name, rules: [{ species, max }] }]
@@ -7765,7 +7710,6 @@
             const recs = sitePestRecords().filter(r => !(r.barcode === barcode && r.thisVisit)).concat([{ barcode, at: now, species, n, thisVisit: true }]);
             return limitRules(l).filter(rule => pestKey(rule.species) === pestKey(species)).map(rule => limitTotal(barcode, l, rule, now, null, recs)).filter(x => x.total > x.rule.max);
         }
-        function limitBreachesNow() { return allLimitTotals(null, null, sitePestRecords()).filter(x => x.total > x.rule.max); }
         // stations a visit took over their limit: that month's records up to the end of the visit, with this visit adding to it
         function visitLimitBreaches(v) {
             if (!siteLimits.length || !v) return [];
@@ -8015,7 +7959,7 @@
         //  Kept on the device for offline use and saved to the person's account (get_my_prefs / save_my_pref),
         //  so they follow them to any device and never change anything for anyone else.
         // ===================================================================
-        const ACCOUNT_KEYS = ['pestis-set-renewal_warn_days', 'pestis-set-visit_stale_hours', 'pestis-set-doc_expiry_warn_days', 'pestis-set-idle_logout_minutes',
+        const ACCOUNT_KEYS = ['pestis-set-renewal_warn_days', 'pestis-set-visit_stale_hours', 'pestis-set-doc_expiry_warn_days',
             'pestis-theme', 'pestis-color-theme', 'pestis-text-size', 'pestis-motion', 'pestis-beep', 'pestis-vibrate', 'pestis-scan-view', 'pestis-photo-size',
             'pestis-show-station-photos', 'pestis-show-sighting-photos', 'pestis-show-rec-photos', 'pestis-notif-scope', 'pestis-notif-due', 'pestis-card-size', 'pestis-site-sort',
             'pestis-site-filter', 'pestis-auto-repeat-prep', 'pestis-activity-range', 'pestis-actions-scope'];
@@ -8119,20 +8063,6 @@
             try { if (btn && btn.closest('#siteSightingsCard')) await refreshSiteSightings(true); else await backgroundSyncSite('manual'); }
             finally { if (btn) setTimeout(() => btn.classList.remove('spin'), 300); }
         }
-        // header numbers: tap to open what's behind them in a pop-up (Next service isn't a link)
-        function kpiStationsHtml(q) {
-            q = String(q || '').trim().toLowerCase();
-            const list = siteDevices.filter(d => !q || `${d.locationName} ${d.barcode_id} ${d.deviceType}`.toLowerCase().includes(q))
-                .sort((a, b) => a.locationName.localeCompare(b.locationName, LOCALE, { numeric: true }));
-            if (!list.length) return `<div class="t-faint italic text-xs p-2">${siteDevices.length ? 'No stations match.' : 'No stations recorded yet.'}</div>`;
-            return list.map(d => {
-                const last = lastServiceOf(d), lt = last ? fmtDateTimeLong(last.at) : null, openN = openRecCount(d);
-                return `<button type="button" data-barcode="${esc(d.barcode_id)}" onclick="closeInfoModal(); openStationOverview(this.dataset.barcode)" class="row-item typed clickable w-full text-left p-2.5 flex items-center gap-2" style="border-left-color:${stationColor(d.deviceType).color};">
-                    <span class="min-w-0 flex-1"><span class="block font-bold t-strong truncate">${esc(d.locationName)}${openN ? ` <span class="chip chip-orange !py-0 ml-1">${openN} open</span>` : ''}</span>
-                    <span class="block t-muted truncate">${esc(d.deviceType)} · <span class="font-mono t-accent">${esc(d.barcode_id)}</span></span>
-                    <span class="block t-faint text-[10.5px]">${lt ? `Last serviced ${esc(lt.date)}` : 'Not serviced yet'}</span></span><span class="t-faint shrink-0">›</span></button>`;
-            }).join('');
-        }
         let kpiSt = { type: 'all', photos: true };
         function renderKpiStations() {
             const el = document.getElementById('kpiStationList');
@@ -8206,9 +8136,9 @@
         // Uploaded recommendations still without a number after a full refresh: the database script hasn't been run
         let recNumbersMissing = false;
         function recNumbersNotice() {
-            if (splitTablesMissing) return `<div class="row-item p-2.5 text-[11px]" style="border-color:#d97706;color:#d97706;">The database doesn't have the new stations / floor plans / visits tables yet. Run <b>pestis_split_tables.sql</b> on the Pestis server (it updates the database itself when it restarts), then tap Sync Site. Changes made meanwhile are kept on this device.</div>`;
+            if (splitTablesMissing) return `<div class="row-item p-2.5 text-[11px]" style="border-color:#d97706;color:#d97706;">The database doesn't have the new stations / floor plans / visits tables yet. The server adds this itself when it restarts - wait a couple of minutes, then tap Sync Site. Changes made meanwhile are kept on this device.</div>`;
             if (!recTableMissing) return '';
-            return `<div class="row-item p-2.5 text-[11px]" style="border-color:#d97706;color:#d97706;">Recommendation numbers need the recommendations table in the database. Run <b>pestis_recommendations.sql</b> on the Pestis server (it updates the database itself when it restarts), then tap Sync Site.</div>`;
+            return `<div class="row-item p-2.5 text-[11px]" style="border-color:#d97706;color:#d97706;">Recommendation numbers need the recommendations table in the database. The server adds this itself when it restarts - wait a couple of minutes, then tap Sync Site.</div>`;
         }
 
         function recRowHtml(item, opts) {
@@ -8319,40 +8249,6 @@
                 </div></div>`;
         }
 
-        // Shared donut drawing (fixed slice colours, 2px gaps, centre total, legend with counts)
-        function donutHtml(segsIn, total, unit, label, footHtml) {
-            const segs = segsIn.filter(x => x.n > 0);
-            const R = 54, r = 34, C = 64, gap = segs.length > 1 ? 0.035 : 0;
-            let a0 = -Math.PI / 2;
-            const arc = (from, to) => {
-                const large = to - from > Math.PI ? 1 : 0;
-                const p = (ang, rad) => [C + rad * Math.cos(ang), C + rad * Math.sin(ang)].map(v => v.toFixed(2)).join(' ');
-                return `M ${p(from, R)} A ${R} ${R} 0 ${large} 1 ${p(to, R)} L ${p(to, r)} A ${r} ${r} 0 ${large} 0 ${p(from, r)} Z`;
-            };
-            const paths = segs.map(sg => {
-                const sweep = sg.n / total * Math.PI * 2;
-                const from = a0 + gap / 2, to = a0 + sweep - gap / 2;
-                a0 += sweep;
-                const d = segs.length === 1
-                    ? `M ${C} ${C - R} A ${R} ${R} 0 1 1 ${C - 0.01} ${C - R} L ${C - 0.01} ${C - r} A ${r} ${r} 0 1 0 ${C} ${C - r} Z`
-                    : arc(from, to);
-                return `<path d="${d}" fill="${sg.color}"><title>${esc(sg.t)}: ${sg.n} (${Math.round(sg.n / total * 100)}%)</title></path>`;
-            }).join('');
-            return `
-                <div class="flex items-center gap-4 flex-wrap">
-                    <div class="relative shrink-0" style="width:112px;height:112px;">
-                        <svg viewBox="0 0 128 128" width="112" height="112" role="img" aria-label="${esc(label)}">${paths}</svg>
-                        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                            <span class="text-xl font-black t-strong leading-none">${total}</span>
-                            <span class="text-[10px] t-faint">${esc(unit)}</span>
-                        </div>
-                    </div>
-                    <div class="donut-legend flex-1 min-w-[10rem] space-y-1 text-[11px]">
-                        ${segsIn.map(sg => `<div class="flex items-center gap-2"><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${sg.color};"></span><span class="flex-1 t-strong">${esc(sg.t)}</span><span class="t-muted font-bold">${sg.n} · ${total ? Math.round(sg.n / total * 100) : 0}%</span></div>`).join('')}
-                        ${footHtml || ''}
-                    </div>
-                </div>`;
-        }
 
         let visitTech = '';
         function setVisitTech(v) { visitTech = v; renderLandingVisitsOnly(); }
@@ -10372,20 +10268,12 @@
             pe.sel = null;
             peCommit(); peRender(); peRenderPanel(); peHint();
         }
-        function peMergeNode(fromId, intoId) {
-            if (fromId === intoId) return;
-            pe.doc.walls.forEach(w => { if (w.a === fromId) w.a = intoId; if (w.b === fromId) w.b = intoId; });
-            pe.doc.walls = pe.doc.walls.filter((w, i, all) => w.a !== w.b && all.findIndex(x => (x.a === w.a && x.b === w.b) || (x.a === w.b && x.b === w.a)) === i);
-            pe.doc.rooms.forEach(r => { r.nodes = r.nodes.map(x => x === fromId ? intoId : x).filter((x, i, a) => a.indexOf(x) === i); });
-            pe.doc.nodes = pe.doc.nodes.filter(n => n.id !== fromId);
-        }
         const peRoomPts = r => r.nodes.map(peNode).filter(Boolean);
         function peRoomArea(r) {
             const p = peRoomPts(r); let a = 0;
             p.forEach((q, i) => { const n = p[(i + 1) % p.length]; a += q.x * n.y - n.x * q.y; });
             return Math.abs(a / 2) / (pe.doc.ppm * pe.doc.ppm);
         }
-        function peRoomCentre(r) { const p = peRoomPts(r); return { x: p.reduce((s, q) => s + q.x, 0) / (p.length || 1), y: p.reduce((s, q) => s + q.y, 0) / (p.length || 1) }; }
 
         // ---------- drawing (one function draws the editor and the saved picture) ----------
         function peWallStyle(kind, ppm) {
@@ -11018,7 +10906,6 @@
 
         // ---------- side panel: tool options or what's selected ----------
         function pePanel(mode) { if (!pe) return; pe.panel = pe.panel === mode ? 'tool' : mode; peRenderPanel(); }
-        function peStartTool(t) { if (pe) { pe.panel = 'tool'; peSetTool(t); } }
         function peRenderPanel() {
             if (!pe) return;
             const el = document.getElementById('pePanel');
@@ -11572,7 +11459,7 @@
                 peClose(true);
                 await refreshSiteStateFromCache();
                 if (document.getElementById('mapModal').classList.contains('hidden')) openMapModal({ mapId: id }); else selectMap(id);
-                if (drawingColumnMissing) setTimeout(() => alert('The plan was saved as a picture. To keep the drawing editable later, run pestis_client_portal.sql on the Pestis server (it updates the database itself when it restarts).'), 300);
+                if (drawingColumnMissing) setTimeout(() => alert('The plan was saved as a picture. The drawing itself could not be kept yet - the server adds that part itself when it restarts, so save it again in a couple of minutes to keep it editable.'), 300);
             } catch (err) {
                 peToast('Could not save the plan: ' + (err.message || err));
             } finally {
@@ -12591,18 +12478,6 @@
             if (ok) btn.textContent = `↻ Repeat: ${lastPrep.prep}${lastPrep.qty ? ' · ' + fmtQty(lastPrep.qty, lastPrep.unit) : ''}${lastPrep.batch ? ' · batch ' + lastPrep.batch : ''}`;
             document.getElementById('autoRepeatPrep').checked = !!loadJSON(AUTO_REPEAT_KEY, false);
         }
-        function applyRepeatPrep() {
-            if (!repeatPrepAvailable()) return;
-            setSelectValue('prepUsed', lastPrep.prep);
-            currentQtyUnit = lastPrep.unit || prepUnit(lastPrep.prep);
-            prepChanged(false);
-            document.getElementById('qtyCount').value = lastPrep.qty || (currentQtyUnit === 'each' ? 1 : '');
-        }
-        function setAutoRepeat(on) {
-            saveJSON(AUTO_REPEAT_KEY, !!on);
-            const prep = document.getElementById('prepUsed').value;
-            if (on && (!prep || prep === NONE_PREP)) applyRepeatPrep();
-        }
 
         // Flying insect stations: a glue board is the usual preparation
         const GLUE_BATCH_KEY = 'pestis-last-glue-batch';
@@ -13606,8 +13481,6 @@
                 recs.length ? box(`Recommendations (${recs.length})`, recs.map(e => `<div><b class="t-accent">${esc(fmtRecNo(e.recNo) || 'New')}</b> <span class="t-strong">${esc(e.recommendation)}</span> <span class="t-faint">· ${esc(e.name)}</span></div>`).join('')) : ''
             ].join('');
         }
-        // kept so older shortcuts still work: open the job close at the sign-off tab
-        function openSignOff() { document.getElementById('completeVisitModal').classList.remove('hidden'); setCloseTab('sign'); }
         function renderSignReasonChips() {
             const v = document.getElementById('signReason').value.trim();
             document.getElementById('signReasonChips').innerHTML = SIGN_REASONS.map(r => `<button type="button" class="chip ${v === r ? 'chip-orange' : 'chip-grey'} cursor-pointer" aria-pressed="${v === r}" data-r="${esc(r)}" onclick="document.getElementById('signReason').value = this.dataset.r; reasonChanged()">${esc(r)}</button>`).join('');
@@ -13778,10 +13651,10 @@
 
         function friendlyOptionsError(err) {
             const msg = (err && err.message) || String(err);
-            if (/row-level security|permission denied|violates row-level/i.test(msg)) return 'Only admins can change these lists (the database refused the change). If you are an admin, run pestis_r14_update.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.';
-            if (/'unit' column|column "unit"|unit.*schema cache/i.test(msg)) return "The database can't store preparation units yet. Run pestis_r14_update.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.";
-            if (/app_options_kind_check|violates check constraint/i.test(msg)) return 'The database does not accept station types yet. Run pestis_visit_and_station_types.sql on the Pestis server (it updates the database itself when it restarts), then tap Retry.';
-            if (/app_options|relation .* does not exist|schema cache/i.test(msg)) return msg + '. Run pestis_settings_update.sql on the Pestis server (it updates the database itself when it restarts).';
+            if (/row-level security|permission denied|violates row-level/i.test(msg)) return 'Only admins can change these lists (the database refused the change).';
+            if (/'unit' column|column "unit"|unit.*schema cache/i.test(msg)) return "The database can't store preparation units yet. The server adds this itself when it restarts - wait a couple of minutes, then tap Retry.";
+            if (/app_options_kind_check|violates check constraint/i.test(msg)) return 'The database does not accept station types yet. The server adds this itself when it restarts - wait a couple of minutes, then tap Retry.';
+            if (/app_options|relation .* does not exist|schema cache/i.test(msg)) return msg + '. The server adds this itself when it restarts - wait a couple of minutes.';
             return msg;
         }
 
@@ -14627,18 +14500,6 @@
         window.addEventListener('error', e => logAppError('Page error', e.error || e.message));
         window.addEventListener('unhandledrejection', e => logAppError('Background task', e.reason));
 
-        function diagnosticsText() {
-            const list = loadJSON(DIAG_KEY, []);
-            const lines = [
-                'Pestis ' + APP_VERSION,
-                'Browser: ' + navigator.userAgent,
-                'Online: ' + isOnline + ' | Queue waiting: ' + unsentItems().length,
-                'Missing page parts: ' + (missingPageParts.length ? missingPageParts.join(', ') : 'none'),
-                ''
-            ];
-            list.forEach(x => lines.push(`[${x.at}] ${x.where}: ${x.message}\n${x.stack}\n`));
-            return lines.join('\n');
-        }
         function renderDiagnostics() {
             const el = document.getElementById('diagList');
             const sum = document.getElementById('diagSummary');
@@ -14652,12 +14513,6 @@
                     <div class="t-strong break-words">${esc(x.message)}</div>
                 </div>`).join('') || '<div class="t-faint italic">Nothing recorded.</div>';
         }
-        async function copyDiagnostics() {
-            const text = diagnosticsText();
-            try { await navigator.clipboard.writeText(text); alert('Diagnostics copied - paste them into your message.'); }
-            catch (e) { prompt('Copy these details:', text); }
-        }
-        function clearDiagnostics() { saveJSON(DIAG_KEY, []); renderDiagnostics(); }
 
         // ===================================================================
         //  ADMIN (admin.html): the Admin page and everything only admins do lives in its own file,
@@ -14827,6 +14682,12 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r93', date: '2026-10-30', v: { svc: '2026.10.30-r93', adm: '2026.10.30-a36', cli: '2026.10.30-p49' },
+            svc: ['Tidy-up: old unused code removed, and error messages no longer mention running database scripts (the server sorts that out itself)',
+                  'Security: files that are not photos, videos or PDFs now download instead of opening, and the app can no longer be shown inside another website'],
+            adm: ['Tidy-up: old unused code removed, and error messages no longer mention running database scripts (the server sorts that out itself)',
+                  'Security: files that are not photos, videos or PDFs now download instead of opening, the apps can no longer be shown inside another website, and client logins can no longer add new fields to the database'],
+            cli: ['Behind the scenes: tidier code and extra security checks'] },
         { rev: 'r92', date: '2026-10-30', v: { adm: '2026.10.30-a35' },
             adm: ['Sites › each site page: the boxes now sit neatly in two columns with no gaps beside a short box, and the browser no longer pops up its saved-details list over the site details'] },
         { rev: 'r91', date: '2026-10-30', v: { adm: '2026.10.30-a34' },

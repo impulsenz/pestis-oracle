@@ -329,7 +329,7 @@ try {
     siteLimits = [{ id: 'LM', name: 'Food hall', rules: [{ species: 'Midge', max: 150 }] }];
     siteStations = new Map([['U1', { barcode: 'U1', limit_id: 'LM' }], ['U2', { barcode: 'U2', limit_id: 'LM' }]]);
     siteDevices = [dev('U1', 'Unit 1', 120), dev('U2', 'Unit 2', 120)];
-    const together = limitBreachesNow().length;
+    const together = allLimitTotals(null, null, sitePestRecords()).filter(x => x.total > x.rule.max).length;
     const hit = limitsHitBy('U2', 'LM', 'Midge', 160).map(x => `${x.name}:${x.total}/${x.rule.max}`);
     siteLimits = keep.siteLimits; siteStations = keep.siteStations; siteDevices = keep.siteDevices;
     return { together, hit };

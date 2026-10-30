@@ -260,6 +260,24 @@ try {
   ok(forged.status === 403, 'changed link refused');
   r = await cl.storage.from('station-photos').upload('1/CLIENT_abc.jpg', new Blob(['c']), { contentType: 'image/jpeg' });
   ok(!r.error, 'client uploads recommendation photo', r.error);
+  // a file saying it's a web page (or any type that could run) is downloaded, never shown as part of the site
+  for (const ty of ['text/html', 'application/xhtml+xml', 'image/svg+xml']) {
+    await cl.storage.from('station-photos').upload('1/CLIENT_page' + ty.length + '.jpg', new Blob(['<script>alert(1)</script>']), { contentType: ty });
+    const u = (await cl.storage.from('station-photos').createSignedUrl('1/CLIENT_page' + ty.length + '.jpg', 60)).data;
+    const fr = u && await fetch(u.signedUrl);
+    ok(fr && fr.ok && fr.headers.get('content-type') === 'application/octet-stream' && /^attachment/.test(fr.headers.get('content-disposition') || '') && /sandbox/.test(fr.headers.get('content-security-policy') || ''),
+      `an uploaded ${ty} file downloads (sandboxed), never runs`, fr && Object.fromEntries(fr.headers));
+  }
+  const pdfUp = await boss.storage.from('site-documents').upload('1/frame-check.pdf', new Blob(['%PDF-1.4']), { contentType: 'application/pdf' });
+  const pdfU = !pdfUp.error && (await boss.storage.from('site-documents').createSignedUrl('1/frame-check.pdf', 60)).data;
+  const pr = pdfU && await fetch(pdfU.signedUrl);
+  ok(pr && pr.headers.get('content-type') === 'application/pdf' && /^inline/.test(pr.headers.get('content-disposition') || ''), 'PDFs (and photos) still open in the browser', pr && Object.fromEntries(pr.headers));
+  // the apps can't be put inside another website
+  const pg = await fetch(BASE + '/client.html');
+  ok(pg.headers.get('x-frame-options') === 'SAMEORIGIN' && /frame-ancestors 'self'/.test(pg.headers.get('content-security-policy') || ''), 'the apps refuse to be framed by other sites');
+  // a client login can't add new columns to the database
+  r = await cl.from('site_contacts').insert([{ client_id: '1', name: 'Sneaky', made_up_field: 'x' }]);
+  ok(r.error && r.error.code === '42703', "a client can't create a new database column", r);
   r = await cl.storage.from('station-photos').upload('1/sneaky.jpg', new Blob(['c']), {});
   ok(r.error && String(r.error.statusCode) === '403', 'client cannot upload other names', r.error);
   r = await tech.storage.from('site-documents').upload('1/sds.pdf', new Blob(['pdf']), { contentType: 'application/pdf' });
