@@ -17,7 +17,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { TABLES, SEED, STANDARD_FOLDERS, SITE_TABLES, LIST_TABLES, LIVE_TABLES, BUCKETS } from './schema.mjs';
+import { TABLES, SEED, PREPARATIONS, STANDARD_FOLDERS, SITE_TABLES, LIST_TABLES, LIVE_TABLES, BUCKETS } from './schema.mjs';
 import { sendMail } from './mail.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -837,14 +837,12 @@ const PEST_LIST_V = 1;
 const ANT_RE = /\bants?\b|linepithema|technomyrmex|ochetellus|pheidole|doleromyrma|darwin|tapinoma|monomorium|pharaoh/i;
 const PEST_LIST = [
   ['Rat', 'Rodents', null, /\brats?\b|norway|brown rat|sewer rat|ship rat|roof rat|black rat|rattus/i],
-  ['Mouse', 'Rodents', null, /house mouse|\bmice\b|\bmouse\b|mus musculus/i],
+  ['Mice', 'Rodents', null, /house mouse|\bmice\b|\bmouse\b|mus musculus/i],
   ['Gisborne cockroach', 'Crawling insects', 'Cockroaches', /gisborne|drymaplaneta/i],
   ['Ants', 'Crawling insects', 'Ants', ANT_RE],
-  ['Lesser house fly', 'Flying insects', 'Flies', /lesser house ?fly|fannia/i],
-  ['House fly', 'Flying insects', 'Flies', /house ?fly|musca/i],
+  ['Fly', 'Flying insects', 'Flies', /^\s*fl(y|ies)\s*$|house ?fly|musca/i],
   ['Blowfly', 'Flying insects', 'Flies', /blow ?fly|bluebottle|calliphor/i],
   ['Drain fly', 'Flying insects', 'Flies', /drain fly|moth fly|psychod/i],
-  ['Cluster fly', 'Flying insects', 'Flies', /cluster fly|pollenia/i],
   ['Case-bearing clothes moth', 'Moths', 'Fabric moths', /case.?bearing|tinea pellionella/i],
   ['Webbing clothes moth', 'Moths', 'Fabric moths', /clothes moth|tineola|tinea/i],
   ['Brown house moth', 'Moths', 'Fabric moths', /brown house moth|hofmannophila/i],
@@ -883,7 +881,7 @@ function updatePestList() {
   for (const [label, category, subcategory] of PEST_LIST) {
     const have = found.get(label) || [];
     if (!have.length) { sys.insert('species', { id: crypto.randomUUID(), label, sort: ++sort, category, subcategory }); continue; }
-    if (label !== 'Rat' && label !== 'Mouse') { for (const r of have) sys.update('species', [['id', 'eq', r.id]], { category, subcategory }); continue; }
+    if (label !== 'Rat' && label !== 'Mice') { for (const r of have) sys.update('species', [['id', 'eq', r.id]], { category, subcategory }); continue; }
     // one rat and one mouse: keep the Norway rat / house mouse (or the first), named plainly, and remove the others
     have.sort((a, b) => /norway|house mouse/i.test(b.label) - /norway|house mouse/i.test(a.label) || (a.sort || 0) - (b.sort || 0));
     const [keep, ...extra] = have, patch = { label, category, subcategory };
@@ -999,7 +997,7 @@ transaction(updateFolders);
 
 // Once: pests added to the list after it was first set up (Midge), unless the list already has them
 const MORE_PESTS_V = 1;
-const MORE_PESTS = [['Midge', 'Flying insects', 'Flies', /midge|chironom/i]];
+const MORE_PESTS = [['Midges', 'Flying insects', 'Flies', /midge|chironom/i]];
 function addMorePests() {
   const done = sys.one('app_settings', [['key', 'eq', 'more_pests_version']]);
   if (done && Number(done.value) >= MORE_PESTS_V) return;
@@ -1042,6 +1040,49 @@ function trimPestList() {
   else sys.insert('app_settings', { key: 'pest_trim_version', value: PEST_TRIM_V, updated_by: 'Server' });
 }
 transaction(trimPestList);
+
+// Once: Mouse is Mice, House fly is Fly and Midge is Midges (the list, past records and critical limits), and
+// Cluster fly, Fruit (vinegar) fly and Lesser house fly leave the list (past records keep their names)
+const PEST_TRIM2_V = 1;
+const PEST_RENAMES_2 = [[/^(house )?mouse$|^mice$/i, 'Mice'], [/^house ?fly$/i, 'Fly'], [/^midges?$/i, 'Midges']];
+const DROPPED_PESTS_2 = /cluster fly|pollenia|fruit fly|vinegar fly|drosophila|lesser house ?fly|fannia/i;
+function trimPestList2() {
+  const done = sys.one('app_settings', [['key', 'eq', 'pest_trim2_version']]);
+  if (done && Number(done.value) >= PEST_TRIM2_V) return;
+  for (const [re, to] of PEST_RENAMES_2) {
+    const rows = sys.all('species', []).filter(r => re.test(String(r.label || '').trim()));
+    const keep = rows.find(r => r.label === to) || rows[0];
+    for (const r of rows) {
+      if (r.label !== to) renamePestEverywhere(r.label, to);
+      if (r === keep) { if (r.label !== to) sys.update('species', [['id', 'eq', r.id]], { label: to }); }
+      else sys.delete('species', [['id', 'eq', r.id]]);
+    }
+    // records using another spelling of the old name
+    const names = new Set();
+    db.prepare(`SELECT DISTINCT trim(json_extract(payload, '$.speciesCaught')) AS n FROM service_logs WHERE json_extract(payload, '$.speciesCaught') IS NOT NULL`).all().forEach(x => names.add(x.n));
+    for (const x of db.prepare(`SELECT payload FROM service_logs WHERE json_extract(payload, '$.morePests') IS NOT NULL`).all()) {
+      try { (JSON.parse(x.payload).morePests || []).forEach(p => p && p.species && names.add(String(p.species).trim())); } catch {}
+    }
+    db.prepare('SELECT DISTINCT trim(pest) AS n FROM pest_sightings').all().forEach(x => names.add(x.n));
+    for (const n of names) if (n && re.test(n) && n !== to) renamePestEverywhere(n, to);
+  }
+  for (const r of sys.all('species', [])) if (DROPPED_PESTS_2.test(String(r.label || ''))) sys.delete('species', [['id', 'eq', r.id]]);
+  if (done) sys.update('app_settings', [['key', 'eq', 'pest_trim2_version']], { value: PEST_TRIM2_V, updated_by: 'Server' });
+  else sys.insert('app_settings', { key: 'pest_trim2_version', value: PEST_TRIM2_V, updated_by: 'Server' });
+}
+transaction(trimPestList2);
+
+// Once: the preparations list is replaced by the owner's list (past station checks keep the names they were saved with)
+const PREPS_V = 1;
+function replacePreparations() {
+  const done = sys.one('app_settings', [['key', 'eq', 'preparations_version']]);
+  if (done && Number(done.value) >= PREPS_V) return;
+  for (const r of sys.all('preparations', [])) sys.delete('preparations', [['id', 'eq', r.id]]);
+  PREPARATIONS.forEach(([label, unit], i) => sys.insert('preparations', { id: crypto.randomUUID(), label, unit, sort: i + 1 }));
+  if (done) sys.update('app_settings', [['key', 'eq', 'preparations_version']], { value: PREPS_V, updated_by: 'Server' });
+  else sys.insert('app_settings', { key: 'preparations_version', value: PREPS_V, updated_by: 'Server' });
+}
+transaction(replacePreparations);
 
 /* =====================================================================================
    Sign-in

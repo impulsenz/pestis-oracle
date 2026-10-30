@@ -98,7 +98,7 @@ try {
     const ty = document.getElementById('newDeviceType'), s = document.getElementById('speciesCaught');
     ty.value = 'Flying Insect Monitoring'; updateFormTypeDot();
     const btnBefore = !document.getElementById('addPestBtn').classList.contains('hidden');
-    s.value = 'House Fly'; updatePestCountField(true);
+    s.value = 'Fly'; updatePestCountField(true);
     const def = document.getElementById('activityLevel').value, btnShown = !document.getElementById('addPestBtn').classList.contains('hidden');
     document.getElementById('pestCount').value = '12';
     addMorePest();
@@ -108,6 +108,9 @@ try {
   })()`);
   ok(ins.def === 'Caught' && !ins.btnBefore && ins.btnShown && ins.more.length === 1 && ins.more[0].species === 'Blowfly', 'insect station: Caught by default, and "Add another pest"', ins);
   await sp.fill('#newLocName', 'Loading Dock');
+  // a flying insect station gets a glue board (Glue Board is on the preparations list)
+  ok(await sp.evaluate("gluePrep() === 'Glue Board'"), 'Glue Board is the glue board preparation', await sp.evaluate('gluePrep()'));
+  await sp.evaluate('applyGlueBoard()');
   if (await sp.isEnabled('#batchNumber').catch(() => false)) await sp.fill('#batchNumber', 'B-1');
   const saved = await sp.evaluate('saveStationServiceRecord()'); await sleep(500);
   ok(saved !== false, 'station record saved in the app');
@@ -119,7 +122,7 @@ try {
     await sleep(250);
   }
   ok(got && got.payload && got.payload.locationName === 'Loading Dock' && got.technician_id, 'record reached the server', got);
-  ok(got && got.payload.speciesCaught === 'House Fly' && got.payload.pestCount === 12 && Array.isArray(got.payload.morePests) && got.payload.morePests[0].species === 'Blowfly' && got.payload.morePests[0].count === 3,
+  ok(got && got.payload.speciesCaught === 'Fly' && got.payload.pestCount === 12 && Array.isArray(got.payload.morePests) && got.payload.morePests[0].species === 'Blowfly' && got.payload.morePests[0].count === 3,
     'both pests saved on the one check', got && got.payload);
   const unsent = await sp.evaluate("queueItems.filter(i => i.status !== 'sent').map(i => i.kind + ':' + (i.error || i.lastError || ''))");
   ok(unsent.length === 0 || unsent.every(u => !/error|fail|denied/i.test(u)), 'upload queue clear', unsent);

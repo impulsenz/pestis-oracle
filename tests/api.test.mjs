@@ -128,12 +128,16 @@ try {
   // the pest list matches the pest guide: one Rat and Mouse, and the common NZ pests in their categories
   r = await tech.from('species').select('*');
   const sp = r.data || [], spIn = c => sp.filter(x => x.category === c).map(x => x.label);
-  ok(sp.some(x => x.label === 'Rat') && sp.some(x => x.label === 'Mouse') && !sp.some(x => /norway|ship rat|house mouse/i.test(x.label)), 'one Rat and Mouse; the Norway/ship rats and house mouse merged', sp.map(x => x.label));
+  ok(sp.some(x => x.label === 'Rat') && sp.some(x => x.label === 'Mice') && !sp.some(x => /norway|ship rat|mouse/i.test(x.label)), 'one Rat and Mice; the Norway/ship rats and house mouse merged', sp.map(x => x.label));
   ok(sp.filter(x => x.label === 'Rat').length === 1 && sp.find(x => x.label === 'Rat').category === 'Rodents', 'Rat is a rodent');
   ok(sp.some(x => x.label === 'Gisborne cockroach' && x.subcategory === 'Cockroaches'), 'Gisborne cockroach added');
   ok(sp.filter(x => x.subcategory === 'Ants' || /\bants?\b/i.test(x.label)).map(x => x.label).join() === 'Ants', 'one pest for every kind of ant: Ants', sp.filter(x => x.subcategory === 'Ants' || /\bants?\b/i.test(x.label)).map(x => x.label));
   const flies = sp.filter(x => x.subcategory === 'Flies').map(x => x.label).sort();
-  ok(flies.join() === 'Blowfly,Cluster fly,Drain fly,House Fly,Lesser house fly,Midge', 'the flies: no flesh fly, vinegar fly, fungus gnat, green blowfly or stable fly', flies);
+  ok(flies.join() === 'Blowfly,Drain fly,Fly,Midges', 'the flies: Fly, Blowfly, Drain fly and Midges only', flies);
+  // the preparations: the owner's list, each with its unit
+  const preps = ((await tech.from('preparations').select('label, unit').order('sort')).data || []);
+  ok(preps.length === 15 && preps[0].label === 'Light Bulb' && preps.find(x => x.label === 'VK2').unit === 'L' && preps.find(x => x.label === 'Glue Board').unit === 'each' && preps.find(x => x.label === 'Advion Cockroach Gel').unit === 'g'
+    && !preps.some(x => /brodifacoum|cypermethrin/i.test(x.label)), "the preparations are the owner's list of 15, with their units", preps);
   ok(spIn('Moths').length === 10, 'Moths category with ten moths', spIn('Moths'));
   ok(spIn('Stored product pests').length === 15, 'fifteen stored product pests', spIn('Stored product pests'));
   ok(new Set(sp.map(x => x.label.toLowerCase())).size === sp.length, 'no pest twice');
@@ -397,7 +401,8 @@ try {
   const techR = await as('tech@example.com');
   r = await techR.from('service_logs').insert([{ client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'House Mouse' } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'norway rat' } },
     { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'german cockroach' } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Unicorn beetle' } },
-    { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Argentine ant', morePests: [{ species: 'Black house ant', count: 2 }] } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Flesh fly' } }]);
+    { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Argentine ant', morePests: [{ species: 'Black house ant', count: 2 }] } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Flesh fly' } },
+    { client_id: 1, barcode_id: 'B2', payload: { speciesCaught: 'House Fly', morePests: [{ species: 'Midge', count: 3 }] } }, { client_id: 1, barcode_id: 'B2', payload: { speciesCaught: 'Mouse' } }, { client_id: 1, barcode_id: 'B2', payload: { speciesCaught: 'Cluster fly' } }]);
   ok(!r.error, 'records with old pest names added', r.error);
   const bossR = await as('boss@example.com');
   r = await bossR.from('app_settings').upsert({ key: 'pest_names_version', value: 0 });
@@ -405,18 +410,25 @@ try {
   // an old list with two kinds of ant and a fly that's now gone
   await bossR.from('species').insert([{ id: 'ant-x', label: "Darwin's ant", category: 'Crawling insects', subcategory: 'Ants' }, { id: 'fly-x', label: 'Stable fly', category: 'Flying insects', subcategory: 'Flies' }]);
   await bossR.from('app_settings').upsert({ key: 'pest_trim_version', value: 0 });
+  // an old list with Mouse, House fly, Midge and Lesser house fly
+  await bossR.from('species').insert([{ id: 'old-mouse', label: 'Mouse', category: 'Rodents' }, { id: 'old-hf', label: 'House fly', category: 'Flying insects', subcategory: 'Flies' }, { id: 'old-lhf', label: 'Lesser house fly', category: 'Flying insects', subcategory: 'Flies' }]);
+  await bossR.from('app_settings').upsert({ key: 'pest_trim2_version', value: 0 });
   srv.stop(); await new Promise(res => setTimeout(res, 500));
   srv = await start({ port: PORT, dataDir: tmpDir('api'), keep: true });
   const tech2 = await as('tech@example.com');
   r = await tech2.from('service_logs').select('payload').eq('barcode_id', 'B1');
   if (r.error) console.log('after restart:', JSON.stringify(r.error));
   const names = (r.data || []).map(x => x.payload.speciesCaught);
-  ok(names.includes('Mouse') && names.includes('Rat') && names.includes('German Cockroach') && !names.some(n => /house mouse|norway|^german cockroach$/.test(n)) && names.includes('Unicorn beetle'),
+  ok(names.includes('Mice') && names.includes('Rat') && names.includes('German Cockroach') && !names.some(n => /house mouse|norway|^german cockroach$/.test(n)) && names.includes('Unicorn beetle'),
     'on restart, old pest names are matched to the list (a name with no match is left alone)', names);
   const antRec = (r.data || []).find(x => x.payload.morePests && x.payload.morePests.length);
   ok(antRec && antRec.payload.speciesCaught === 'Ants' && antRec.payload.morePests[0].species === 'Ants' && names.includes('Flesh fly'), 'every kind of ant in past records is now Ants; a removed fly keeps its name in records', (r.data || []).map(x => x.payload));
   const sp2 = ((await tech2.from('species').select('label')).data || []).map(x => x.label);
   ok(sp2.filter(l => /\bants?\b/i.test(l)).join() === 'Ants' && !sp2.includes('Stable fly'), 'the list has one Ants and no Stable fly', sp2);
+  ok(sp2.includes('Mice') && sp2.includes('Fly') && sp2.includes('Midges') && !sp2.some(l => /^(mouse|house ?fly|midge|lesser house fly|cluster fly)$/i.test(l)), 'the list: Mice, Fly and Midges; no Mouse, House fly, Midge, Lesser house fly or Cluster fly', sp2);
+  const b2 = ((await tech2.from('service_logs').select('payload').eq('barcode_id', 'B2')).data || []).map(x => x.payload);
+  ok(b2.some(p => p.speciesCaught === 'Fly' && p.morePests[0].species === 'Midges') && b2.some(p => p.speciesCaught === 'Mice') && b2.some(p => p.speciesCaught === 'Cluster fly'),
+    'past records: House Fly is now Fly, Midge is Midges, Mouse is Mice; a removed fly keeps its name', b2);
 } catch (e) { fails++; console.log('ERROR', e); }
 finally {
   srv.stop();

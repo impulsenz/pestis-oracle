@@ -211,13 +211,17 @@ export const TABLES = {
   },
 };
 
+// The preparations the business uses, with the unit each is measured in (the owner's list)
+export const PREPARATIONS = [
+  ['Light Bulb', 'each'], ['Maki Block', 'each'], ['Contrac', 'each'], ['Generation', 'each'], ['Key Aqua Delta', 'ml'], ['Zetapy', 'ml'],
+  ['Forgot', 'L'], ['VK2', 'L'], ['Anteater Ant Gel', 'g'], ['Advion Cockroach Gel', 'g'], ['Glue Board', 'each'],
+  ['MAC Slay Residual Insecticide', 'ml'], ['Dust to Dust', 'g'], ['WaspJet Pro', 'each'], ['STORGARD', 'each'],
+];
 // Starting lists for a brand-new database (only added while a list is empty)
 export const SEED = {
-  preparations: [
-    'Brodifacoum Rodent Blocks', 'Alpha-Cypermethrin Spray', 'Cockroach Gel Bait',
-  ].map((label, i) => ({ id: 'seed-prep-' + (i + 1), label, sort: i + 1, unit: 'each' })),
+  preparations: PREPARATIONS.map(([label, unit], i) => ({ id: 'seed-prep-' + (i + 1), label, sort: i + 1, unit })),
   species: [
-    'Norway Rat', 'Ship Rat', 'House Mouse', 'German Cockroach', 'American Cockroach', 'House Fly', 'Ants',
+    'Rat', 'Mice', 'German Cockroach', 'American Cockroach', 'Fly', 'Ants',
   ].map((label, i) => ({ id: 'seed-species-' + (i + 1), label, sort: i + 1 })),
   station_types: [
     'External Non-Toxic Rodent Station', 'Internal Non-Toxic Rodent Station', 'Flying Insect Monitoring', 'Crawling Insect Monitoring',

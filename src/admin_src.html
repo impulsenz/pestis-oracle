@@ -933,6 +933,14 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r90', date: '2026-10-30', v: { svc: '2026.10.30-r90', adm: '2026.10.30-a33', cli: '2026.10.30-p48' },
+            svc: ['Pests: Mouse is now Mice, House fly is now Fly and Midge is now Midges (past records too). Cluster fly, Fruit fly and Lesser house fly are off the list',
+                  'Preparations: the list is now Light Bulb, Maki Block, Contrac, Generation, Key Aqua Delta, Zetapy, Forgot, VK2, Anteater Ant Gel, Advion Cockroach Gel, Glue Board, MAC Slay Residual Insecticide, Dust to Dust, WaspJet Pro and STORGARD'],
+            adm: ['Reports: line graphs always draw their line (0 when nothing was caught) with the area under it filled in',
+                  'Pests: Mouse is now Mice, House fly is now Fly and Midge is now Midges (past records too). Cluster fly, Fruit fly and Lesser house fly are off the list. The "General name" note is gone',
+                  'Preparations: the old list is replaced by the new one (15 preparations, each with its unit)'],
+            cli: ['Reports: line graphs always draw their line (0 when nothing was caught) with the area under it filled in',
+                  'Pests are now named Mice, Fly and Midges in your records and reports'] },
         { rev: 'r89', date: '2026-10-30', v: { svc: '2026.10.30-r89', adm: '2026.10.30-a32', cli: '2026.10.30-p47' },
             svc: ['Critical limits are per station: each station on a limit is allowed that many of each pest a month on its own (e.g. Midges 150 - any one unit that catches more than 150 has breached). Breaches are reported for the station',
                   'Going over a critical limit asks if you want to add a recommendation - you can now save without one'],
@@ -1312,13 +1320,14 @@ const PR = (() => {
         const n = keys.length, x = i => pl + (n <= 1 ? (W - pl - pr) / 2 : i * (W - pl - pr) / (n - 1)), y = v => pt + (H - pt - pb) * (1 - v / max);
         const ticks = opts.ticks || Array.from(new Set([0, .25, .5, .75, 1].map(f => Math.round(max * f))));
         const yl = v => opts.yLbl ? opts.yLbl(v) : v;
-        // a line breaks where there's no data (months not reached yet, or no checks that month)
+        // a line breaks only where there's no data yet (months not reached); nothing caught is drawn as 0
         const runs = vals => { const out = []; let cur = []; vals.forEach((v, i) => { if (v == null) { if (cur.length) out.push(cur); cur = []; } else cur.push(i); }); if (cur.length) out.push(cur); return out; };
         const every = Math.ceil(n / 12);
         return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(opts.label || 'Chart')}">
             ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="pr-grid"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" class="pr-ax">${e(yl(t))}</text>`).join('')}
             ${keys.map((k, i) => (i % every === 0 && (i === n - 1 || n - 1 - i >= every * 0.75)) || i === n - 1 ? `<text x="${x(i)}" y="${H - 12}" text-anchor="${n > 1 && i === n - 1 ? 'end' : i === 0 && n > 1 ? 'start' : 'middle'}" class="pr-ax">${e(opts.lbl ? opts.lbl(k) : k)}</text>` : '').join('')}
             ${opts.limit != null ? `<line x1="${pl}" x2="${W - pr}" y1="${y(opts.limit)}" y2="${y(opts.limit)}" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 5"/><text x="${W - pr}" y="${y(opts.limit) - 5}" text-anchor="end" class="pr-ax" fill="#dc2626">Limit ${opts.limit}</text>` : ''}
+            ${series.map(s => runs(s.vals).map(r => `<polygon fill="${s.color}" fill-opacity="${series.length > 3 ? .06 : .14}" stroke="none" points="${r.map(i => `${x(i)},${y(s.vals[i])}`).join(' ')} ${x(r[r.length - 1])},${y(0)} ${x(r[0])},${y(0)}"/>`).join('')).join('')}
             ${series.map(s => runs(s.vals).map(r => `<polyline fill="none" stroke="${s.color}" stroke-width="${s.thin ? 1.8 : 2.5}" ${s.dash ? 'stroke-dasharray="5 4"' : ''} stroke-linejoin="round" stroke-linecap="round" points="${r.map(i => `${x(i)},${y(s.vals[i])}`).join(' ')}"/>`).join('')
                 + s.vals.map((v, i) => v == null ? '' : `<circle cx="${x(i)}" cy="${y(v)}" r="${opts.limit != null && v > opts.limit ? 5 : 3.2}" fill="${opts.limit != null && v > opts.limit ? '#dc2626' : s.color}"><title>${e(s.name)} · ${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${e(yl(v))}</title></circle>`).join('')).join('')}
         </svg>${series.length > 1 ? `<div class="pr-legend">${series.map(s => `<span><i style="background:${s.color}"></i>${e(s.name)}</span>`).join('')}</div>` : ''}`;
@@ -1469,7 +1478,7 @@ const PR = (() => {
             const rows = ks.map((k, i) => ({ cells: [e(monthLong(k))].concat(series.map(x => x.vals[i] || ''), [`<b>${totals[i]}</b>`]) })).reverse();
             return {
                 html: kpis([{ v: list.reduce((n, x) => n + x.count, 0), l: 'captures' }, { v: tot.size, l: 'pests' }, { v: dir, l: 'trend (second half vs first)', c: dir === 'Going up' ? '#dc2626' : dir === 'Going down' ? '#16a34a' : '' }])
-                    + `<div class="pr-chart">${series.length ? lineChart(series, ks, { lbl: monthLbl, label: 'Captures per month' }) : '<div class="pr-empty">No pests were caught in this period.</div>'}</div>` + table(head, rows),
+                    + `<div class="pr-chart">${lineChart(series.length ? series : [{ name: 'Pests caught', color: PALETTE[0], vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: series.length ? 'Captures per month' : 'Captures per month (no pests were caught in this period)' })}</div>` + table(head, rows),
                 csv: [head.map(h => h.t)].concat(ks.map((k, i) => [monthLong(k)].concat(series.map(x => x.vals[i]), [totals[i]])))
             };
         },
@@ -1521,22 +1530,21 @@ const PR = (() => {
             const caught = list.filter(x => x.species && (!s.pest || x.species === s.pest));
             let chart, cap;
             if (s.view === 'yoy') {
-                const series = yoySeries(years, (yr, m) => { const inM = list.filter(x => inYM(x, yr, m)); return act ? levelOf(inM) : (inM.length ? caught.filter(x => inYM(x, yr, m)).reduce((n, x) => n + x.count, 0) : null); });
+                const series = yoySeries(years, (yr, m) => { const inM = list.filter(x => inYM(x, yr, m)); return act ? (levelOf(inM) || 0) : caught.filter(x => inYM(x, yr, m)).reduce((n, x) => n + x.count, 0); });
                 cap = act ? 'Activity each month (the highest found), one line per year' : `${s.pest || 'All pests'}: caught each month, one line per year`;
                 chart = lineChart(series, MONTHS12, Object.assign({ lbl: monShort, label: cap }, act ? ACT_CHART : {}));
             } else {
                 const ks = months(from, Date.now());
                 if (act) {
-                    cap = 'Activity each month (the highest found; no point = not checked that month)';
-                    chart = lineChart([{ name: 'Activity', color: color(opts, stn.type), vals: ks.map(k => levelOf(list.filter(x => monthKey(x.at) === k))) }], ks, Object.assign({ lbl: monthLbl, label: cap }, ACT_CHART));
+                    cap = 'Activity each month (the highest found)';
+                    chart = lineChart([{ name: 'Activity', color: color(opts, stn.type), vals: ks.map(k => levelOf(list.filter(x => monthKey(x.at) === k)) || 0) }], ks, Object.assign({ lbl: monthLbl, label: cap }, ACT_CHART));
                 } else {
                     const tot = new Map(); caught.forEach(x => tot.set(x.species, (tot.get(x.species) || 0) + x.count));
                     const sp = Array.from(tot.entries()).sort((p, q) => q[1] - p[1]).map(p => p[0]);
-                    const checked = k => list.some(x => monthKey(x.at) === k);
-                    const series = sp.slice(0, 8).map((name, i) => ({ name, color: PALETTE[i], vals: ks.map(k => checked(k) ? caught.filter(x => x.species === name && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0) : null) }));
-                    if (sp.length > 8) series.push({ name: `Other (${sp.length - 8})`, color: PALETTE[8], vals: ks.map(k => checked(k) ? caught.filter(x => sp.slice(8).includes(x.species) && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0) : null) });
-                    cap = 'Caught each month, one line per pest (no point = not checked that month)';
-                    chart = series.length ? lineChart(series, ks, { lbl: monthLbl, label: cap }) : '<div class="pr-empty">Nothing was caught at this station in this time.</div>';
+                    const series = sp.slice(0, 8).map((name, i) => ({ name, color: PALETTE[i], vals: ks.map(k => caught.filter(x => x.species === name && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)) }));
+                    if (sp.length > 8) series.push({ name: `Other (${sp.length - 8})`, color: PALETTE[8], vals: ks.map(k => caught.filter(x => sp.slice(8).includes(x.species) && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)) });
+                    cap = series.length ? 'Caught each month, one line per pest' : 'Caught each month (nothing caught at this station in this time)';
+                    chart = lineChart(series.length ? series : [{ name: s.pest || 'Pests caught', color: color(opts, stn.type), vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: cap });
                 }
             }
             const head = [{ t: 'Date' }, { t: 'Activity' }, { t: 'Pest' }, { t: 'Number', num: true }, { t: 'Preparation' }, { t: 'Batch' }, { t: 'Technician' }, { t: 'Notes' }];
@@ -3309,7 +3317,7 @@ const PR = (() => {
                     <div class="row-item p-3 flex justify-between items-center gap-2">
                         <button type="button" class="min-w-0 text-left t-strong font-semibold break-words" data-id="${esc(o.id)}" onclick="showPestInfo(this.dataset.id)">${esc(o.label)}${pending(o.id) ? ' <span class="t-faint font-normal">(waiting to upload)</span>' : ''}
                             <span class="block text-[10px] font-normal t-faint">${o.gallery ? '📷 photo gallery' : o.photo_path ? '📷 picture' : 'no pictures yet'} · ${o.about && o.control ? 'guide written' : 'guide from the built-in library'}</span>
-                            ${isGeneralPest(o.label) ? '<span class="block text-[10px] font-semibold" style="color:#d97706;">General name - this is a category. Add the specific pests instead and remove this one.</span>' : ''}</button>
+                            </button>
                         ${admin ? `<div class="flex items-center gap-2 shrink-0"><button type="button" data-id="${esc(o.id)}" onclick="editPestInfo(this.dataset.id)" class="link-btn !no-underline font-bold">✎ Guide</button>
                             <button type="button" data-id="${esc(o.id)}" onclick="removeOption(this.dataset.id)" class="font-bold cursor-pointer" style="color:#ef4444;">Remove</button></div>` : ''}
                     </div>`).join('')).join('') + '</div>'; }).join('') || '<div class="row-item p-3 t-faint italic">Nothing added yet.</div>');

@@ -3,6 +3,14 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r90', date: '2026-10-30', v: { svc: '2026.10.30-r90', adm: '2026.10.30-a33', cli: '2026.10.30-p48' },
+            svc: ['Pests: Mouse is now Mice, House fly is now Fly and Midge is now Midges (past records too). Cluster fly, Fruit fly and Lesser house fly are off the list',
+                  'Preparations: the list is now Light Bulb, Maki Block, Contrac, Generation, Key Aqua Delta, Zetapy, Forgot, VK2, Anteater Ant Gel, Advion Cockroach Gel, Glue Board, MAC Slay Residual Insecticide, Dust to Dust, WaspJet Pro and STORGARD'],
+            adm: ['Reports: line graphs always draw their line (0 when nothing was caught) with the area under it filled in',
+                  'Pests: Mouse is now Mice, House fly is now Fly and Midge is now Midges (past records too). Cluster fly, Fruit fly and Lesser house fly are off the list. The "General name" note is gone',
+                  'Preparations: the old list is replaced by the new one (15 preparations, each with its unit)'],
+            cli: ['Reports: line graphs always draw their line (0 when nothing was caught) with the area under it filled in',
+                  'Pests are now named Mice, Fly and Midges in your records and reports'] },
         { rev: 'r89', date: '2026-10-30', v: { svc: '2026.10.30-r89', adm: '2026.10.30-a32', cli: '2026.10.30-p47' },
             svc: ['Critical limits are per station: each station on a limit is allowed that many of each pest a month on its own (e.g. Midges 150 - any one unit that catches more than 150 has breached). Breaches are reported for the station',
                   'Going over a critical limit asks if you want to add a recommendation - you can now save without one'],

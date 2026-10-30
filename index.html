@@ -2260,7 +2260,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r89-oci';
+        const APP_VERSION = '2026.10.30-r90-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -13766,8 +13766,8 @@
         const NONE_PREP = 'None - Monitoring Only';
         const NONE_SPECIES = 'None';
         const DEFAULT_OPTIONS = {
-            prep: ['Brodifacoum Rodent Blocks', 'Alpha-Cypermethrin Spray', 'Cockroach Gel Bait'],
-            species: ['Norway Rat', 'Ship Rat', 'House Mouse', 'German Cockroach', 'American Cockroach', 'House Fly', 'Ants'],
+            prep: ['Light Bulb', 'Maki Block', 'Contrac', 'Generation', 'Key Aqua Delta', 'Zetapy', 'Forgot', 'VK2', 'Anteater Ant Gel', 'Advion Cockroach Gel', 'Glue Board', 'MAC Slay Residual Insecticide', 'Dust to Dust', 'WaspJet Pro', 'STORGARD'],
+            species: ['Rat', 'Mice', 'German Cockroach', 'Fly', 'Ants'],
             station_type: ['External Non-Toxic Rodent Station', 'Internal Non-Toxic Rodent Station', 'External Toxic Rodent Station', 'Internal Toxic Rodent Station', 'Flying Insect Monitoring', 'Crawling Insect Monitoring', 'Pest Sighting Register', 'Inspection Point']
         };
         const OPTION_KIND_LABEL = { prep: 'preparation', species: 'species', station_type: 'station type' };
@@ -13904,8 +13904,6 @@
             const used = new Set(items.map(pestSubOf));
             return PEST_SUB_ORDER.filter(x => used.has(x)).concat(Array.from(used).filter(x => !PEST_SUB_ORDER.includes(x)).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b)));
         }
-        // a general name ("Rats", "Ants") rather than a specific pest: those are the categories now
-        const isGeneralPest = name => /^(rats|mice|rodents?|ants?|cockroach(es)?|roach(es)?|spiders?|flies|fly|wasps?|bees?|birds?|beetles?|moths?|insects?|weevils?)$/i.test(String(name || '').trim());
         const speciesItems = () => appOptions.filter(o => o.kind === 'species').sort(byLabel);
         function pestCategories(items) {
             const used = new Set((items || speciesItems()).map(pestCategoryOf));
@@ -13932,7 +13930,7 @@
               about: 'Two rats are pests in New Zealand. The Norway (brown) rat is large and heavy (up to 500 g) with a blunt nose, small ears and a tail shorter than its body; it burrows in soil, under slabs and along drains and lives at ground level. The ship (roof) rat is slender and agile with a pointed nose, large ears and a tail longer than its body; it is an excellent climber and nests high up in ceilings, roof voids, trees and creepers, travelling along cables, fences and branches. Both contaminate food with droppings and urine, gnaw cables, pipes and insulation, and spread diseases such as leptospirosis and salmonella.',
               breeding: 'Rats breed all year where there is food and shelter. A female can have 3-6 litters a year of 5-12 young, and the young can breed at 2-4 months old, so a small colony grows into hundreds within a year. Norway rats nest in burrows, wall cavities and under stored goods; ship rats nest high up in roof spaces, wall cavities and dense trees.',
               control: 'Inspect low and high: burrows, runways, rub marks and droppings at ground level, and roof voids, ceiling spaces and elevated runways for ship rats. Use tamper-resistant bait stations (rodenticide or traps) along walls and runways, spaced 5-10 m apart outside, and in the roof space where there is activity, checked on every service. Proof the building: seal gaps over 12 mm, fit door sweeps, cover drains and vents with mesh, trim trees and creepers at least 1 m back from the roof and fit rat guards on cables and pipes. Remove food and harbourage: secure bins, clear vegetation and clutter from walls, store goods off the floor. Record activity at each station and re-bait or move stations where activity is high.' },
-            { m: /house mouse|\bmice\b|\bmouse\b|mus musculus/i, name: 'Mouse', cat: 'Rodents', sub: '', sci: 'Mus musculus', wiki: 'House_mouse', signs: ["mouse droppings", "mouse nest", "mouse damage food"],
+            { m: /house mouse|\bmice\b|\bmouse\b|mus musculus/i, name: 'Mice', cat: 'Rodents', sub: '', sci: 'Mus musculus', wiki: 'House_mouse', signs: ["mouse droppings", "mouse nest", "mouse damage food"],
               about: 'The house mouse is a small rodent (12-30 g) with large ears and a tail about as long as its body. It lives inside buildings, in wall cavities, cupboards, appliances and stored goods, and only needs a 6 mm gap to get in. Mice nibble small amounts from many food items and leave many small droppings, contaminating far more than they eat.',
               breeding: 'Breeds all year indoors. A female can have 6-10 litters a year of 5-8 young, and young breed from 6 weeks old. Nests are made from shredded paper, fabric and insulation close to food.',
               control: 'Mice range only 3-10 m from the nest, so place stations or traps close together (2-3 m apart) where activity is seen. Use tamper-resistant bait stations, snap traps or multi-catch traps along walls and behind appliances. Seal gaps over 6 mm with steel wool, mesh or sealant, and fit door sweeps. Keep food in sealed containers, clean up spills, and reduce clutter. Check frequently - mice are curious, so move stations if they are not visited.' },
@@ -14073,7 +14071,7 @@
               about: 'The lesser house fly is slightly smaller and slimmer than the house fly (5-6 mm), grey with three faint dark stripes on its thorax. It is known for flying in slow, endless circles in the middle of a room, under lights and hanging fittings, and rarely lands on food. It is common in homes, poultry sheds and farm buildings.',
               breeding: 'Females lay eggs in decaying organic matter, especially poultry and animal manure, compost and rotting vegetables. Larvae are flattened with spiny fringes, and the life cycle takes 2-4 weeks. It prefers cooler weather than the house fly, so it is often the first fly seen in spring.',
               control: 'Find and remove breeding sites - manure, compost and rotting material near the building. Fit fly screens and keep doors closed. Use insect light traps and sticky ribbons near where they circle, and a residual spray on resting surfaces such as light fittings and ceilings in heavy infestations.' },
-            { m: /house ?fly|musca/i, name: 'House fly', cat: 'Flying insects', sub: 'Flies', sci: 'Musca domestica', wiki: 'Housefly', signs: ["fly larvae maggots", "flies on rubbish", "fly specks"],
+            { m: /^\s*fl(y|ies)\s*$|house ?fly|musca/i, name: 'Fly', cat: 'Flying insects', sub: 'Flies', sci: 'Musca domestica', wiki: 'Housefly', signs: ["fly larvae maggots", "flies on rubbish", "fly specks"],
               about: 'The house fly is a grey fly (6-7 mm) with four dark stripes on its thorax. It feeds on rubbish, manure and food, and carries bacteria from waste onto food and surfaces, spreading food poisoning.',
               breeding: 'Females lay batches of 100-150 eggs in rotting organic matter - rubbish, food waste and manure. In warm weather the life cycle takes only 7-10 days, so numbers rise fast in summer.',
               control: 'Remove breeding sites: empty and clean bins often, keep lids closed and clean up food waste and spills. Fit fly screens, strip curtains and self-closing doors. Use UV insect light traps (ILTs) inside, away from doors and food prep, and service them regularly. Use fly baits outside around bins and waste areas.' },
@@ -14113,7 +14111,7 @@
               about: 'Mosquitoes are small biting flies; females feed on blood and can spread diseases. They are a nuisance around homes, workplaces and outdoor areas near water.',
               breeding: 'Eggs are laid on or near still water - containers, gutters, drains and ponds. Larvae live in the water and develop in 1-2 weeks.',
               control: 'Remove standing water: empty containers, clear gutters and drains, cover tanks. Treat water that cannot be removed with a larvicide. Fit insect screens and use residual treatments on resting surfaces.' },
-            { m: /midge|chironom/i, name: 'Midge', cat: 'Flying insects', sub: 'Flies', sci: 'Chironomidae', wiki: 'Chironomidae', signs: ["midge swarm", "Chironomidae larvae"],
+            { m: /midge|chironom/i, name: 'Midges', cat: 'Flying insects', sub: 'Flies', sci: 'Chironomidae', wiki: 'Chironomidae', signs: ["midge swarm", "Chironomidae larvae"],
               about: 'Midges are small, delicate flies that swarm near water and lights. Most do not bite, but large numbers are a nuisance and are attracted to lit buildings, ILTs and windows.',
               breeding: 'Larvae live in ponds, streams, wetlands and waste water, emerging in large numbers in warm weather.',
               control: 'Reduce lighting that attracts them (use yellow or LED lighting outside), fit insect screens and use insect light traps inside. Residual sprays on resting surfaces near water help during peak emergence.' },
@@ -14829,6 +14827,14 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r90', date: '2026-10-30', v: { svc: '2026.10.30-r90', adm: '2026.10.30-a33', cli: '2026.10.30-p48' },
+            svc: ['Pests: Mouse is now Mice, House fly is now Fly and Midge is now Midges (past records too). Cluster fly, Fruit fly and Lesser house fly are off the list',
+                  'Preparations: the list is now Light Bulb, Maki Block, Contrac, Generation, Key Aqua Delta, Zetapy, Forgot, VK2, Anteater Ant Gel, Advion Cockroach Gel, Glue Board, MAC Slay Residual Insecticide, Dust to Dust, WaspJet Pro and STORGARD'],
+            adm: ['Reports: line graphs always draw their line (0 when nothing was caught) with the area under it filled in',
+                  'Pests: Mouse is now Mice, House fly is now Fly and Midge is now Midges (past records too). Cluster fly, Fruit fly and Lesser house fly are off the list. The "General name" note is gone',
+                  'Preparations: the old list is replaced by the new one (15 preparations, each with its unit)'],
+            cli: ['Reports: line graphs always draw their line (0 when nothing was caught) with the area under it filled in',
+                  'Pests are now named Mice, Fly and Midges in your records and reports'] },
         { rev: 'r89', date: '2026-10-30', v: { svc: '2026.10.30-r89', adm: '2026.10.30-a32', cli: '2026.10.30-p47' },
             svc: ['Critical limits are per station: each station on a limit is allowed that many of each pest a month on its own (e.g. Midges 150 - any one unit that catches more than 150 has breached). Breaches are reported for the station',
                   'Going over a critical limit asks if you want to add a recommendation - you can now save without one'],
