@@ -169,13 +169,17 @@
         html.dark .chip-orange { color: rgb(var(--b400)); background: rgb(var(--b500) / .14); border-color: rgb(var(--b500) / .35); }
 
         .sync-btn { cursor: pointer; padding: 0 .85rem; }
+        .sync-ico { display: inline-flex; align-items: center; justify-content: center; width: 1.15rem; height: 1.15rem; flex-shrink: 0; }
+        .sync-ico svg { width: 100%; height: 100%; display: block; }
         /* header controls share one height */
         .visit-act { width: 100%; justify-content: center; text-align: center; line-height: 1.2; padding-left: .5rem; padding-right: .5rem; white-space: normal; }
         .header-h { height: 2.5rem; border-radius: .8rem; box-sizing: border-box; }
         /* phones: a compact header so "Service App" and the site name still fit (Admin is in the profile, day/night in Settings in the profile) */
         @media (max-width: 639px) {
             #appHeader .icon-btn, #appHeader .header-h { width: 2.2rem; height: 2.2rem; min-width: 2.2rem; }
-            #appHeader #syncStatusBadge { width: auto; padding: 0 .55rem; }
+            /* the sync button: a square with its cloud icon in the middle; the number waiting sits on the corner */
+            #appHeader #syncStatusBadge { width: 2.2rem; padding: 0; gap: 0; justify-content: center; position: relative; }
+            #appHeader #syncStatusBadge .queue-count { position: absolute; top: -.4rem; right: -.4rem; margin: 0; }
             /* the profile button: a square tile with the picture centred in it */
             #appHeader #profileChip { width: 2.2rem; padding: 0; gap: 0; justify-content: center; }
             #appHeader #profileChip #headerAvatar, #appHeader #profileChip #headerAvatarFallback { width: 1.7rem; height: 1.7rem; border-radius: .55rem; }
@@ -404,6 +408,7 @@
         .ms-x { font-weight: 900; padding: 0 .3rem; border-radius: 999px; line-height: 1.2; }
         .ms-x:hover { background: rgba(0,0,0,.15); }
         .queue-count { min-width: 1.15rem; height: 1.15rem; padding: 0 .3rem; border-radius: 999px; background: rgb(var(--b500)); color: #fff; font-size: .62rem; font-weight: 900; display: inline-flex; align-items: center; justify-content: center; }
+        .queue-count.hidden { display: none; }   /* nothing waiting: no "0" */
 
         .offline-banner { background: #b91c1c; color: #fff; }
 
@@ -920,7 +925,7 @@
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.25v13m0-13C10.83 5.48 9.25 5 7.5 5S4.17 5.48 3 6.25v13C4.17 18.48 5.75 18 7.5 18s3.33.48 4.5 1.25m0-13C13.17 5.48 14.75 5 16.5 5c1.75 0 3.33.48 4.5 1.25v13C19.83 18.48 18.25 18 16.5 18c-1.75 0-3.33.48-4.5 1.25"></path></svg>
                 </button>
                 <button type="button" id="syncStatusBadge" onclick="openQueueModal()" class="chip chip-green sync-btn header-h transition-all duration-300" title="View upload queue">
-                    <span id="syncDot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span id="syncDot" class="sync-ico" aria-hidden="true"></span>
                     <span id="syncText" class="hidden md:inline">Online & Synced</span>
                     <span id="queueCountBadge" class="queue-count hidden">0</span>
                     <svg class="w-3.5 h-3.5 opacity-70 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 6h16M4 12h16M4 18h10"></path></svg>
@@ -1402,9 +1407,9 @@
                     </div>
                 </div>
 
-                <div>
-                    <label class="lbl">Technician Service Notes</label>
-                    <textarea id="serviceNotes" rows="2" placeholder="Station inspected, fresh bait applied..." class="field"></textarea>
+                <!-- per-station service notes are no longer asked for; kept hidden so a correction keeps an older record's notes -->
+                <div class="hidden">
+                    <textarea id="serviceNotes" rows="2" class="field" aria-hidden="true" tabindex="-1"></textarea>
                 </div>
 
                 <!-- Recommendations: the one for this visit (editable) + the station's others, in one list -->
@@ -2252,7 +2257,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r77-oci';
+        const APP_VERSION = '2026.10.30-r78-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -3692,6 +3697,15 @@
             };
         })();
 
+        // the sync button's icon: a cloud with a tick (synced), an arrow (uploading / syncing), a line through it (offline) or "!" (a problem)
+        const SYNC_CLOUD = '<path d="M7 18.5h10.5a4 4 0 00.6-7.96A6 6 0 006.4 9.3 4.6 4.6 0 007 18.5z"/>';
+        const SYNC_ICONS = Object.fromEntries(Object.entries({
+            ok: '<path d="M9.3 13.6l2 2 3.6-3.9"/>',
+            up: '<path d="M12 16.2v-5.4M9.6 13l2.4-2.4 2.4 2.4"/>',
+            sync: '<path d="M14.9 12.4a3 3 0 00-5.2-1.2M9.1 14.6a3 3 0 005.2 1.2M9.6 9.9v1.6h1.6M14.4 17.1v-1.6h-1.6"/>',
+            off: '<path d="M3.5 3.5l17 17"/>',
+            err: '<path d="M12 10.6v3.2M12 16.3v.01"/>'
+        }).map(([k, mark]) => [k, `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${SYNC_CLOUD}${mark}</svg>`]));
         function updateSyncBadge() {
             const badge = document.getElementById('syncStatusBadge');
             const dot = document.getElementById('syncDot');
@@ -3707,27 +3721,31 @@
             let chip, dotCls, label;
 
             if (!isOnline) {
-                chip = 'chip-red'; dotCls = 'bg-red-500';
+                chip = 'chip-red'; dotCls = 'off';
                 label = unsent.length ? `Offline · ${unsent.length} saved on device` : 'Offline';
             } else if (busyMessage || syncActs.size) {
-                chip = 'chip-amber'; dotCls = 'bg-amber-400 animate-ping';
+                chip = 'chip-amber'; dotCls = 'sync';
                 label = busyMessage || Array.from(syncActs.values()).pop();
             } else if (failed.length) {
-                chip = 'chip-red'; dotCls = 'bg-red-500'; label = `${failed.length} upload issue${failed.length === 1 ? '' : 's'}`;
+                chip = 'chip-red'; dotCls = 'err'; label = `${failed.length} upload issue${failed.length === 1 ? '' : 's'}`;
             } else if (unsent.length) {
-                chip = 'chip-amber'; dotCls = 'bg-amber-400 animate-ping'; label = `Uploading ${unsent.length}...`;
+                chip = 'chip-amber'; dotCls = 'up'; label = `Uploading ${unsent.length}...`;
             } else {
-                chip = 'chip-green'; dotCls = 'bg-emerald-400 animate-pulse'; label = 'Online & Synced';
+                chip = 'chip-green'; dotCls = 'ok'; label = 'Online & Synced';
             }
 
             badge.className = `chip ${chip} sync-btn header-h transition-all duration-300`;
-            dot.className = `w-2 h-2 rounded-full ${dotCls}`;
+            if (dot.dataset.kind !== dotCls) { dot.innerHTML = SYNC_ICONS[dotCls]; dot.dataset.kind = dotCls; }
+            dot.className = 'sync-ico' + (dotCls === 'up' || dotCls === 'sync' ? ' animate-pulse' : '');
+            badge.title = label + ' · tap to see Sync Data';
+            badge.setAttribute('aria-label', label);
             text.textContent = label;
             count.textContent = unsent.length;
             count.classList.toggle('hidden', unsent.length === 0);
 
+            // (no offline banner: the red sync button at the top shows it)
             const banner = document.getElementById('offlineBanner');
-            if (banner) banner.classList.toggle('hidden', isOnline || !appStarted);
+            if (banner) banner.classList.add('hidden');
 
             renderQueueModal();
         }
@@ -14725,6 +14743,10 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r78', date: '2026-10-30', v: { svc: '2026.10.30-r78' },
+            svc: ['Station check: the "Technician Service Notes" box is gone (notes for the whole visit are still added when you finish it)',
+                  'Offline: no more warning strip across the top - the sync button turning red shows you\'re offline',
+                  'The sync button has a new cloud icon: a tick when everything is synced, an arrow while uploading, a line through it when offline and "!" if something needs a look. On a phone it sits in the middle of the button, with the number waiting on the corner'] },
         { rev: 'r77', date: '2026-10-30', v: { svc: '2026.10.30-r77', adm: '2026.10.30-a21', cli: '2026.10.30-p37' },
             svc: ['Photos and videos: the ‹ › arrows stay at the sides of the screen, so they don\'t move when the next picture is a different size',
                   'Recommendations: "Seen by" lists every time anyone opened it - who (staff or client), when, and in which app',

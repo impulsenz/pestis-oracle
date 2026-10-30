@@ -174,13 +174,17 @@
         html.dark .chip-orange { color: rgb(var(--b400)); background: rgb(var(--b500) / .14); border-color: rgb(var(--b500) / .35); }
 
         .sync-btn { cursor: pointer; padding: 0 .85rem; }
+        .sync-ico { display: inline-flex; align-items: center; justify-content: center; width: 1.15rem; height: 1.15rem; flex-shrink: 0; }
+        .sync-ico svg { width: 100%; height: 100%; display: block; }
         /* header controls share one height */
         .visit-act { width: 100%; justify-content: center; text-align: center; line-height: 1.2; padding-left: .5rem; padding-right: .5rem; white-space: normal; }
         .header-h { height: 2.5rem; border-radius: .8rem; box-sizing: border-box; }
         /* phones: a compact header so "Service App" and the site name still fit (Admin is in the profile, day/night in Settings in the profile) */
         @media (max-width: 639px) {
             #appHeader .icon-btn, #appHeader .header-h { width: 2.2rem; height: 2.2rem; min-width: 2.2rem; }
-            #appHeader #syncStatusBadge { width: auto; padding: 0 .55rem; }
+            /* the sync button: a square with its cloud icon in the middle; the number waiting sits on the corner */
+            #appHeader #syncStatusBadge { width: 2.2rem; padding: 0; gap: 0; justify-content: center; position: relative; }
+            #appHeader #syncStatusBadge .queue-count { position: absolute; top: -.4rem; right: -.4rem; margin: 0; }
             /* the profile button: a square tile with the picture centred in it */
             #appHeader #profileChip { width: 2.2rem; padding: 0; gap: 0; justify-content: center; }
             #appHeader #profileChip #headerAvatar, #appHeader #profileChip #headerAvatarFallback { width: 1.7rem; height: 1.7rem; border-radius: .55rem; }
@@ -409,6 +413,7 @@
         .ms-x { font-weight: 900; padding: 0 .3rem; border-radius: 999px; line-height: 1.2; }
         .ms-x:hover { background: rgba(0,0,0,.15); }
         .queue-count { min-width: 1.15rem; height: 1.15rem; padding: 0 .3rem; border-radius: 999px; background: rgb(var(--b500)); color: #fff; font-size: .62rem; font-weight: 900; display: inline-flex; align-items: center; justify-content: center; }
+        .queue-count.hidden { display: none; }   /* nothing waiting: no "0" */
 
         .offline-banner { background: #b91c1c; color: #fff; }
 
@@ -3448,6 +3453,10 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r78', date: '2026-10-30', v: { svc: '2026.10.30-r78' },
+            svc: ['Station check: the "Technician Service Notes" box is gone (notes for the whole visit are still added when you finish it)',
+                  'Offline: no more warning strip across the top - the sync button turning red shows you\'re offline',
+                  'The sync button has a new cloud icon: a tick when everything is synced, an arrow while uploading, a line through it when offline and "!" if something needs a look. On a phone it sits in the middle of the button, with the number waiting on the corner'] },
         { rev: 'r77', date: '2026-10-30', v: { svc: '2026.10.30-r77', adm: '2026.10.30-a21', cli: '2026.10.30-p37' },
             svc: ['Photos and videos: the ‹ › arrows stay at the sides of the screen, so they don\'t move when the next picture is a different size',
                   'Recommendations: "Seen by" lists every time anyone opened it - who (staff or client), when, and in which app',
