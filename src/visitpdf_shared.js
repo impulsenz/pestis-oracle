@@ -94,10 +94,11 @@ const PVR = (() => {
         const overdue = pins.filter(x => x.overdue).length;
         const legItems = all.map(t => ({ t: t.type, n: count.get(t.type) || 0, color: t.color })).concat([{ t: 'Overdue for service', n: overdue, ring: true }]);
         const details = [['Client', d.siteName || '-'], ['Site address', d.address || '-'], ['Floor plan', d.planName || '-'], ['Stations on this plan', String(pins.length)],
-            ['Map made by', d.madeBy || 'Pesties'], ['Last updated', day(d.updated || d.created) || '-'], ['Generated', `${day(Date.now())}${d.by ? ' by ' + d.by : ''}`]];
-        const legCols = land ? 3 : 2, rowH = 56, legRows = Math.ceil(legItems.length / legCols);
-        const dCols = land ? 2 : 2, dRowH = 76, dRows = Math.ceil(details.length / dCols);
-        const legH = 100 + Math.max(legRows * rowH, dRows * dRowH) + 20;
+            ['Map made by', d.madeBy || 'Pesties'], ['Last updated', day(d.updated || d.created) || '-']];
+        // a compact card: tight rows, more columns, so the plan gets the space
+        const legCols = 3, rowH = 46, legRows = Math.ceil(legItems.length / legCols);
+        const dCols = land ? 3 : 2, dRowH = 64, dRows = Math.ceil(details.length / dCols);
+        const legH = 84 + Math.max(legRows * rowH, dRows * dRowH) + 14;
         // header: navy, an orange line under it, the Pesties logo on the right
         const headH = 200;
         const grd = g.createLinearGradient(0, 0, W, headH); grd.addColorStop(0, '#0b1530'); grd.addColorStop(1, '#16244a');
@@ -126,24 +127,24 @@ const PVR = (() => {
             g.textBaseline = 'alphabetic';
         }
         // the legend and map details card along the bottom
-        const ly = H - M - legH, splitX = M + boxW * (land ? .6 : .55);
-        g.fillStyle = '#f8fafc'; rr(M, ly, boxW, legH, 22); g.fill(); g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; rr(M, ly, boxW, legH, 22); g.stroke();
-        g.fillStyle = '#f97316'; g.font = font(800, 28); g.fillText('LEGEND', M + 44, ly + 62); g.fillText('MAP DETAILS', splitX + 44, ly + 62);
-        g.fillStyle = '#64748b'; g.font = font(700, 24); g.textAlign = 'right'; g.fillText('Floor plan not to scale', splitX - 40, ly + 62); g.textAlign = 'left';
-        g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; g.beginPath(); g.moveTo(splitX, ly + 30); g.lineTo(splitX, ly + legH - 30); g.stroke();
-        const lcW = (splitX - M - 70) / legCols;
+        const ly = H - M - legH, splitX = M + boxW * (land ? .64 : .6);
+        g.fillStyle = '#f8fafc'; rr(M, ly, boxW, legH, 20); g.fill(); g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; rr(M, ly, boxW, legH, 20); g.stroke();
+        g.fillStyle = '#f97316'; g.font = font(800, 26); g.fillText('LEGEND', M + 36, ly + 50); g.fillText('MAP DETAILS', splitX + 36, ly + 50);
+        g.fillStyle = '#64748b'; g.font = font(700, 22); g.textAlign = 'right'; g.fillText('Floor plan not to scale', splitX - 32, ly + 50); g.textAlign = 'left';
+        g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; g.beginPath(); g.moveTo(splitX, ly + 24); g.lineTo(splitX, ly + legH - 24); g.stroke();
+        const lcW = (splitX - M - 56) / legCols;
         legItems.forEach((it, i) => {
-            const x = M + 44 + (i % legCols) * lcW, y = ly + 122 + Math.floor(i / legCols) * rowH;
-            if (it.ring) { g.beginPath(); g.arc(x + 16, y - 10, 15, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 5; g.stroke(); }
-            else pin(g, x + 16, y + 8, 14, it.color, false);
-            g.fillStyle = it.n ? '#0b1530' : '#94a3b8'; g.font = font(700, 25); g.fillText(fit(it.t, lcW - 110), x + 46, y);
-            g.fillStyle = '#64748b'; g.font = font(800, 25); g.textAlign = 'right'; g.fillText(it.n ? String(it.n) : '-', x + lcW - 24, y); g.textAlign = 'left';
+            const x = M + 36 + (i % legCols) * lcW, y = ly + 100 + Math.floor(i / legCols) * rowH;
+            if (it.ring) { g.beginPath(); g.arc(x + 14, y - 9, 13, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 5; g.stroke(); }
+            else pin(g, x + 14, y + 6, 12, it.color, false);
+            g.fillStyle = it.n ? '#0b1530' : '#94a3b8'; g.font = font(700, 22); g.fillText(fit(it.t, lcW - 90), x + 40, y);
+            g.fillStyle = '#64748b'; g.font = font(800, 22); g.textAlign = 'right'; g.fillText(it.n ? String(it.n) : '-', x + lcW - 20, y); g.textAlign = 'left';
         });
-        const dW = (M + boxW - splitX - 80) / dCols;
+        const dW = (M + boxW - splitX - 64) / dCols;
         details.forEach(([key, val], i) => {
-            const x = splitX + 44 + (i % dCols) * dW, y = ly + 116 + Math.floor(i / dCols) * dRowH;
-            g.fillStyle = '#64748b'; g.font = font(800, 19); g.fillText(key.toUpperCase(), x, y);
-            g.fillStyle = '#0b1530'; g.font = font(700, 27); g.fillText(fit(val, dW - 20), x, y + 34);
+            const x = splitX + 36 + (i % dCols) * dW, y = ly + 92 + Math.floor(i / dCols) * dRowH;
+            g.fillStyle = '#64748b'; g.font = font(800, 18); g.fillText(key.toUpperCase(), x, y);
+            g.fillStyle = '#0b1530'; g.font = font(700, 25); g.fillText(fit(val, dW - 16), x, y + 30);
         });
         // one A4 page, edge to edge
         const doc = new jsPDF({ orientation: land ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });

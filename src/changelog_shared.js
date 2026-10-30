@@ -3,6 +3,13 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r85', date: '2026-10-30', v: { svc: '2026.10.30-r85', adm: '2026.10.30-a28', cli: '2026.10.30-p44' },
+            svc: ['Pest map (A4 PDF): the "Generated" date and name are gone, and the legend card at the bottom is more compact so the floor plan gets more of the page'],
+            adm: ['Reports › Critical limits is now insect by insect: the alert names each insect that is over (or close) and the stations that caught it, and each station card has a section and graph per insect (worst first; insects under the limit fold away). The graph also shows the whole area\'s total and the limit line',
+                  'Reports › Critical limits: no month to pick (the graph shows every month), and only flying and crawling insect stations - rodent stations aren\'t on critical limits'],
+            cli: ['Pest map (A4 PDF): the "Generated" line is gone, and the legend card at the bottom is more compact so the floor plan gets more of the page',
+                  'Reports › Critical limits is now insect by insect: the alert names each insect that is over (or close) and the stations that caught it, and each station card has a section and graph per insect (worst first; insects under the limit fold away). The graph also shows the whole area\'s total and the limit line',
+                  'Reports › Critical limits: no month to pick (the graph shows every month), and only flying and crawling insect stations are shown'] },
         { rev: 'r84', date: '2026-10-30', v: { adm: '2026.10.30-a27', cli: '2026.10.30-p43' },
             adm: ['Reports › Critical limits: the area under each station\'s line is filled in green, amber or red to match'],
             cli: ['Reports › Critical limits: the area under each station\'s line is filled in green, amber or red to match'] },

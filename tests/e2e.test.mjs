@@ -246,6 +246,30 @@ try {
   await lp.goto(`${BASE}/auth/callback#id_token=${tok}&state=wrong`); await sleep(800);
   ok(/didn't work/.test(await lp.textContent('body')), 'mismatched sign-in refused');
   ok(lp.errors.length === 0, 'login flow: no errors', lp.errors);
+
+  // ---------- Critical limits report: insect by insect, insect stations only, no month to pick ----------
+  const t2 = await session('tech@example.com', { name: 'Tina Tech' }), b2 = await session('boss@example.com');
+  r = await api(t2)('clients', { op: 'insert', values: [{ Name: 'Limit Foods', Address: '2 Main St' }], returning: true });
+  const sid = String(r.data[0].id);
+  await api(b2)('site_limits', { op: 'insert', values: [{ id: 'limE', client_id: sid, name: 'Dispatch', rules: [{ species: 'House Fly', max: 10 }, { species: 'Blowfly', max: 5 }] }] });
+  await api(t2)('stations', { op: 'insert', values: [{ id: 'stE1', client_id: sid, barcode: 'ILT-E1', name: 'Dock ILT', type: 'Flying Insect Monitoring', limit_id: 'limE' },
+    { id: 'stE2', client_id: sid, barcode: 'RB-E1', name: 'Rodent box', type: 'Internal Non-Toxic Rodent Station', limit_id: 'limE' }] });
+  const lg = (b, name, ty, n, more) => ({ client_id: Number(sid), barcode_id: b, payload: { locationName: name, deviceType: ty, activityLevel: 'Caught', speciesCaught: 'House Fly', pestCount: n, morePests: more || [], technician: 'Tina Tech', servicedAt: new Date(Date.now() - 3600000).toISOString() } });
+  await api(t2)('service_logs', { op: 'insert', values: [lg('ILT-E1', 'Dock ILT', 'Flying Insect Monitoring', 4, [{ species: 'Blowfly', count: 7 }]), lg('RB-E1', 'Rodent box', 'Internal Non-Toxic Rodent Station', 30)] });
+  await api(t2)('visits', { op: 'insert', values: [{ id: 'vE1', client_id: sid, technician: 'Tina Tech', visit_type: 'Routine Service', completed_at: new Date().toISOString() }] });
+  await api(b2)('client_access', { op: 'insert', values: [{ email: 'cara@acme.test', client_id: sid }] });
+  const lc = await newPage(browser, await session('cara@acme.test'));
+  await lc.goto(`${BASE}/client.html#/site/${sid}/overview`); await sleep(3500);
+  const limBell = await lc.evaluate("bellItems(true).filter(i => i.key.startsWith('lim:')).map(i => i.sub)");
+  ok(limBell.length === 1 && /Blowfly/.test(limBell[0]), 'limit notification: only the insect over, and a rodent station never counts', limBell);
+  await lc.evaluate("openLimitReport('ILT-E1')"); await sleep(1000);
+  const lim = await lc.evaluate(() => ({ filters: Array.from(document.querySelectorAll('.pr-f')).map(f => f.textContent.replace(/\s+/g, ' ').trim()),
+    alert: (document.querySelector('.pr-alert') || {}).innerText || '', pests: Array.from(document.querySelectorAll('.pr-lim-p > .pr-lim-ph b')).map(b => b.textContent) }));
+  ok(!lim.filters.some(f => /^Month/.test(f)) && lim.filters.some(f => /Insect/.test(f)), 'critical limits: no month filter, an insect filter', lim.filters);
+  ok(lim.filters.some(f => /Flying Insect Monitoring/.test(f)) && !lim.filters.some(f => /Rodent/.test(f)), 'critical limits: only insect station types', lim.filters);
+  ok(/Blowfly - Dispatch: 7 caught of 5/.test(lim.alert) && !/House Fly/.test(lim.alert), 'critical limits: the alert names the insect that is over', lim.alert);
+  ok(lim.pests[0] === 'Blowfly' && lim.pests.includes('House Fly'), 'critical limits: a section per insect, the one over first', lim.pests);
+  ok(lc.errors.length === 0, 'critical limits: no errors', lc.errors);
 } catch (e) { fails++; console.log('ERROR', e); }
 finally {
   await browser.close();
