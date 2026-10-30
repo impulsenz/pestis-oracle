@@ -115,10 +115,8 @@ const PVR = (() => {
         g.fillStyle = '#ffffff'; g.font = font(900, 77); g.fillText(fit(d.siteName || 'Site', W - HM * 2 - logoW), HM, 156);
         g.fillStyle = '#a9bbdc'; g.font = font(600, 38); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - HM * 2 - logoW), HM, 210);
         // the plan: as big as the space between the header and the legend allows (keeping its shape), centred
-        const top = headH + gap + 18, bottom = H - M - legH - gap - 18, boxW = W - M * 2 - 36, boxH = bottom - top;
-        const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = M + 18 + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
-        g.save(); g.shadowColor = 'rgba(15,23,42,.10)'; g.shadowBlur = 36; g.shadowOffsetY = 10; g.fillStyle = '#ffffff'; rr(mx - 18, my - 18, mw + 36, mh + 36, 26); g.fill(); g.restore();
-        g.strokeStyle = '#e8edf4'; g.lineWidth = 3; rr(mx - 18, my - 18, mw + 36, mh + 36, 26); g.stroke();
+        const top = headH + gap, bottom = H - M - legH - gap, boxW = W - M * 2, boxH = bottom - top;
+        const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = M + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
         g.drawImage(tr.img, mx, my, mw, mh);
         const r = Math.max(15, Math.min(36, Math.min(mw, mh) / 50));
         if (!noPins) pins.forEach(x => pin(g, mx + x.x * mw, my + x.y * mh, r, x.color, x.overdue));

@@ -3,6 +3,9 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r101', date: '2026-10-31', v: { svc: '2026.10.31-r101', cli: '2026.10.31-p56' },
+            svc: ['Pest map (A4 PDF): the floor plan sits straight on the white page (no box or shadow round it) and takes up all the room, with a small margin'],
+            cli: ['Pest map: the floor plan sits straight on the white page (no box or shadow round it) and takes up all the room, with a small margin'] },
         { rev: 'r100', date: '2026-10-31', v: { svc: '2026.10.31-r100', cli: '2026.10.31-p55' },
             svc: ['Site page: the photo cards share each box evenly - three across in a usual box on a computer (two in a narrow one, more in a wide one), with no empty space at the side',
                   'Pest map (A4 PDF): a sleeker look - a taller header with bigger writing, the plan on a soft rounded panel, a white legend card with the counts in little pills, and no "Overdue for service" line in the legend'],
