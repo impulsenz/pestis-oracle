@@ -1377,6 +1377,9 @@
                                 <input type="number" id="pestCount" min="0" step="1" inputmode="numeric" placeholder="0" class="field">
                             </div>
                         </div>
+                        <!-- insect stations (flying / crawling) can record more than one pest -->
+                        <div id="morePests" class="space-y-3"></div>
+                        <button type="button" id="addPestBtn" onclick="addMorePest()" class="btn btn-secondary !py-2 !px-3 !text-xs hidden">+ Add another pest</button>
                     </div>
 
                     <div class="sm:col-span-2 inset p-4 space-y-3">
@@ -2257,7 +2260,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r81-oci';
+        const APP_VERSION = '2026.10.30-r82-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -6471,7 +6474,8 @@
         const newPestName = n => { const m = (typeof teamSettings !== 'undefined' && teamSettings && teamSettings.pest_renames) || null; return (n && m && m[String(n).trim().toLowerCase()]) || n; };
         function renameOldStationTypes(c) {
             if (!c) return c;
-            (c.rows || []).forEach(r => { if (r.payload && r.payload.deviceType) r.payload.deviceType = newStationType(r.payload.deviceType); if (r.payload && r.payload.speciesCaught) r.payload.speciesCaught = newPestName(r.payload.speciesCaught); });
+            (c.rows || []).forEach(r => { if (r.payload && r.payload.deviceType) r.payload.deviceType = newStationType(r.payload.deviceType); if (r.payload && r.payload.speciesCaught) r.payload.speciesCaught = newPestName(r.payload.speciesCaught);
+                if (r.payload && Array.isArray(r.payload.morePests)) r.payload.morePests.forEach(x => { if (x && x.species) x.species = newPestName(x.species); }); });
             (c.recs || []).forEach(r => { if (r.station_type) r.station_type = newStationType(r.station_type); });
             if (c.tables && Array.isArray(c.tables.stations)) c.tables.stations.forEach(r => { if (r.type) r.type = newStationType(r.type); });
             if (c.tables && Array.isArray(c.tables.pest_sightings)) c.tables.pest_sightings.forEach(r => { if (r.pest) r.pest = newPestName(r.pest); });
@@ -7053,7 +7057,7 @@
             return {
                 key: r._key, barcode: r.barcode_id, at: recTime(r), created_at: r.created_at, payload: p,
                 name: p.locationName || 'Unnamed Device', type: p.deviceType || 'Rodent Bait Station',
-                activity: p.activityLevel || 'None', species: p.speciesCaught || 'None', count: p.pestCount,
+                activity: p.activityLevel || 'None', species: p.speciesCaught || 'None', count: p.pestCount, pests: pestsOf(p),
                 prep: p.prepUsed || '', qty: p.quantity, unit: p.quantityUnit || '', batch: p.batchNumber || '',
                 notes: p.notes || '', technician: p.technician || '', recommendation: p.recommendation || p.recommendationNote || '',
                 recNo: p.recNo, photoCount: payloadPhotoPaths(p).length, edited: !!p.editedAt, recOnly: !!p.recOnly
@@ -7242,6 +7246,7 @@
                         activity: payload.activityLevel || 'None',
                         species: payload.speciesCaught || 'None',
                         count: payload.pestCount,
+                        pests: pestsOf(payload),
                         prep: payload.prepUsed || '',
                         qty: payload.quantity,
                         unit: payload.quantityUnit || '',
@@ -7441,7 +7446,7 @@
                 seen.add('st:' + r.barcode_id);
                 const bits = [];
                 if (p.activityLevel) bits.push('Activity ' + p.activityLevel);
-                if (p.speciesCaught && p.speciesCaught !== NONE_SPECIES) bits.push(p.speciesCaught + (p.pestCount ? ' ×' + p.pestCount : ''));
+                if (pestsOf(p).length) bits.push(pestsText(p));
                 if (p.prepUsed && p.prepUsed !== NONE_PREP) bits.push(`${p.prepUsed}${p.quantity != null && !isNaN(p.quantity) ? ' ' + p.quantity + ' ' + (p.quantityUnit || '') : ''}${p.batchNumber ? ' · batch ' + p.batchNumber : ''}`.trim());
                 if (p.notes) bits.push(p.notes);
                 const station = p.locationName || devName(r.barcode_id);
@@ -7725,7 +7730,7 @@
         // every pest record on this site: [{ barcode, at, species, n, thisVisit }]
         function sitePestRecords() {
             const out = [];
-            siteDevices.forEach(d => (d.history || []).forEach(h => { const n = pestN(h.species, h.count); if (n) out.push({ barcode: d.barcode_id, at: h.at, species: h.species, n, thisVisit: !!h.thisVisit }); }));
+            siteDevices.forEach(d => (d.history || []).forEach(h => (h.pests || [{ species: h.species, count: h.count }]).forEach(x => { const n = pestN(x.species, x.count); if (n) out.push({ barcode: d.barcode_id, at: h.at, species: x.species, n, thisVisit: !!h.thisVisit }); })));
             return out;
         }
         // one pest of one limit, for the month containing t (records up to upTo)
@@ -8931,7 +8936,7 @@
                 stationsChecked: new Set(entries.map(e => e.barcode)).size, services: v.servicesCompleted || [], notes: v.summaryNote || '',
                 breaches: visitLimitBreaches(v).map(x => `${x.limit.name} · ${x.rule.species}: ${x.total} recorded in ${monthName(x.month)}, limit ${x.rule.max} a month (${x.total - x.rule.max} over). Caught at: ${breachStations(x).map(b => `${b.name} (${b.n})`).join(', ')}`),
                 entries: entries.map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity,
-                    pests: e.species && e.species !== NONE_SPECIES ? `${e.species}${e.count ? ' x' + e.count : ''}` : '',
+                    pests: (e.pests && e.pests.length ? e.pests : e.species && e.species !== NONE_SPECIES ? [{ species: e.species, count: e.count }] : []).map(x => `${x.species}${x.count ? ' x' + x.count : ''}`).join(', '),
                     prep: e.prep && e.prep !== NONE_PREP ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '', notes: e.notes || '' })),
                 recs: recs.map(r => ({ id: r.pending ? null : r.id, no: fmtRecNo(r.recNo), status: (REC_STATUS[r.status] || REC_STATUS.open).label, raised: r.date, station: r.station, barcode: r.general ? '' : r.barcode,
                     text: `${r.category ? '[' + r.category + '] ' : ''}${r.recommendation}${r.details ? ' - ' + r.details : ''}`, closed: r.status === 'complete' ? r.completedAt : null,
@@ -9020,7 +9025,7 @@
                     return id ? `<button type="button" onclick="openVisitRec(this.dataset.recLink)" data-rec-link="${esc(id)}" class="visit-link font-bold t-accent" title="Open this recommendation">${label}:</button>` : `<b class="t-accent">${label}:</b>`;
                 };
                 const entryRows = v.entries.filter(e => !e.recOnly).sort((a, b) => a.at - b.at).map(e => {
-                    const sp = e.species && e.species !== NONE_SPECIES ? `${e.species}${e.count ? ' ×' + e.count : ''}` : 'None';
+                    const sp = (e.pests && e.pests.length ? e.pests : e.species && e.species !== NONE_SPECIES ? [{ species: e.species, count: e.count }] : []).map(x => `${x.species}${x.count ? ' ×' + x.count : ''}`).join(', ') || 'None';
                     const pr = e.prep && e.prep !== NONE_PREP ? `${e.prep} · ${fmtQty(e.qty, e.unit) || '-'}${e.batch ? ' · batch ' + e.batch : ''}` : 'None';
                     return `
                         <div class="row-item typed p-3 space-y-1" style="border-left-color:${stationColor(e.type).color};">
@@ -9298,7 +9303,7 @@
             const facts = [
                 fact('Floor plan', plan ? esc(plan.name) + (pin.x == null ? ' <span class="t-faint font-normal">(pin not placed)</span>' : '') : '<span class="t-faint font-normal">Not on a plan</span>'),
                 fact('Last serviced', last ? `${esc(fmtDateTimeLong(last.at).date)}<div class="t-faint font-normal text-[11px]">${esc(last.technician || '')}</div>` : '<span class="t-faint font-normal">Never</span>'),
-                fact('Last activity', last ? esc(last.activity) + (last.species && last.species !== NONE_SPECIES ? ` · ${esc(last.species)}` : '') : '-'),
+                fact('Last activity', last ? esc(last.activity) + (last.pests && last.pests.length ? ` · ${esc(last.pests.map(x => x.species).join(', '))}` : last.species && last.species !== NONE_SPECIES ? ` · ${esc(last.species)}` : '') : '-'),
                 fact('Open recommendations', String(openRecCount(d)))
             ].concat(isInsectType(d.deviceType) || stationLimitName(barcode) ? [fact('Critical limit', stationLimitName(barcode) ? esc(stationLimitName(barcode)) : '<span class="t-faint font-normal">None</span>')] : []);
             if (isToxicRodent(d.deviceType)) facts.push(`<div class="col-span-2">${fact('Bait last changed', esc(baitLastChangedText(d)))}</div>`);
@@ -12433,6 +12438,7 @@
                 prepUsed: document.getElementById('prepUsed').value,
                 speciesCaught: (document.getElementById('speciesCaught').value || '').trim(),
                 pestCount: document.getElementById('pestCount').value,
+                morePests: readMorePests(),
                 qty: document.getElementById('qtyCount').value,
                 unit: currentQtyUnit,
                 batch: document.getElementById('batchNumber').value.trim(),
@@ -12489,6 +12495,14 @@
         const INSECT_LEVELS = [['Low', 'Low'], ['Medium', 'Medium'], ['High', 'High'], ['Caught', 'Caught']];
         // a rodent at a toxic (bait) station is how much bait was taken; at a non-toxic station (a trap) it was caught
         const TOXIC_LEVELS = RODENT_LEVELS.filter(x => x[0] !== 'Caught'), TRAP_LEVELS = [['Caught', 'Caught']];
+        // every pest on a station check: the first (speciesCaught) and any more at an insect station (morePests)
+        function pestsOf(p) {
+            const out = [];
+            if (p && p.speciesCaught && p.speciesCaught !== NONE_SPECIES && p.speciesCaught !== 'None') out.push({ species: p.speciesCaught, count: p.pestCount, activity: p.activityLevel || 'None' });
+            (p && Array.isArray(p.morePests) ? p.morePests : []).forEach(x => { if (x && x.species && x.species !== NONE_SPECIES) out.push({ species: x.species, count: x.count, activity: x.activity || 'Caught' }); });
+            return out;
+        }
+        const pestsText = p => pestsOf(p).map(x => x.species + (x.count ? ' ×' + x.count : '')).join(', ');
         const formStationType = () => (document.getElementById('newDeviceType') || {}).value || currentDeviceType || '';
         function updatePestCountField(speciesChanged) {
             const sp = document.getElementById('speciesCaught').value;
@@ -12500,8 +12514,11 @@
             const kind = none ? 'none' : !rodent ? 'insect' : st === 'toxic' ? 'toxic' : st === 'rodent' ? 'trap' : 'rodent';
             const levels = { none: [['None', 'None']], insect: INSECT_LEVELS, toxic: TOXIC_LEVELS, trap: TRAP_LEVELS, rodent: RODENT_LEVELS }[kind];
             const keep = act.value;
+            const insectStation = st === 'flying' || st === 'crawling';
             if (act.dataset.kind !== kind) { act.innerHTML = levels.map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join(''); act.dataset.kind = kind; }
             act.value = levels.some(x => x[0] === keep) ? keep : (kind === 'toxic' || kind === 'rodent' ? 'None' : levels[0][0]);
+            // a pest picked at a flying / crawling insect station starts as Caught (the other choices are still there)
+            if (speciesChanged && kind === 'insect' && insectStation) act.value = 'Caught';
             document.getElementById('activityRow').classList.toggle('hidden', none);
             document.getElementById('activityLabel').textContent = 'Activity';
             // the number: only when Caught (rodents and insects alike)
@@ -12510,6 +12527,40 @@
             document.getElementById('pestCountLabel').innerHTML = 'Number caught <span style="color:#ef4444;">*</span>';
             count.disabled = !showCount;
             if (!showCount) count.value = '';
+            // more pests: only at insect stations, once the first pest is chosen
+            const more = insectStation && !none;
+            document.getElementById('addPestBtn').classList.toggle('hidden', !more);
+            if (!insectStation) clearMorePests();
+            document.getElementById('morePests').classList.toggle('hidden', !more);
+        }
+        // ---------- more than one pest at a flying or crawling insect station (a glue board catches several kinds) ----------
+        function morePestRowHtml(x) {
+            x = x || {};
+            const act = x.activity || 'Caught';
+            return `<div class="more-pest grid grid-cols-2 sm:grid-cols-12 gap-3 items-end pt-3 border-t divider">
+                <div class="col-span-2 sm:col-span-6"><div class="flex items-center justify-between gap-2"><label class="lbl">Another pest</label><button type="button" class="link-btn !no-underline !text-[11px] -mt-1" style="color:#dc2626;" onclick="this.closest('.more-pest').remove()" title="Remove this pest" aria-label="Remove this pest">✕ Remove</button></div>
+                    <select class="field cursor-pointer mp-species" onchange="updateMorePestRow(this)"><option value="">Choose the pest...</option>${speciesOptionsHtml(x.species || '')}</select></div>
+                <div class="col-span-1 sm:col-span-3"><label class="lbl">Activity</label><select class="field cursor-pointer mp-activity" onchange="updateMorePestRow(this)">${INSECT_LEVELS.map(([v, l]) => `<option value="${v}" ${v === act ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+                <div class="col-span-1 sm:col-span-3 mp-count-wrap ${act === 'Caught' ? '' : 'hidden'}"><label class="lbl">Number caught <span style="color:#ef4444;">*</span></label><input type="number" min="0" step="1" inputmode="numeric" placeholder="0" class="field mp-count" value="${x.count != null && !isNaN(x.count) ? esc(x.count) : ''}"></div>
+            </div>`;
+        }
+        function addMorePest(x) {
+            const box = document.getElementById('morePests');
+            box.insertAdjacentHTML('beforeend', morePestRowHtml(x));
+            const sel = box.lastElementChild.querySelector('.mp-species');
+            if (x && x.species) sel.value = x.species; else sel.value = '';
+            if (!x) sel.focus();
+        }
+        function updateMorePestRow(el) {
+            const row = el.closest('.more-pest'), caught = row.querySelector('.mp-activity').value === 'Caught';
+            row.querySelector('.mp-count-wrap').classList.toggle('hidden', !caught);
+            if (!caught) row.querySelector('.mp-count').value = '';
+        }
+        function clearMorePests() { const box = document.getElementById('morePests'); if (box) box.innerHTML = ''; }
+        function readMorePests() {
+            return Array.from(document.querySelectorAll('#morePests .more-pest')).map(row => ({
+                species: row.querySelector('.mp-species').value, activity: row.querySelector('.mp-activity').value || 'Caught', count: row.querySelector('.mp-count').value
+            })).filter(x => x.species && x.species !== NONE_SPECIES);
         }
 
         // ---------- Repeat the last preparation (same bait and batch across many stations) ----------
@@ -12562,6 +12613,7 @@
             populateOptionSelects();
             document.getElementById('prepUsed').value = NONE_PREP;
             document.getElementById('speciesCaught').value = NONE_SPECIES;
+            clearMorePests();
             updatePestCountField();
             document.getElementById('pestCount').value = '';
             document.getElementById('qtyCount').value = '';
@@ -12596,6 +12648,9 @@
             if (p.activityLevel) setSelectValue('activityLevel', p.activityLevel);
             updatePestCountField();
             if (p.pestCount != null && !isNaN(p.pestCount)) document.getElementById('pestCount').value = p.pestCount;
+            clearMorePests();
+            (Array.isArray(p.morePests) ? p.morePests : []).forEach(x => addMorePest(x));
+            updatePestCountField();
             currentQtyUnit = p.quantityUnit || prepUnit(p.prepUsed);
             if (p.quantity != null && !isNaN(p.quantity)) document.getElementById('qtyCount').value = p.quantity;
             document.getElementById('batchNumber').value = p.batchNumber || '';
@@ -12956,6 +13011,8 @@
 
         // Activity level over time (chosen period), one line per species (up to 3, the rest as "Other")
         function renderActivityChart(el, allHist) {
+            // a check with several pests counts once for each of them
+            allHist = allHist.flatMap(h => h.pests && h.pests.length > 1 ? h.pests.map(x => Object.assign({}, h, { species: x.species, activity: x.activity, count: x.count })) : [h]);
             const range = ACTIVITY_RANGES.find(r => r.v === activityRange) || ACTIVITY_RANGES[3];
             const end = Date.now();
             const start = end - range.days * 86400000;
@@ -13088,6 +13145,13 @@
                 document.getElementById('pestCount').focus();
                 return false;
             }
+            // the other pests: each Caught one needs its number, and a pest only once
+            const morePests = (f.speciesCaught && f.speciesCaught !== NONE_SPECIES) ? f.morePests : [];
+            for (const x of morePests) {
+                if (x.activity === 'Caught' && !(parseFloat(x.count) > 0)) { alert(`Enter how many ${x.species} were caught.`); return false; }
+            }
+            const allSp = [f.speciesCaught].concat(morePests.map(x => x.species)).filter(s => s && s !== NONE_SPECIES).map(s => s.toLowerCase());
+            if (new Set(allSp).size < allSp.length) { alert('The same pest is in the list twice - put its total on one line.'); return false; }
             if (usedPrep && !(parseFloat(f.qty) > 0)) {
                 alert(`Enter how much ${f.prepUsed} was used (in ${unitText(f.unit)}).`);
                 document.getElementById('qtyCount').focus();
@@ -13104,7 +13168,7 @@
                 }
             }
             // Critical limits: a count that takes a limit over is double-checked, and needs a recommendation
-            const hit = limitsHitBy(currentBarcode, f.limitId, f.speciesCaught, f.pestCount);
+            const hit = [[f.speciesCaught, f.pestCount]].concat(morePests.map(x => [x.species, x.count])).flatMap(([sp, n]) => limitsHitBy(currentBarcode, f.limitId, sp, n));
             const hasRec = !!(f.recTitle || f.recommendation || pendingPhotos.length);
             const devNow = siteDevices.find(d => d.barcode_id === currentBarcode);
             const recThisVisit = !!(devNow && (devNow.recommendationsHistory || []).some(r => r.thisVisit));
@@ -13165,6 +13229,8 @@
                     payloadData.batchNumber = f.batch;
                 }
                 if (f.speciesCaught && f.speciesCaught !== NONE_SPECIES && f.pestCount !== '' && !isNaN(parseFloat(f.pestCount))) payloadData.pestCount = parseFloat(f.pestCount);
+                // the other pests on this check (the first is speciesCaught, as always)
+                if (morePests.length) payloadData.morePests = morePests.map(x => Object.assign({ species: x.species, activity: x.activity || 'Caught' }, x.activity === 'Caught' && !isNaN(parseFloat(x.count)) ? { count: parseFloat(x.count) } : {}));
 
                 // A recommendation already on this visit's service record (saved by an earlier version) stays on it
                 const prevP = dev && dev.visitPayload;
@@ -13178,7 +13244,7 @@
                 const photoBit = newBlobs.length ? ` + ${mediaCountText(pendingPhotos)}` : '';
                 await queueLog(currentBarcode, payloadData, null, `Service record · ${locNameInput}`);
                 for (const x of hit) await queueSiteChange({ action: 'limit_breach', title: `Critical limit exceeded: ${limitLabel(x)}`,
-                    detail: `${x.total} this month, limit ${x.rule.max} · ${locNameInput} (${f.speciesCaught} ×${pestN(f.speciesCaught, f.pestCount)})` });
+                    detail: `${x.total} this month, limit ${x.rule.max} · ${locNameInput} (${pestsText(payloadData)})` });
                 // The station's own row: created the first time, updated when its name or type changes
                 const st = siteStations.get(currentBarcode);
                 if (!st || st.name !== locNameInput || (st.type || '') !== (devType || '') || String(st.limit_id || '') !== String(f.limitId || '') || pendingStationPhoto) {
@@ -13519,7 +13585,7 @@
                 box('Technician notes', `<div class="t-strong whitespace-pre-line break-words">${f.siteNotes ? esc(f.siteNotes) : '<span class="t-faint italic">No overall notes yet - add them on the Visit details tab.</span>'}</div>`),
                 box(`Preparations used (${preps.size})`, preps.size ? Array.from(preps.values()).map(p => `<div><b class="t-strong">${esc(p.name)}</b> <span class="t-muted">· ${esc(fmtQty(p.qty, p.unit) || '-')} across ${p.n} station${p.n === 1 ? '' : 's'}${p.batches.size ? ' · batch ' + esc(Array.from(p.batches).join(', ')) : ''}</span></div>`).join('') : '<span class="t-faint italic">None.</span>'),
                 box(`Stations scanned (${new Set(entries.map(e => e.barcode)).size} of ${siteDevices.length})`, entries.length ? `<div class="space-y-2">${entries.map(e => {
-                    const sp = e.species && e.species !== NONE_SPECIES ? `${e.species}${e.count ? ' ×' + e.count : ''}` : 'None';
+                    const sp = (e.pests && e.pests.length ? e.pests : e.species && e.species !== NONE_SPECIES ? [{ species: e.species, count: e.count }] : []).map(x => `${x.species}${x.count ? ' ×' + x.count : ''}`).join(', ') || 'None';
                     const pr = e.prep && e.prep !== NONE_PREP ? `${e.prep} · ${fmtQty(e.qty, e.unit) || '-'}${e.batch ? ' · batch ' + e.batch : ''}` : 'None';
                     return `<div class="border-l-4 pl-2" style="border-color:${stationColor(e.type).color};"><div class="font-bold t-strong">${esc(e.name)} <span class="t-faint font-normal">${esc(e.type)}</span></div>
                         <div class="t-muted">Pests ${esc(sp)} · Activity ${esc(activityLabel(e.activity))} · Preparation ${esc(pr)}</div>${e.notes ? `<div class="t-strong">Notes: ${esc(e.notes)}</div>` : ''}</div>`;
@@ -14746,6 +14812,11 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r82', date: '2026-10-30', v: { svc: '2026.10.30-r82', adm: '2026.10.30-a25', cli: '2026.10.30-p41' },
+            svc: ['Flying and crawling insect monitoring: a pest you pick starts as Caught (the other choices are still there)',
+                  'Flying and crawling insect monitoring: "+ Add another pest" records more than one pest on the same check - e.g. house flies and blowflies on one glue board, each with its own number. Critical limits, reports and the visit report count every one'],
+            adm: ['Reports: a station check with several pests counts each pest'],
+            cli: ['Insect monitoring stations can now show more than one pest from the same check (e.g. house flies and blowflies on one glue board); reports and critical limits count every one'] },
         { rev: 'r81', date: '2026-10-30', v: { svc: '2026.10.30-r81', adm: '2026.10.30-a24', cli: '2026.10.30-p40' },
             svc: ['Pest map (A4 PDF): the navy header and the legend card are back, and the floor plan is much bigger - blank space around the plan is trimmed off so the plan itself fills the page'],
             adm: ['Overview: the boxes fill any space above them - a short box no longer leaves a gap, so you can arrange them however you like'],

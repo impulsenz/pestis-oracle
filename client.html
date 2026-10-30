@@ -664,7 +664,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (pestis_client_portal.sql); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.30-p40-oci';
+const PORTAL_VERSION = '2026.10.30-p41-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -1382,12 +1382,18 @@ function buildModel(site, d) {
         if (isNaN(at)) return;
         const species = p.speciesCaught && p.speciesCaught !== NONE_SPECIES ? p.speciesCaught : '';
         const prep = p.prepUsed && p.prepUsed !== NONE_PREP ? p.prepUsed : '';
-        entries.push({
+        const en = {
             key, barcode: r.barcode_id, at, name: p.locationName || r.barcode_id, type: p.deviceType || '',
             activity: p.activityLevel || 'None', species, count: species ? (Number(p.pestCount) > 0 ? Number(p.pestCount) : 1) : 0,
             prep, qty: prep && p.quantity != null && !isNaN(p.quantity) ? Number(p.quantity) : null, unit: prep ? (p.quantityUnit || 'each') : '',
             batch: prep ? (p.batchNumber || '') : '', notes: p.notes || '', tech: p.technician || '', edited: !!p.editedAt
-        });
+        };
+        entries.push(en);
+        // more pests on the same check (insect stations): counted as a record each (the preparation only once);
+        // the check itself lists them all (pests), and lists of checks leave out the extra records
+        const more = (Array.isArray(p.morePests) ? p.morePests : []).filter(x => x && x.species && x.species !== NONE_SPECIES);
+        en.pests = (species ? [{ species, count: en.count, activity: en.activity }] : []).concat(more.map(x => ({ species: x.species, count: Number(x.count) > 0 ? Number(x.count) : 1, activity: x.activity || 'Caught' })));
+        more.forEach((x, i) => entries.push(Object.assign({}, en, { key: key + '#' + (i + 1), species: x.species, activity: x.activity || 'Caught', count: Number(x.count) > 0 ? Number(x.count) : 1, prep: '', qty: null, unit: '', batch: '', extra: true, pests: [] })));
     });
     entries.sort((a, b) => a.at - b.at);
 
@@ -1404,7 +1410,7 @@ function buildModel(site, d) {
         e.station = s;
     });
     const stations = Array.from(st.values()).map(s => {
-        const last = s.entries[s.entries.length - 1] || null;
+        const checks = s.entries.filter(e => !e.extra), last = checks[checks.length - 1] || null;   // the last check itself (not one of its extra pests)
         return Object.assign(s, { last, lastAt: last ? last.at : null });
     }).sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }));
     entries.forEach(e => { if (e.station) { e.name = e.station.name; e.type = e.station.type || e.type; e.zone = e.station.zone || ''; e.mapId = e.station.mapId || null; } });
@@ -1624,6 +1630,11 @@ function statusChip(st) { const s = STATUS[st] || STATUS.open; return `<span cla
 function activityChip(a) {
     const cls = { None: 'chip-green', Low: 'chip-blue', Medium: 'chip-amber', High: 'chip-red', Caught: 'chip-red' }[a] || 'chip-grey';
     return `<span class="chip ${cls}">${a === 'None' || !a ? 'No activity' : esc(a)}</span>`;
+}
+// every pest on a check, e.g. "House fly ×12, Blowfly ×3"
+function entryPestsText(e, times, none) {
+    const list = e.pests && e.pests.length ? e.pests : e.species ? [{ species: e.species, count: e.count }] : [];
+    return list.map(x => x.species + (x.count ? (times || ' ×') + x.count : '')).join(', ') || (none == null ? '-' : none);
 }
 function stationCell(s) { return `<div class="flex items-center gap-2">${typeDot(s.type)}<div class="min-w-0"><div class="font-bold t-strong">${esc(s.name)}</div><div class="t-faint mono text-[11px]">${esc(s.barcode)}</div></div></div>`; }
 const STANDARD_FOLDERS = ['SDS', 'Service agreement', 'Maps', 'Site specific', 'Meetings', 'Entomology', 'Training', 'Insurance'];
@@ -3090,7 +3101,7 @@ function stationRows() {
     return m.stations.filter(x => (!o.type || sameType(x.type, o.type)) && (!o.map || x.mapId === o.map) && (!o.zone || zoneKey(x.zone) === zoneKey(o.zone)) && matchesSearch(x.name, x.barcode, x.type, x.zone)).map(x => {
         const inPeriod = x.entries.filter(e => inRange(e.at));
         const lastPrep = x.entries.slice().reverse().find(e => e.prep);
-        return { s: x, checks: inPeriod.length, highest: inPeriod.reduce((a, e) => Math.max(a, ACTIVITY_SCORE[e.activity] || 0), 0), caught: inPeriod.reduce((a, e) => a + e.count, 0), lastPrep };
+        return { s: x, checks: inPeriod.filter(e => !e.extra).length, highest: inPeriod.reduce((a, e) => Math.max(a, ACTIVITY_SCORE[e.activity] || 0), 0), caught: inPeriod.reduce((a, e) => a + e.count, 0), lastPrep };
     });
 }
 function sortStations(rows) {
@@ -3146,13 +3157,13 @@ function showStation(barcode) {
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
             <div class="inset p-2.5"><div class="eyebrow t-faint">Last checked</div><div class="font-bold t-strong mt-0.5">${s.lastAt ? fmtDate(s.lastAt) : 'Never'}</div></div>
             <div class="inset p-2.5"><div class="eyebrow t-faint">Days since</div><div class="font-bold t-strong mt-0.5">${s.daysSince == null ? '-' : s.daysSince}${s.overdue ? ' · <span style="color:#ef4444">overdue</span>' : ''}</div></div>
-            <div class="inset p-2.5"><div class="eyebrow t-faint">Checks on record</div><div class="font-bold t-strong mt-0.5">${s.entries.length}</div></div>
+            <div class="inset p-2.5"><div class="eyebrow t-faint">Checks on record</div><div class="font-bold t-strong mt-0.5">${s.entries.filter(e => !e.extra).length}</div></div>
             <div class="inset p-2.5"><div class="eyebrow t-faint">Recommendations</div><div class="font-bold t-strong mt-0.5">${recs.length}</div></div>
         </div>
         ${recs.length ? `<div class="space-y-2"><div class="eyebrow t-faint">Recommendations</div>${recs.map(r => recRowHtml(r, 'none')).join('')}</div>` : ''}
         <div class="space-y-2"><div class="eyebrow t-faint">Service history</div>
-        ${hist.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Activity</th><th>Pests</th><th>Preparation</th><th>Technician</th></tr></thead><tbody>${hist.map(e => `
-            <tr><td>${fmtDateTime(e.at)}</td><td>${activityChip(e.activity)}</td><td>${e.species ? esc(e.species) + (e.count ? ' ×' + e.count : '') : '-'}</td>
+        ${hist.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Date</th><th>Activity</th><th>Pests</th><th>Preparation</th><th>Technician</th></tr></thead><tbody>${hist.filter(e => !e.extra).map(e => `
+            <tr><td>${fmtDateTime(e.at)}</td><td>${activityChip(e.activity)}</td><td>${esc(entryPestsText(e))}</td>
             <td>${e.prep ? `${esc(e.prep)}<div class="t-faint text-[11px]">${fmtQty(e.qty, e.unit)}${e.batch ? ' · batch ' + esc(e.batch) : ''}</div>` : '-'}</td><td class="t-muted">${esc(e.tech || '-')}</td></tr>
             ${e.notes ? `<tr><td colspan="5" class="t-muted text-[11px] !pt-0">Notes: ${esc(e.notes)}</td></tr>` : ''}`).join('')}</tbody></table></div>` : emptyNote('Not serviced yet.')}</div>`;
     $('modalFoot').classList.add('hidden');
@@ -3388,9 +3399,9 @@ function showVisit(id) {
         </div>
         ${v.services.length ? `<div class="flex flex-wrap gap-1.5">${v.services.map(s => `<span class="chip chip-green">${esc(s)}</span>`).join('')}</div>` : ''}
         <div><div class="eyebrow t-faint mb-1">Technician's notes</div><div class="inset p-3 whitespace-pre-line t-strong">${esc(v.notes || 'No notes provided')}</div></div>
-        <div class="space-y-2"><div class="eyebrow t-faint">Station records (${v.entries.length})</div>
-            ${v.entries.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Station</th><th>Activity</th><th>Pests</th><th>Preparation</th></tr></thead><tbody>${v.entries.map(e => `
-                <tr class="clickable" onclick="showStation('${esc(e.barcode)}')"><td>${stationCell(e.station || e)}</td><td>${activityChip(e.activity)}</td><td>${e.species ? esc(e.species) + (e.count ? ' ×' + e.count : '') : '-'}</td>
+        <div class="space-y-2"><div class="eyebrow t-faint">Station records (${v.entries.filter(e => !e.extra).length})</div>
+            ${v.entries.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Station</th><th>Activity</th><th>Pests</th><th>Preparation</th></tr></thead><tbody>${v.entries.filter(e => !e.extra).map(e => `
+                <tr class="clickable" onclick="showStation('${esc(e.barcode)}')"><td>${stationCell(e.station || e)}</td><td>${activityChip(e.activity)}</td><td>${esc(entryPestsText(e))}</td>
                 <td>${e.prep ? `${esc(e.prep)}<div class="t-faint text-[11px]">${fmtQty(e.qty, e.unit)}${e.batch ? ' · batch ' + esc(e.batch) : ''}</div>` : '-'}</td></tr>
                 ${e.notes ? `<tr><td colspan="4" class="t-muted text-[11px] !pt-0">Notes: ${esc(e.notes)}</td></tr>` : ''}`).join('')}</tbody></table></div>` : emptyNote('No station records on this visit.')}
         </div>
@@ -4014,7 +4025,7 @@ async function downloadVisitPdf(id) {
             siteId: state.site.id, id: v.id, siteName: siteName(state.site), address: state.site.Address || '', completed: v.completed, type: v.type, tech: v.tech, start: v.start, end: v.end,
             stationsChecked: new Set(v.entries.map(e => e.barcode)).size, services: v.services, notes: v.notes,
             breaches: visitBreaches(v).map(x => `${x.limit.zone} · ${limitPest(x.limit)}: ${x.total} recorded in ${monthLabel(x.month || v.completed)}, limit ${x.limit.max} a month (${x.total - x.limit.max} over). Caught at: ${breachStations(x).map(b => `${b.name} (${b.n})`).join(', ')}`),
-            entries: v.entries.map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, pests: e.species ? e.species + (e.count ? ' x' + e.count : '') : '',
+            entries: v.entries.filter(e => !e.extra).map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, pests: entryPestsText(e, ' x', ''),
                 prep: e.prep ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '', notes: e.notes })),
             recs: v.recs.map(r => ({ id: r.id, no: fmtRecNo(r.no), status: STATUS[r.status] ? STATUS[r.status].label : r.status, raised: r.raisedAt, station: r.station, barcode: r.barcode, text: r.text,
                 closed: r.status === 'complete' ? (r.completedAt || r.lastChange) : null, note: r.updates.length ? r.updates[r.updates.length - 1].note : '' })),
@@ -4080,7 +4091,7 @@ async function buildAuditPack() {
         if (parts.has('summary')) {
             pdf.heading('Summary');
             const chem = entries.filter(e => e.prep);
-            pdf.facts([['Period', rangeText()], ['Visits', visits.length], ['Station checks', entries.length], ['Stations', m.stations.length]]);
+            pdf.facts([['Period', rangeText()], ['Visits', visits.length], ['Station checks', entries.filter(e => !e.extra).length], ['Stations', m.stations.length]]);
             pdf.facts([['Stations overdue', m.stations.filter(s => s.overdue).length], ['Pests caught / sighted', entries.reduce((a, e) => a + e.count, 0)], ['Chemical applications', chem.length], ['Open recommendations', m.recs.filter(r => r.status !== 'complete').length]]);
             const svc = (state.site.services || []).map(s => `${s.type} (${freqLabel(s.frequency)}${s.nextDue ? ', next due ' + fmtDay(s.nextDue) : ''})`).join('; ');
             if (svc) pdf.para('Contracted services: ' + svc);
@@ -4195,10 +4206,16 @@ const PR = (() => {
                 prep, qty: prep && p.quantity != null && !isNaN(p.quantity) ? Number(p.quantity) : null, unit: prep ? (p.quantityUnit || 'each') : '', batch: prep ? (p.batchNumber || '') : '',
                 tech: p.technician || '', notes: p.notes || '' };
             entries.push(en); s.entries.push(en);
+            // more pests on the same check (insect stations): a record each, the preparation only on the first
+            (Array.isArray(p.morePests) ? p.morePests : []).forEach(x => {
+                if (!x || !x.species || x.species === NONE_S) return;
+                const more = Object.assign({}, en, { species: x.species, activity: x.activity || 'Caught', count: Number(x.count) > 0 ? Number(x.count) : 1, prep: '', qty: null, unit: '', batch: '', extra: true });
+                entries.push(more); s.entries.push(more);
+            });
         });
         entries.sort((a, b) => a.at - b.at);
         entries.forEach(en => { en.station = en.stationObj.name; en.type = en.stationObj.type; en.map = en.stationObj.map; });
-        const stations = Array.from(st.values()).map(s => { s.entries.sort((a, b) => a.at - b.at); const last = s.entries[s.entries.length - 1]; return Object.assign(s, { last: last || null, lastAt: last ? last.at : null }); })
+        const stations = Array.from(st.values()).map(s => { s.entries.sort((a, b) => a.at - b.at); const checks = s.entries.filter(x => !x.extra), last = checks[checks.length - 1]; return Object.assign(s, { last: last || null, lastAt: last ? last.at : null }); })
             .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }));
         const visits = (raw.visits || []).map(v => {
             const start = Date.parse(v.signed_in_at || v.started_at) || null, end = Date.parse(v.signed_out_at || v.completed_at) || Date.parse(v.created_at) || null;
@@ -4663,6 +4680,11 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r82', date: '2026-10-30', v: { svc: '2026.10.30-r82', adm: '2026.10.30-a25', cli: '2026.10.30-p41' },
+            svc: ['Flying and crawling insect monitoring: a pest you pick starts as Caught (the other choices are still there)',
+                  'Flying and crawling insect monitoring: "+ Add another pest" records more than one pest on the same check - e.g. house flies and blowflies on one glue board, each with its own number. Critical limits, reports and the visit report count every one'],
+            adm: ['Reports: a station check with several pests counts each pest'],
+            cli: ['Insect monitoring stations can now show more than one pest from the same check (e.g. house flies and blowflies on one glue board); reports and critical limits count every one'] },
         { rev: 'r81', date: '2026-10-30', v: { svc: '2026.10.30-r81', adm: '2026.10.30-a24', cli: '2026.10.30-p40' },
             svc: ['Pest map (A4 PDF): the navy header and the legend card are back, and the floor plan is much bigger - blank space around the plan is trimmed off so the plan itself fills the page'],
             adm: ['Overview: the boxes fill any space above them - a short box no longer leaves a gap, so you can arrange them however you like'],

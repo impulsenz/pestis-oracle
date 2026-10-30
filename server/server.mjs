@@ -916,6 +916,14 @@ function renamePestEverywhere(from, to) {
   from = String(from || '').trim(); to = String(to || '').trim();
   if (!from || !to || from === to) return;
   db.prepare(`UPDATE service_logs SET payload = json_set(payload, '$.speciesCaught', ?) WHERE lower(trim(json_extract(payload, '$.speciesCaught'))) = lower(?)`).run(to, from);
+  // the other pests on a check (insect stations)
+  for (const r of db.prepare(`SELECT rowid AS rid, payload FROM service_logs WHERE json_extract(payload, '$.morePests') IS NOT NULL AND lower(payload) LIKE ?`).all('%' + from.toLowerCase() + '%')) {
+    let p; try { p = JSON.parse(r.payload); } catch { continue; }
+    if (!Array.isArray(p.morePests)) continue;
+    let changed = false;
+    p.morePests = p.morePests.map(x => { if (x && String(x.species || '').trim().toLowerCase() === from.toLowerCase()) { changed = true; return Object.assign({}, x, { species: to }); } return x; });
+    if (changed) db.prepare('UPDATE service_logs SET payload = ? WHERE rowid = ?').run(JSON.stringify(p), r.rid);
+  }
   db.prepare('UPDATE pest_sightings SET pest = ? WHERE lower(trim(pest)) = lower(?)').run(to, from);
   for (const l of sys.all('site_limits', [])) {
     let rules = l.rules; if (typeof rules === 'string') { try { rules = JSON.parse(rules); } catch { rules = []; } }

@@ -93,6 +93,20 @@ try {
   ok(rodent.toxic.levels === 'None,Low,Medium,High' && rodent.toxic.countHidden && rodent.toxic.highHidden, 'toxic rodent station: None / Low / Medium / High only', rodent.toxic);
   ok(rodent.types.includes('Crawling Insect Monitoring') && !rodent.types.some(t => /snap trap|^internal rodent station$/i.test(t)), 'station types renamed, no Snap Trap', rodent.types);
   ok(await sp.evaluate("!!document.getElementById('changeBarcodeBtn').closest('#newStationFields') && !!document.getElementById('scannedBarcodeBadge').parentElement.querySelector('#changeBarcodeBtn')"), 'Change barcode sits beside the barcode in the station details');
+  // a flying insect station: a pest starts as Caught, and more pests can be added (a glue board catches several)
+  const ins = await sp.evaluate(`(() => {
+    const ty = document.getElementById('newDeviceType'), s = document.getElementById('speciesCaught');
+    ty.value = 'Flying Insect Monitoring'; updateFormTypeDot();
+    const btnBefore = !document.getElementById('addPestBtn').classList.contains('hidden');
+    s.value = 'House Fly'; updatePestCountField(true);
+    const def = document.getElementById('activityLevel').value, btnShown = !document.getElementById('addPestBtn').classList.contains('hidden');
+    document.getElementById('pestCount').value = '12';
+    addMorePest();
+    const row = document.querySelector('#morePests .more-pest');
+    row.querySelector('.mp-species').value = 'Blowfly'; row.querySelector('.mp-count').value = '3';
+    return { def, btnBefore, btnShown, more: readMorePests() };
+  })()`);
+  ok(ins.def === 'Caught' && !ins.btnBefore && ins.btnShown && ins.more.length === 1 && ins.more[0].species === 'Blowfly', 'insect station: Caught by default, and "Add another pest"', ins);
   await sp.fill('#newLocName', 'Loading Dock');
   if (await sp.isEnabled('#batchNumber').catch(() => false)) await sp.fill('#batchNumber', 'B-1');
   const saved = await sp.evaluate('saveStationServiceRecord()'); await sleep(500);
@@ -105,6 +119,8 @@ try {
     await sleep(250);
   }
   ok(got && got.payload && got.payload.locationName === 'Loading Dock' && got.technician_id, 'record reached the server', got);
+  ok(got && got.payload.speciesCaught === 'House Fly' && got.payload.pestCount === 12 && Array.isArray(got.payload.morePests) && got.payload.morePests[0].species === 'Blowfly' && got.payload.morePests[0].count === 3,
+    'both pests saved on the one check', got && got.payload);
   const unsent = await sp.evaluate("queueItems.filter(i => i.status !== 'sent').map(i => i.kind + ':' + (i.error || i.lastError || ''))");
   ok(unsent.length === 0 || unsent.every(u => !/error|fail|denied/i.test(u)), 'upload queue clear', unsent);
   // something changed elsewhere arrives live

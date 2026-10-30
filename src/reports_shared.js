@@ -50,10 +50,16 @@ const PR = (() => {
                 prep, qty: prep && p.quantity != null && !isNaN(p.quantity) ? Number(p.quantity) : null, unit: prep ? (p.quantityUnit || 'each') : '', batch: prep ? (p.batchNumber || '') : '',
                 tech: p.technician || '', notes: p.notes || '' };
             entries.push(en); s.entries.push(en);
+            // more pests on the same check (insect stations): a record each, the preparation only on the first
+            (Array.isArray(p.morePests) ? p.morePests : []).forEach(x => {
+                if (!x || !x.species || x.species === NONE_S) return;
+                const more = Object.assign({}, en, { species: x.species, activity: x.activity || 'Caught', count: Number(x.count) > 0 ? Number(x.count) : 1, prep: '', qty: null, unit: '', batch: '', extra: true });
+                entries.push(more); s.entries.push(more);
+            });
         });
         entries.sort((a, b) => a.at - b.at);
         entries.forEach(en => { en.station = en.stationObj.name; en.type = en.stationObj.type; en.map = en.stationObj.map; });
-        const stations = Array.from(st.values()).map(s => { s.entries.sort((a, b) => a.at - b.at); const last = s.entries[s.entries.length - 1]; return Object.assign(s, { last: last || null, lastAt: last ? last.at : null }); })
+        const stations = Array.from(st.values()).map(s => { s.entries.sort((a, b) => a.at - b.at); const checks = s.entries.filter(x => !x.extra), last = checks[checks.length - 1]; return Object.assign(s, { last: last || null, lastAt: last ? last.at : null }); })
             .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' }));
         const visits = (raw.visits || []).map(v => {
             const start = Date.parse(v.signed_in_at || v.started_at) || null, end = Date.parse(v.signed_out_at || v.completed_at) || Date.parse(v.created_at) || null;

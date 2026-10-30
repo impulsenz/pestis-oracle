@@ -3,6 +3,11 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r82', date: '2026-10-30', v: { svc: '2026.10.30-r82', adm: '2026.10.30-a25', cli: '2026.10.30-p41' },
+            svc: ['Flying and crawling insect monitoring: a pest you pick starts as Caught (the other choices are still there)',
+                  'Flying and crawling insect monitoring: "+ Add another pest" records more than one pest on the same check - e.g. house flies and blowflies on one glue board, each with its own number. Critical limits, reports and the visit report count every one'],
+            adm: ['Reports: a station check with several pests counts each pest'],
+            cli: ['Insect monitoring stations can now show more than one pest from the same check (e.g. house flies and blowflies on one glue board); reports and critical limits count every one'] },
         { rev: 'r81', date: '2026-10-30', v: { svc: '2026.10.30-r81', adm: '2026.10.30-a24', cli: '2026.10.30-p40' },
             svc: ['Pest map (A4 PDF): the navy header and the legend card are back, and the floor plan is much bigger - blank space around the plan is trimmed off so the plan itself fills the page'],
             adm: ['Overview: the boxes fill any space above them - a short box no longer leaves a gap, so you can arrange them however you like'],
