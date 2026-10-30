@@ -2257,7 +2257,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r79-oci';
+        const APP_VERSION = '2026.10.30-r80-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -11695,7 +11695,7 @@
                     const st = mapStations().find(x => x.barcode === b);
                     return st ? { x: p.x, y: p.y, name: st.name, type: st.type, color: stationColor(st.type).color, overdue: false } : null;
                 }).filter(Boolean);
-                await PVR.pestMap({ image: img, pins, labels: document.getElementById('mapShowLabels').checked, siteName: selectedClient.Name, address: selectedClient.Address || '',
+                await PVR.pestMap({ image: img, pins, labels: document.getElementById('mapShowLabels').checked, types: optionLabels('station_type').map(t => ({ type: t, color: stationColor(t).color })), siteName: selectedClient.Name, address: selectedClient.Address || '',
                     planName: m.name, madeBy: m.createdBy || m.created_by || '', created: m.createdAt || m.created_at, updated: m.editedAt || m.updated_at, by: technicianLabel(), app: 'Service App' });
             } catch (err) {
                 alert("The pest map couldn't be made (" + (err && err.message ? err.message : 'picture blocked') + ').');
@@ -14746,6 +14746,15 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r80', date: '2026-10-30', v: { svc: '2026.10.30-r80', adm: '2026.10.30-a23', cli: '2026.10.30-p39' },
+            svc: ['Pest map (A4 PDF): a plain white page with the floor plan as big as it can be (with a margin), every station type in the legend, "Floor plan not to scale", and no line of small print at the bottom'],
+            adm: ['Reports: choose the station type, then the station - the station list only shows stations of that type, and you can type to search it. Every station type is listed, even ones with no records yet',
+                  'Reports: going back to the Reports tab starts at the list of reports'],
+            cli: ['Visit reports: ones you haven\'t opened yet stand out (orange edge and "New"); ones you have opened are greyed with "✓ Opened"',
+                  'Pest map (A4 PDF): a plain white page with the floor plan as big as it can be (with a margin), every station type in the legend, "Floor plan not to scale", and no line of small print at the bottom',
+                  'Reports: choose the station type, then the station - the station list only shows stations of that type, and you can type to search it. Every station type is listed, even ones with no records yet',
+                  'Reports: going back to the Reports tab starts at the list of reports',
+                  'Chemicals: filter by station type as well as station'] },
         { rev: 'r79', date: '2026-10-30', v: { svc: '2026.10.30-r79', adm: '2026.10.30-a22', cli: '2026.10.30-p38' },
             svc: ['Pest names in old records match the pest list (e.g. House Mouse is now Mouse), and a pest renamed in Admin is renamed here too'],
             adm: ['Lists › Pests: rename a pest in its guide (✎ Guide › Name) - every station check, pest sighting, critical limit and report uses the new name straight away',
@@ -14988,7 +14997,9 @@ const PVR = (() => {
         if (overdue) { g.beginPath(); g.arc(x, cy, r * 1.45, 0, Math.PI * 2); g.lineWidth = Math.max(2, r * .28); g.strokeStyle = '#dc2626'; g.stroke(); }
     }
     // d = { image (an <img> or canvas of the plan), pins: [{ x, y (shares of the plan), name, type, color, overdue }], labels,
-    //       siteName, address, planName, madeBy, created, updated, by, app }
+    //       types: [{ type, color }] (every station type, so the legend always shows them all), siteName, address, planName, madeBy, created, updated, by, app }
+    // A white A4 page: the site and the Pesties logo across the top, the plan as big as the free space allows (with an even
+    // margin), then the legend (every station type) and the map details, with "Floor plan not to scale".
     async function pestMap(d) {
         const { jsPDF } = window.jspdf;
         const iw = d.image.naturalWidth || d.image.width, ih = d.image.naturalHeight || d.image.height;
@@ -14996,75 +15007,71 @@ const PVR = (() => {
         const W = land ? 3508 : 2480, H = land ? 2480 : 3508;   // A4 at 300 dpi
         const c = document.createElement('canvas'); c.width = W; c.height = H;
         const g = c.getContext('2d');
-        const pad = 90, headH = 260, footH = 60;
-        const types = Array.from(d.pins.reduce((m, x) => m.set(x.type, { n: ((m.get(x.type) || {}).n || 0) + 1, color: x.color }), new Map()).entries())
-            .sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]));
-        const overdue = d.pins.filter(x => x.overdue).length;
-        const legItems = types.map(([t, o]) => ({ t, n: o.n, color: o.color })).concat(overdue ? [{ t: 'Overdue for service', n: overdue, ring: true }] : []);
-        const details = [['Client', d.siteName || '-'], ['Site address', d.address || '-'], ['Floor plan', d.planName || '-'], ['Stations on this plan', String(d.pins.length)],
-            ['Map made by', d.madeBy || 'Pesties'], ['Last updated', day(d.updated || d.created) || '-'], ['Generated', `${day(Date.now())}${d.by ? ' by ' + d.by : ''}`]];
-        const legCols = land ? 2 : 1, legRows = Math.max(1, Math.ceil(legItems.length / legCols));   // room for the long station type names
-        const legH = Math.max(130 + legRows * 70, 130 + Math.ceil(details.length / (land ? 4 : 2)) * 92);
+        const M = 120, gap = 70;   // the page margin (about 10 mm) and the space between parts
         const font = (w, px) => `${w} ${px}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif`;
-        const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
         const fit = (t, max) => { t = String(t); if (g.measureText(t).width <= max) return t; while (t.length > 1 && g.measureText(t + '…').width > max) t = t.slice(0, -1); return t + '…'; };
         g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
-        // header: the site, the plan, and the Pesties logo in the top right
-        g.fillStyle = '#0b1530'; g.fillRect(0, 0, W, headH);
-        g.fillStyle = '#f97316'; g.fillRect(0, headH - 14, W, 14);
-        const lg = await logo();
+        // the legend: every station type (how many are on this plan, or a dash), and overdue
+        const count = new Map(); d.pins.forEach(x => count.set(x.type, (count.get(x.type) || 0) + 1));
+        const all = (d.types || []).slice();
+        d.pins.forEach(x => { if (!all.some(t => t.type === x.type)) all.push({ type: x.type, color: x.color }); });
+        const overdue = d.pins.filter(x => x.overdue).length;
+        const legItems = all.map(t => ({ t: t.type, n: count.get(t.type) || 0, color: t.color })).concat([{ t: 'Overdue for service', n: overdue, ring: true }]);
+        const details = [['Client', d.siteName || '-'], ['Site address', d.address || '-'], ['Floor plan', d.planName || '-'], ['Stations on this plan', String(d.pins.length)],
+            ['Map made by', d.madeBy || 'Pesties'], ['Last updated', day(d.updated || d.created) || '-'], ['Generated', `${day(Date.now())}${d.by ? ' by ' + d.by : ''}`]];
+        const legCols = land ? 2 : 2, rowH = 64, legRows = Math.ceil(legItems.length / legCols);
+        const dCols = land ? 2 : 2, dRows = Math.ceil(details.length / dCols);
+        const legH = 70 + Math.max(legRows * rowH, dRows * 84) + 60;
+        // header: the site and plan on the left, the Pesties logo on the right, a thin orange line under it
+        const headH = 230, lg = await logo();
         let logoW = 0;
-        if (lg) { const lh = headH * .62, lw = lh * lg.k; logoW = lw + 60; g.drawImage(lg.img, W - pad - lw, (headH - 14 - lh) / 2, lw, lh); }
+        if (lg) { const lh = 170, lw = lh * lg.k; logoW = lw + 50; g.drawImage(lg.img, W - M - lw, M - 10, lw, lh); }
         g.textBaseline = 'alphabetic';
-        g.fillStyle = '#f97316'; g.font = font(800, 38); g.fillText('PEST MAP', pad, 84);
-        g.fillStyle = '#ffffff'; g.font = font(900, 76); g.fillText(fit(d.siteName || 'Site', W - pad * 2 - logoW), pad, 168);
-        g.fillStyle = '#9db0d1'; g.font = font(600, 36); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - pad * 2 - logoW), pad, 222);
-        // the plan, as big as the page allows
-        const top = headH + pad * .6, boxH = H - top - legH - pad * 1.2 - footH, boxW = W - pad * 2;
-        const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = pad + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
-        g.save(); g.shadowColor = 'rgba(15,23,42,.18)'; g.shadowBlur = 30; g.fillStyle = '#fff'; g.fillRect(mx, my, mw, mh); g.restore();
+        g.fillStyle = '#f97316'; g.font = font(800, 34); g.fillText('PEST MAP', M, M + 30);
+        g.fillStyle = '#0b1530'; g.font = font(900, 72); g.fillText(fit(d.siteName || 'Site', W - M * 2 - logoW), M, M + 112);
+        g.fillStyle = '#475569'; g.font = font(600, 34); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - M * 2 - logoW), M, M + 165);
+        g.fillStyle = '#f97316'; g.fillRect(M, M + headH - 20, W - M * 2, 6);
+        // the plan: as big as the space between the header and the legend allows, centred, with the margin all round
+        const top = M + headH + gap, bottom = H - M - legH - gap, boxW = W - M * 2, boxH = bottom - top;
+        const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = M + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
         g.drawImage(d.image, mx, my, mw, mh);
-        g.strokeStyle = '#d8deeb'; g.lineWidth = 3; g.strokeRect(mx, my, mw, mh);
         const r = Math.max(14, Math.min(34, Math.min(mw, mh) / 55));
-        const labelFont = font(700, Math.round(r * 1.15));
         d.pins.forEach(x => pin(g, mx + x.x * mw, my + x.y * mh, r, x.color, x.overdue));
         if (d.labels) {
-            g.font = labelFont; g.textBaseline = 'middle';
+            g.font = font(700, Math.round(r * 1.15)); g.textBaseline = 'middle';
             d.pins.forEach(x => {
                 const px = mx + x.x * mw + r * 1.3, py = my + x.y * mh - r * Math.SQRT2, tw = g.measureText(x.name).width;
-                g.fillStyle = 'rgba(2,6,23,.82)'; rr(px, py - r * .85, tw + r * 1.1, r * 1.7, r * .4); g.fill();
+                g.fillStyle = 'rgba(2,6,23,.82)'; g.beginPath(); g.roundRect ? g.roundRect(px, py - r * .85, tw + r * 1.1, r * 1.7, r * .4) : g.rect(px, py - r * .85, tw + r * 1.1, r * 1.7); g.fill();
                 g.fillStyle = '#fff'; g.fillText(x.name, px + r * .55, py);
             });
             g.textBaseline = 'alphabetic';
         }
-        // legend and map details
-        const ly = H - legH - footH - pad * .6, splitX = pad + boxW * (land ? .42 : .5);
-        g.fillStyle = '#f8fafc'; rr(pad, ly, boxW, legH, 24); g.fill(); g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; rr(pad, ly, boxW, legH, 24); g.stroke();
-        g.fillStyle = '#f97316'; g.font = font(800, 30); g.fillText('LEGEND', pad + 50, ly + 68); g.fillText('MAP DETAILS', splitX + 50, ly + 68);
-        g.strokeStyle = '#e2e8f0'; g.beginPath(); g.moveTo(splitX, ly + 36); g.lineTo(splitX, ly + legH - 36); g.stroke();
-        const lcW = (splitX - pad - 80) / legCols;
+        // legend and map details: on the white page, a thin line above them
+        const ly = H - M - legH, splitX = M + boxW * .55;
+        g.fillStyle = '#e2e8f0'; g.fillRect(M, ly, boxW, 4);
+        g.fillStyle = '#f97316'; g.font = font(800, 30); g.fillText('LEGEND', M, ly + 66); g.fillText('MAP DETAILS', splitX + 40, ly + 66);
+        g.fillStyle = '#64748b'; g.font = font(700, 26); g.textAlign = 'right'; g.fillText('Floor plan not to scale', splitX - 40, ly + 66); g.textAlign = 'left';
+        const lcW = (splitX - M - 40) / legCols;
         legItems.forEach((it, i) => {
-            const x = pad + 50 + (i % legCols) * lcW, y = ly + 136 + Math.floor(i / legCols) * 70;
-            if (it.ring) { g.beginPath(); g.arc(x + 18, y - 12, 18, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 6; g.stroke(); }
+            const x = M + (i % legCols) * lcW, y = ly + 132 + Math.floor(i / legCols) * rowH;
+            if (it.ring) { g.beginPath(); g.arc(x + 18, y - 12, 17, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 6; g.stroke(); }
             else pin(g, x + 18, y + 8, 16, it.color, false);
-            g.fillStyle = '#0b1530'; g.font = font(700, 30); g.fillText(fit(it.t, lcW - 130), x + 52, y);
-            g.fillStyle = '#64748b'; g.font = font(800, 30); g.textAlign = 'right'; g.fillText(String(it.n), x + lcW - 30, y); g.textAlign = 'left';
+            g.fillStyle = it.n ? '#0b1530' : '#94a3b8'; g.font = font(700, 28); g.fillText(fit(it.t, lcW - 130), x + 52, y);
+            g.fillStyle = '#64748b'; g.font = font(800, 28); g.textAlign = 'right'; g.fillText(it.n ? String(it.n) : '-', x + lcW - 30, y); g.textAlign = 'left';
         });
-        if (!legItems.length) { g.fillStyle = '#64748b'; g.font = font(600, 30); g.fillText('No stations placed on this plan yet.', pad + 50, ly + 136); }
-        const dCols = land ? 4 : 2, dW = (pad + boxW - splitX - 100) / dCols;
+        g.fillStyle = '#e2e8f0'; g.fillRect(splitX, ly + 30, 3, legH - 60);
+        const dW = (M + boxW - splitX - 40) / dCols;
         details.forEach(([key, val], i) => {
-            const x = splitX + 50 + (i % dCols) * dW, y = ly + 128 + Math.floor(i / dCols) * 92;
-            g.fillStyle = '#64748b'; g.font = font(800, 22); g.fillText(key.toUpperCase(), x, y);
-            g.fillStyle = '#0b1530'; g.font = font(700, 31); g.fillText(fit(val, dW - 24), x, y + 40);
+            const x = splitX + 40 + (i % dCols) * dW, y = ly + 124 + Math.floor(i / dCols) * 84;
+            g.fillStyle = '#64748b'; g.font = font(800, 21); g.fillText(key.toUpperCase(), x, y);
+            g.fillStyle = '#0b1530'; g.font = font(700, 29); g.fillText(fit(val, dW - 24), x, y + 38);
         });
-        g.fillStyle = '#94a3b8'; g.font = font(600, 24); g.fillText(`Generated from the Pesties ${d.app || ''} · ${dayTime(Date.now())}`.replace('  ', ' '), pad, H - 40);
-        // one A4 page, filled edge to edge
+        // one A4 page, edge to edge
         const doc = new jsPDF({ orientation: land ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
-        doc.addImage(c.toDataURL('image/jpeg', .9), 'JPEG', 0, 0, doc.internal.pageSize.getWidth(), doc.internal.pageSize.getHeight());
+        doc.addImage(c.toDataURL('image/jpeg', .92), 'JPEG', 0, 0, doc.internal.pageSize.getWidth(), doc.internal.pageSize.getHeight());
         doc.save(`${safe(d.siteName)} - ${safe(d.planName)} - Pest map.pdf`);
         return c;
     }
-
     async function build(v) {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });

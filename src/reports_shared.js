@@ -73,17 +73,21 @@ const PR = (() => {
         }).sort((a, b) => a.name.localeCompare(b.name));
         // the pests to choose from: the Admin pest list when it's given
         const species = Array.isArray(raw.species) && raw.species.length ? raw.species.slice() : null;
-        return { site: raw.siteName || '', entries, stations, visits, recs, limits, species };
+        // every station type (the Admin list, and any other type a station has), whether or not it has records
+        const seenT = new Map();
+        (raw.stationTypes || []).concat(stations.map(x => x.type)).forEach(t => { t = String(t || '').trim(); if (t && !seenT.has(t.toLowerCase())) seenT.set(t.toLowerCase(), t); });
+        const types = Array.from(seenT.values()).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+        return { site: raw.siteName || '', entries, stations, visits, recs, limits, species, types };
     }
 
     // ---------- the reports ----------
     const REPORTS = [
-        { id: 'trend', icon: '📈', title: 'Pest activity over time', blurb: 'Captures each month, one line per pest - or each year on top of the last to compare.', f: ['view', 'period', 'years', 'type', 'pest'] },
+        { id: 'trend', icon: '📈', title: 'Pest activity over time', blurb: 'Captures each month, one line per pest - or each year on top of the last to compare.', f: ['view', 'period', 'years', 'type', 'station', 'pest'] },
         { id: 'pests', icon: '🐞', title: 'Pests found', blurb: 'Which pests were found, how many, and the stations they were recorded on.', f: ['period', 'type', 'station', 'pest'] },
-        { id: 'stations', icon: '📍', title: 'Busiest stations', blurb: 'The stations catching the most - where to focus.', f: ['period', 'type', 'pest'] },
-        { id: 'station', icon: '🔎', title: 'One station', blurb: 'A single station: each pest (or its activity) month by month over the years, and every visit to it.', f: ['station', 'view', 'years', 'pest'] },
-        { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'map', 'gap'] },
-        { id: 'preps', icon: '🧪', title: 'Preparations used', blurb: 'What was used on which station, how much, and the batch numbers.', f: ['period', 'prep', 'station', 'batch'] },
+        { id: 'stations', icon: '📍', title: 'Busiest stations', blurb: 'The stations catching the most - where to focus.', f: ['period', 'type', 'station', 'pest'] },
+        { id: 'station', icon: '🔎', title: 'One station', blurb: 'A single station: each pest (or its activity) month by month over the years, and every visit to it.', f: ['type', 'station', 'view', 'years', 'pest'] },
+        { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'station', 'map', 'gap'] },
+        { id: 'preps', icon: '🧪', title: 'Preparations used', blurb: 'What was used on which station, how much, and the batch numbers.', f: ['period', 'type', 'station', 'prep', 'batch'] },
         { id: 'limits', icon: '⚠️', title: 'Critical limits', blurb: 'Monthly captures against each critical limit, and any breaches.', f: ['months'] },
         { id: 'recs', icon: '📋', title: 'Recommendations', blurb: 'Raised and completed, by type, and how long they took.', f: ['period'] },
         { id: 'visits', icon: '🗓️', title: 'Service visits', blurb: 'Visits each month, the technician and the time on site.', f: ['period', 'tech'] }
@@ -150,6 +154,8 @@ const PR = (() => {
     function set(btn, k, v) { const box = btn.closest('.pr-root').parentElement, s = ST.get(box); if (!s) return;
         if (k === 'report' && s._linked) { s.station = s._prevStation; s._linked = false; }   // back from a station opened by tapping its name: the other reports aren't left filtered to it
         if (k === 'station') s._linked = false;
+        // a new station type: a station of another type is no longer chosen
+        if (k === 'type' && s.station && v) { const d = box._pr && box._pr.data, st = d && d.stations.find(x => x.barcode === s.station); if (st && st.type !== v) s.station = ''; }
         s[k] = v; if (k === 'report') window.scrollTo && box.scrollIntoView && box.scrollIntoView({ block: 'start', behavior: 'smooth' }); draw(box); }
     function draw(box) {
         const s = ST.get(box), { data, opts } = box._pr;
@@ -159,7 +165,10 @@ const PR = (() => {
             return;
         }
         const R = REPORTS.find(r => r.id === s.report);
-        const out = BUILD[R.id](data, s, opts);
+        // a report only uses the filters it shows (a station picked in one report doesn't quietly filter another)
+        const sx = Object.assign({}, s, R.f.includes('type') ? {} : { type: '' }, R.f.includes('station') ? {} : { station: '' });
+        const out = BUILD[R.id](data, sx, opts);
+        if (R.id === 'station') s.station = sx.station;   // the station it settled on
         box._pr.csv = out.csv;
         box.innerHTML = `<div class="pr-root pr-print">
             <div class="pr-head"><button type="button" class="pr-back" onclick="PR.set(this, 'report', null)">‹ All reports</button>
@@ -182,22 +191,25 @@ const PR = (() => {
                 parts.push(sel('preset', 'Period', PRESETS));
                 if (s.preset === 'custom') parts.push(`<label class="pr-f"><span>From</span><input type="date" value="${e(s.from)}" onchange="PR.set(this, 'from', this.value)"></label><label class="pr-f"><span>To</span><input type="date" value="${e(s.to)}" onchange="PR.set(this, 'to', this.value)"></label>`);
             }
-            if (f === 'type') parts.push(sel('type', 'Station type', uniq(d.stations.map(x => x.type)), 'All types'));
+            if (f === 'type') parts.push(sel('type', 'Station type', d.types || uniq(d.stations.map(x => x.type)), 'All types'));
             if (f === 'pest') { const st = R.id === 'station' ? d.stations.find(x => x.barcode === s.station) : null; if (!(st && isActivity(st))) parts.push(cmb('pest', 'Pest', st ? uniq(st.entries.map(x => x.species)) : uniq(d.species || d.entries.map(x => x.species)), 'All pests')); }
             if (f === 'map') parts.push(cmb('map', 'Floor plan', uniq(d.stations.map(x => x.map)), 'All floor plans'));
             if (f === 'prep') parts.push(cmb('prep', 'Preparation', uniq(d.entries.map(x => x.prep)), 'All preparations'));
             if (f === 'tech') parts.push(sel('tech', 'Technician', uniq(d.visits.map(x => x.tech).concat(d.entries.map(x => x.tech))), 'Everyone'));
-            if (f === 'station') parts.push(cmb('station', 'Station', d.stations.map(x => [x.barcode, x.name + (x.type ? ' · ' + x.type : '')]), R.id === 'station' ? null : 'All stations'));
+            // the stations of the chosen type (type to search a long list)
+            if (f === 'station') parts.push(cmb('station', s.type ? `Station (${s.type})` : 'Station', stationsOfType(d, s).map(x => [x.barcode, x.name + (x.type && !s.type ? ' · ' + x.type : '')]), R.id === 'station' ? null : (s.type ? 'All ' + s.type : 'All stations')));
             if (f === 'batch') parts.push(`<label class="pr-f"><span>Batch number</span><input type="search" value="${e(s.batch)}" placeholder="Any" onchange="PR.set(this, 'batch', this.value.trim())"></label>`);
             if (f === 'gap') parts.push(sel('gap', 'Flag stations not scanned for', [['14', '2 weeks'], ['35', '5 weeks'], ['60', '2 months'], ['95', '3 months']]));
             if (f === 'months') parts.push(sel('month', 'Month', months(Date.now() - 365 * DAY, Date.now()).reverse().map(k => [k, monthLong(k)])));
         });
         return parts.join('');
     }
-    // the records a report looks at
+    // the stations a report can pick from: those of the chosen station type
+    const stationsOfType = (d, s) => d.stations.filter(x => !s.type || x.type === s.type);
+    // the records a report looks at (the chosen station type, and station)
     function pick(d, s, extra) {
         const [a, b] = range(s);
-        return d.entries.filter(x => x.at >= a && x.at <= b && (!s.type || x.type === s.type) && (!extra || extra(x)));
+        return d.entries.filter(x => x.at >= a && x.at <= b && (!s.type || x.type === s.type) && (!s.station || x.barcode === s.station) && (!extra || extra(x)));
     }
     const color = (opts, type) => (opts.colorOf ? opts.colorOf(type) : null) || '#64748b';
     const dot = (opts, type) => `<span class="pr-dot" style="background:${color(opts, type)}"></span>`;
@@ -228,7 +240,7 @@ const PR = (() => {
     const BUILD = {
         trend(d, s) {
             if (s.view === 'yoy') {
-                const list = d.entries.filter(x => x.species && (!s.type || x.type === s.type) && (!s.pest || x.species === s.pest));
+                const list = d.entries.filter(x => x.species && (!s.type || x.type === s.type) && (!s.station || x.barcode === s.station) && (!s.pest || x.species === s.pest));
                 const years = yearsOf(s, d, list);
                 const series = yoySeries(years, (yr, m) => list.filter(x => inYM(x, yr, m)).reduce((n, x) => n + x.count, 0));
                 const head = [{ t: 'Month' }].concat(years.map(yr => ({ t: String(yr), num: true })));
@@ -293,7 +305,9 @@ const PR = (() => {
             };
         },
         station(d, s, opts) {
-            if (!s.station || !d.stations.some(x => x.barcode === s.station)) s.station = d.stations[0] ? d.stations[0].barcode : '';
+            const ofType = stationsOfType(d, s);
+            if (!s.station || !ofType.some(x => x.barcode === s.station)) s.station = ofType[0] ? ofType[0].barcode : '';
+            if (!s.station) return { html: `<div class="pr-empty">${s.type ? `No ${e(s.type)} stations on this site.` : 'This site has no stations yet.'}</div>`, csv: [] };
             const stn = d.stations.find(x => x.barcode === s.station);
             if (!stn) return { html: '<div class="pr-empty">This site has no stations yet.</div>', csv: [] };
             const act = isActivity(stn);
@@ -334,7 +348,7 @@ const PR = (() => {
         },
         scanned(d, s, opts) {
             const gap = Number(s.gap) || 35, now = Date.now();
-            const list = d.stations.filter(x => (!s.type || x.type === s.type) && (!s.map || x.map === s.map))
+            const list = d.stations.filter(x => (!s.type || x.type === s.type) && (!s.station || x.barcode === s.station) && (!s.map || x.map === s.map))
                 .map(x => Object.assign({ days: x.lastAt ? Math.floor((now - x.lastAt) / DAY) : null }, { x })).sort((p, q) => (q.days == null ? 1e9 : q.days) - (p.days == null ? 1e9 : p.days));
             const late = list.filter(o => o.days == null || o.days > gap);
             const head = [{ t: 'Station' }, { t: 'Type' }, { t: 'Floor plan' }, { t: 'Last scanned' }, { t: 'Days ago', num: true }, { t: 'Last result' }, { t: 'By' }];
@@ -442,6 +456,7 @@ const PR = (() => {
         if (o.onStation) { o.onStation(barcode); return; }
         if (!s._linked) s._prevStation = s.station;
         s._linked = true; s.station = barcode; s.report = 'station';
+        { const d = box._pr && box._pr.data, st = d && d.stations.find(x => x.barcode === barcode); if (st && s.type && st.type !== s.type) s.type = st.type; }
         box.scrollIntoView && box.scrollIntoView({ block: 'start', behavior: 'smooth' });
         draw(box);
     }

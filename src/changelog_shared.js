@@ -3,6 +3,15 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r80', date: '2026-10-30', v: { svc: '2026.10.30-r80', adm: '2026.10.30-a23', cli: '2026.10.30-p39' },
+            svc: ['Pest map (A4 PDF): a plain white page with the floor plan as big as it can be (with a margin), every station type in the legend, "Floor plan not to scale", and no line of small print at the bottom'],
+            adm: ['Reports: choose the station type, then the station - the station list only shows stations of that type, and you can type to search it. Every station type is listed, even ones with no records yet',
+                  'Reports: going back to the Reports tab starts at the list of reports'],
+            cli: ['Visit reports: ones you haven\'t opened yet stand out (orange edge and "New"); ones you have opened are greyed with "✓ Opened"',
+                  'Pest map (A4 PDF): a plain white page with the floor plan as big as it can be (with a margin), every station type in the legend, "Floor plan not to scale", and no line of small print at the bottom',
+                  'Reports: choose the station type, then the station - the station list only shows stations of that type, and you can type to search it. Every station type is listed, even ones with no records yet',
+                  'Reports: going back to the Reports tab starts at the list of reports',
+                  'Chemicals: filter by station type as well as station'] },
         { rev: 'r79', date: '2026-10-30', v: { svc: '2026.10.30-r79', adm: '2026.10.30-a22', cli: '2026.10.30-p38' },
             svc: ['Pest names in old records match the pest list (e.g. House Mouse is now Mouse), and a pest renamed in Admin is renamed here too'],
             adm: ['Lists › Pests: rename a pest in its guide (✎ Guide › Name) - every station check, pest sighting, critical limit and report uses the new name straight away',

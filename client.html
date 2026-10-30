@@ -190,6 +190,10 @@
         .plan-pin { position: absolute; transform: translate(-50%, -100%); cursor: pointer; background: none; border: 0; padding: 0; }
         .plan-pin span { display: block; width: 20px; height: 20px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 3px 8px -2px rgba(0, 0, 0, .6); }
         .plan-pin.overdue span { outline: 3px solid #dc2626; outline-offset: 1px; }
+        .visit-unread { border-color: rgb(var(--b500) / .6) !important; background: rgb(var(--b500) / .07) !important; box-shadow: inset 4px 0 0 rgb(var(--b500)); }
+        .visit-read { opacity: .72; }
+        .visit-read:hover { opacity: 1; }
+        .visit-dot { display: inline-block; width: .5rem; height: .5rem; border-radius: 999px; background: rgb(var(--b500)); margin-right: .4rem; vertical-align: middle; }
         .viewer-arrow { position: fixed; top: 50%; transform: translateY(-50%); z-index: 2; width: 3rem; height: 3rem; font-size: 1.6rem; }
         .plan-pin-label { position: absolute; left: calc(100% + 4px); top: 0; white-space: nowrap; font-style: normal; font-size: 11px; font-weight: 700; line-height: 1; color: #fff; background: rgba(2, 6, 23, .82); border-radius: 5px; padding: 3px 6px; pointer-events: none; }
         /* clickable tiles */
@@ -658,7 +662,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (pestis_client_portal.sql); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.30-p38-oci';
+const PORTAL_VERSION = '2026.10.30-p39-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -1221,7 +1225,7 @@ const TABS = [
 ];
 // which filters each report tab offers (hidden filters are not applied)
 const TAB_FILTERS = {
-    chemicals: ['station', 'prep', 'batch', 'tech', 'map'],
+    chemicals: ['type', 'station', 'prep', 'batch', 'tech', 'map'],
     visits: ['tech', 'q']
 };
 const FILTER_KEYS = ['type', 'map', 'zone', 'station', 'species', 'prep', 'batch', 'tech', 'q'];
@@ -1233,7 +1237,9 @@ async function openSite(id, tab, fromRoute) {
     const changed = !state.site || String(state.site.id) !== String(site.id);
     if (changed) state.prBox = null;   // a new site starts at the list of reports
     state.site = site;
+    const prevTab = state.tab;
     state.tab = TABS.some(t => t[0] === tab) ? tab : 'overview';
+    if (state.tab === 'reports' && prevTab !== 'reports') state.prBox = null;   // coming back to Reports starts at the list of reports
     if (!fromRoute) { location.hash = `#/site/${encodeURIComponent(site.id)}/${state.tab}`; return; }
     $('switchSiteBtn').classList.toggle('hidden', state.sites.length <= 1);
     $('headerSite').textContent = siteName(site);
@@ -2538,7 +2544,7 @@ function renderReports() {
     $('tabBody').innerHTML = '';
     $('tabBody').appendChild(holder);
     if (!state.prBox) state.prBox = holder; else { holder.replaceWith(state.prBox); }
-    const data = PR.build({ siteName: siteName(state.site), logs: d.logs || [], stations: d.stations || [], maps: d.maps || [], visits: d.visits || [], recs: d.recs || [], limits: d.limits || [], species: state.speciesList || [] });
+    const data = PR.build({ siteName: siteName(state.site), logs: d.logs || [], stations: d.stations || [], maps: d.maps || [], visits: d.visits || [], recs: d.recs || [], limits: d.limits || [], species: state.speciesList || [], stationTypes: state.stationTypes || [] });
     // a preparation's name in the reports opens its safety data sheet (the same one as in Documents > SDS)
     PR.render(state.prBox, data, { colorOf: t => stationColor(t), onRec: id => openRec(id, 'none'), onMap: b => showOnPlan(b), sdsOf: name => { const o = (state.preps || []).find(x => x.label === name && x.sds_path); return o ? o.id : null; }, openSds: id => openPrepSds(id) });
 }
@@ -3332,12 +3338,14 @@ function visitList() {
 const VISIT_TYPES = ['Routine Service', 'Call Out', 'Broken Treatment', 'Initial Install', 'Uninstall', 'Technical Support', 'Meeting'];
 let visitTypeFilter = '';
 function visitTypeOptions() { return VISIT_TYPES.concat(Array.from(new Set(state.model.visits.map(v => v.type).filter(t => t && !VISIT_TYPES.includes(t)))).sort()); }
+// a visit report not opened yet stands out (orange edge, "New"); one that has been opened is greyed with "Opened"
 function visitRowHtml(v) {
     const n = new Set(v.entries.map(e => e.barcode)).size;
-    return `<div class="row-item clickable p-3.5 flex justify-between items-center gap-3" tabindex="0" role="button" onclick="openVisit('${esc(v.id)}')" onkeydown="if (event.key === 'Enter') this.click()">
-        <div class="min-w-0"><div class="font-bold t-strong text-sm">${fmtDate(v.completed)} · ${esc(v.type)} <span class="t-muted font-semibold">· finished ${fmtTime(v.end || v.completed)}</span></div>
+    const unread = v.completed > Date.now() - 90 * 86400000 && !bellSeen().has('visit:' + v.id);
+    return `<div class="row-item clickable p-3.5 flex justify-between items-center gap-3 ${unread ? 'visit-unread' : 'visit-read'}" tabindex="0" role="button" onclick="openVisit('${esc(v.id)}')" onkeydown="if (event.key === 'Enter') this.click()" title="${unread ? 'Not opened yet' : 'Opened'}">
+        <div class="min-w-0"><div class="font-bold t-strong text-sm">${unread ? '<span class="visit-dot" aria-hidden="true"></span>' : ''}${fmtDate(v.completed)} · ${esc(v.type)} <span class="t-muted font-semibold">· finished ${fmtTime(v.end || v.completed)}</span></div>
         <div class="text-[11px] t-muted">${v.tech ? esc(v.tech) + ' · ' : ''}${plural(n, 'station')} checked${v.recs.length ? ' · ' + plural(v.recs.length, 'recommendation') : ''}</div></div>
-        <span class="t-faint text-lg font-black">›</span></div>`;
+        <span class="flex items-center gap-2 shrink-0">${unread ? '<span class="chip chip-orange">New</span>' : '<span class="text-[11px] t-faint font-semibold">✓ Opened</span>'}<span class="t-faint text-lg font-black">›</span></span></div>`;
 }
 function renderVisits() {
     const list = visitList();
@@ -3720,7 +3728,7 @@ async function downloadPlan(id) {
     const plan = state.model.maps.find(p => p.id === id);
     if (!plan) return;
     try {
-        await PVR.pestMap({ image: await planImage(plan), pins: planPinData(plan), labels: planLabelsOn(), siteName: siteName(state.site), address: state.site.Address || '',
+        await PVR.pestMap({ image: await planImage(plan), pins: planPinData(plan), labels: planLabelsOn(), types: allStationTypes().map(t => ({ type: t, color: stationColor(t) })), siteName: siteName(state.site), address: state.site.Address || '',
             planName: plan.name, madeBy: plan.created_by, created: plan.created_at, updated: plan.updated_at, by: state.me.name || state.me.email, app: 'Client Portal' });
     } catch (e) { alert('Could not download the floor plan: ' + (e.message || e)); }
 }
@@ -4203,17 +4211,21 @@ const PR = (() => {
         }).sort((a, b) => a.name.localeCompare(b.name));
         // the pests to choose from: the Admin pest list when it's given
         const species = Array.isArray(raw.species) && raw.species.length ? raw.species.slice() : null;
-        return { site: raw.siteName || '', entries, stations, visits, recs, limits, species };
+        // every station type (the Admin list, and any other type a station has), whether or not it has records
+        const seenT = new Map();
+        (raw.stationTypes || []).concat(stations.map(x => x.type)).forEach(t => { t = String(t || '').trim(); if (t && !seenT.has(t.toLowerCase())) seenT.set(t.toLowerCase(), t); });
+        const types = Array.from(seenT.values()).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+        return { site: raw.siteName || '', entries, stations, visits, recs, limits, species, types };
     }
 
     // ---------- the reports ----------
     const REPORTS = [
-        { id: 'trend', icon: '📈', title: 'Pest activity over time', blurb: 'Captures each month, one line per pest - or each year on top of the last to compare.', f: ['view', 'period', 'years', 'type', 'pest'] },
+        { id: 'trend', icon: '📈', title: 'Pest activity over time', blurb: 'Captures each month, one line per pest - or each year on top of the last to compare.', f: ['view', 'period', 'years', 'type', 'station', 'pest'] },
         { id: 'pests', icon: '🐞', title: 'Pests found', blurb: 'Which pests were found, how many, and the stations they were recorded on.', f: ['period', 'type', 'station', 'pest'] },
-        { id: 'stations', icon: '📍', title: 'Busiest stations', blurb: 'The stations catching the most - where to focus.', f: ['period', 'type', 'pest'] },
-        { id: 'station', icon: '🔎', title: 'One station', blurb: 'A single station: each pest (or its activity) month by month over the years, and every visit to it.', f: ['station', 'view', 'years', 'pest'] },
-        { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'map', 'gap'] },
-        { id: 'preps', icon: '🧪', title: 'Preparations used', blurb: 'What was used on which station, how much, and the batch numbers.', f: ['period', 'prep', 'station', 'batch'] },
+        { id: 'stations', icon: '📍', title: 'Busiest stations', blurb: 'The stations catching the most - where to focus.', f: ['period', 'type', 'station', 'pest'] },
+        { id: 'station', icon: '🔎', title: 'One station', blurb: 'A single station: each pest (or its activity) month by month over the years, and every visit to it.', f: ['type', 'station', 'view', 'years', 'pest'] },
+        { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'station', 'map', 'gap'] },
+        { id: 'preps', icon: '🧪', title: 'Preparations used', blurb: 'What was used on which station, how much, and the batch numbers.', f: ['period', 'type', 'station', 'prep', 'batch'] },
         { id: 'limits', icon: '⚠️', title: 'Critical limits', blurb: 'Monthly captures against each critical limit, and any breaches.', f: ['months'] },
         { id: 'recs', icon: '📋', title: 'Recommendations', blurb: 'Raised and completed, by type, and how long they took.', f: ['period'] },
         { id: 'visits', icon: '🗓️', title: 'Service visits', blurb: 'Visits each month, the technician and the time on site.', f: ['period', 'tech'] }
@@ -4280,6 +4292,8 @@ const PR = (() => {
     function set(btn, k, v) { const box = btn.closest('.pr-root').parentElement, s = ST.get(box); if (!s) return;
         if (k === 'report' && s._linked) { s.station = s._prevStation; s._linked = false; }   // back from a station opened by tapping its name: the other reports aren't left filtered to it
         if (k === 'station') s._linked = false;
+        // a new station type: a station of another type is no longer chosen
+        if (k === 'type' && s.station && v) { const d = box._pr && box._pr.data, st = d && d.stations.find(x => x.barcode === s.station); if (st && st.type !== v) s.station = ''; }
         s[k] = v; if (k === 'report') window.scrollTo && box.scrollIntoView && box.scrollIntoView({ block: 'start', behavior: 'smooth' }); draw(box); }
     function draw(box) {
         const s = ST.get(box), { data, opts } = box._pr;
@@ -4289,7 +4303,10 @@ const PR = (() => {
             return;
         }
         const R = REPORTS.find(r => r.id === s.report);
-        const out = BUILD[R.id](data, s, opts);
+        // a report only uses the filters it shows (a station picked in one report doesn't quietly filter another)
+        const sx = Object.assign({}, s, R.f.includes('type') ? {} : { type: '' }, R.f.includes('station') ? {} : { station: '' });
+        const out = BUILD[R.id](data, sx, opts);
+        if (R.id === 'station') s.station = sx.station;   // the station it settled on
         box._pr.csv = out.csv;
         box.innerHTML = `<div class="pr-root pr-print">
             <div class="pr-head"><button type="button" class="pr-back" onclick="PR.set(this, 'report', null)">‹ All reports</button>
@@ -4312,22 +4329,25 @@ const PR = (() => {
                 parts.push(sel('preset', 'Period', PRESETS));
                 if (s.preset === 'custom') parts.push(`<label class="pr-f"><span>From</span><input type="date" value="${e(s.from)}" onchange="PR.set(this, 'from', this.value)"></label><label class="pr-f"><span>To</span><input type="date" value="${e(s.to)}" onchange="PR.set(this, 'to', this.value)"></label>`);
             }
-            if (f === 'type') parts.push(sel('type', 'Station type', uniq(d.stations.map(x => x.type)), 'All types'));
+            if (f === 'type') parts.push(sel('type', 'Station type', d.types || uniq(d.stations.map(x => x.type)), 'All types'));
             if (f === 'pest') { const st = R.id === 'station' ? d.stations.find(x => x.barcode === s.station) : null; if (!(st && isActivity(st))) parts.push(cmb('pest', 'Pest', st ? uniq(st.entries.map(x => x.species)) : uniq(d.species || d.entries.map(x => x.species)), 'All pests')); }
             if (f === 'map') parts.push(cmb('map', 'Floor plan', uniq(d.stations.map(x => x.map)), 'All floor plans'));
             if (f === 'prep') parts.push(cmb('prep', 'Preparation', uniq(d.entries.map(x => x.prep)), 'All preparations'));
             if (f === 'tech') parts.push(sel('tech', 'Technician', uniq(d.visits.map(x => x.tech).concat(d.entries.map(x => x.tech))), 'Everyone'));
-            if (f === 'station') parts.push(cmb('station', 'Station', d.stations.map(x => [x.barcode, x.name + (x.type ? ' · ' + x.type : '')]), R.id === 'station' ? null : 'All stations'));
+            // the stations of the chosen type (type to search a long list)
+            if (f === 'station') parts.push(cmb('station', s.type ? `Station (${s.type})` : 'Station', stationsOfType(d, s).map(x => [x.barcode, x.name + (x.type && !s.type ? ' · ' + x.type : '')]), R.id === 'station' ? null : (s.type ? 'All ' + s.type : 'All stations')));
             if (f === 'batch') parts.push(`<label class="pr-f"><span>Batch number</span><input type="search" value="${e(s.batch)}" placeholder="Any" onchange="PR.set(this, 'batch', this.value.trim())"></label>`);
             if (f === 'gap') parts.push(sel('gap', 'Flag stations not scanned for', [['14', '2 weeks'], ['35', '5 weeks'], ['60', '2 months'], ['95', '3 months']]));
             if (f === 'months') parts.push(sel('month', 'Month', months(Date.now() - 365 * DAY, Date.now()).reverse().map(k => [k, monthLong(k)])));
         });
         return parts.join('');
     }
-    // the records a report looks at
+    // the stations a report can pick from: those of the chosen station type
+    const stationsOfType = (d, s) => d.stations.filter(x => !s.type || x.type === s.type);
+    // the records a report looks at (the chosen station type, and station)
     function pick(d, s, extra) {
         const [a, b] = range(s);
-        return d.entries.filter(x => x.at >= a && x.at <= b && (!s.type || x.type === s.type) && (!extra || extra(x)));
+        return d.entries.filter(x => x.at >= a && x.at <= b && (!s.type || x.type === s.type) && (!s.station || x.barcode === s.station) && (!extra || extra(x)));
     }
     const color = (opts, type) => (opts.colorOf ? opts.colorOf(type) : null) || '#64748b';
     const dot = (opts, type) => `<span class="pr-dot" style="background:${color(opts, type)}"></span>`;
@@ -4358,7 +4378,7 @@ const PR = (() => {
     const BUILD = {
         trend(d, s) {
             if (s.view === 'yoy') {
-                const list = d.entries.filter(x => x.species && (!s.type || x.type === s.type) && (!s.pest || x.species === s.pest));
+                const list = d.entries.filter(x => x.species && (!s.type || x.type === s.type) && (!s.station || x.barcode === s.station) && (!s.pest || x.species === s.pest));
                 const years = yearsOf(s, d, list);
                 const series = yoySeries(years, (yr, m) => list.filter(x => inYM(x, yr, m)).reduce((n, x) => n + x.count, 0));
                 const head = [{ t: 'Month' }].concat(years.map(yr => ({ t: String(yr), num: true })));
@@ -4423,7 +4443,9 @@ const PR = (() => {
             };
         },
         station(d, s, opts) {
-            if (!s.station || !d.stations.some(x => x.barcode === s.station)) s.station = d.stations[0] ? d.stations[0].barcode : '';
+            const ofType = stationsOfType(d, s);
+            if (!s.station || !ofType.some(x => x.barcode === s.station)) s.station = ofType[0] ? ofType[0].barcode : '';
+            if (!s.station) return { html: `<div class="pr-empty">${s.type ? `No ${e(s.type)} stations on this site.` : 'This site has no stations yet.'}</div>`, csv: [] };
             const stn = d.stations.find(x => x.barcode === s.station);
             if (!stn) return { html: '<div class="pr-empty">This site has no stations yet.</div>', csv: [] };
             const act = isActivity(stn);
@@ -4464,7 +4486,7 @@ const PR = (() => {
         },
         scanned(d, s, opts) {
             const gap = Number(s.gap) || 35, now = Date.now();
-            const list = d.stations.filter(x => (!s.type || x.type === s.type) && (!s.map || x.map === s.map))
+            const list = d.stations.filter(x => (!s.type || x.type === s.type) && (!s.station || x.barcode === s.station) && (!s.map || x.map === s.map))
                 .map(x => Object.assign({ days: x.lastAt ? Math.floor((now - x.lastAt) / DAY) : null }, { x })).sort((p, q) => (q.days == null ? 1e9 : q.days) - (p.days == null ? 1e9 : p.days));
             const late = list.filter(o => o.days == null || o.days > gap);
             const head = [{ t: 'Station' }, { t: 'Type' }, { t: 'Floor plan' }, { t: 'Last scanned' }, { t: 'Days ago', num: true }, { t: 'Last result' }, { t: 'By' }];
@@ -4572,6 +4594,7 @@ const PR = (() => {
         if (o.onStation) { o.onStation(barcode); return; }
         if (!s._linked) s._prevStation = s.station;
         s._linked = true; s.station = barcode; s.report = 'station';
+        { const d = box._pr && box._pr.data, st = d && d.stations.find(x => x.barcode === barcode); if (st && s.type && st.type !== s.type) s.type = st.type; }
         box.scrollIntoView && box.scrollIntoView({ block: 'start', behavior: 'smooth' });
         draw(box);
     }
@@ -4633,6 +4656,15 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r80', date: '2026-10-30', v: { svc: '2026.10.30-r80', adm: '2026.10.30-a23', cli: '2026.10.30-p39' },
+            svc: ['Pest map (A4 PDF): a plain white page with the floor plan as big as it can be (with a margin), every station type in the legend, "Floor plan not to scale", and no line of small print at the bottom'],
+            adm: ['Reports: choose the station type, then the station - the station list only shows stations of that type, and you can type to search it. Every station type is listed, even ones with no records yet',
+                  'Reports: going back to the Reports tab starts at the list of reports'],
+            cli: ['Visit reports: ones you haven\'t opened yet stand out (orange edge and "New"); ones you have opened are greyed with "✓ Opened"',
+                  'Pest map (A4 PDF): a plain white page with the floor plan as big as it can be (with a margin), every station type in the legend, "Floor plan not to scale", and no line of small print at the bottom',
+                  'Reports: choose the station type, then the station - the station list only shows stations of that type, and you can type to search it. Every station type is listed, even ones with no records yet',
+                  'Reports: going back to the Reports tab starts at the list of reports',
+                  'Chemicals: filter by station type as well as station'] },
         { rev: 'r79', date: '2026-10-30', v: { svc: '2026.10.30-r79', adm: '2026.10.30-a22', cli: '2026.10.30-p38' },
             svc: ['Pest names in old records match the pest list (e.g. House Mouse is now Mouse), and a pest renamed in Admin is renamed here too'],
             adm: ['Lists › Pests: rename a pest in its guide (✎ Guide › Name) - every station check, pest sighting, critical limit and report uses the new name straight away',
@@ -4875,7 +4907,9 @@ const PVR = (() => {
         if (overdue) { g.beginPath(); g.arc(x, cy, r * 1.45, 0, Math.PI * 2); g.lineWidth = Math.max(2, r * .28); g.strokeStyle = '#dc2626'; g.stroke(); }
     }
     // d = { image (an <img> or canvas of the plan), pins: [{ x, y (shares of the plan), name, type, color, overdue }], labels,
-    //       siteName, address, planName, madeBy, created, updated, by, app }
+    //       types: [{ type, color }] (every station type, so the legend always shows them all), siteName, address, planName, madeBy, created, updated, by, app }
+    // A white A4 page: the site and the Pesties logo across the top, the plan as big as the free space allows (with an even
+    // margin), then the legend (every station type) and the map details, with "Floor plan not to scale".
     async function pestMap(d) {
         const { jsPDF } = window.jspdf;
         const iw = d.image.naturalWidth || d.image.width, ih = d.image.naturalHeight || d.image.height;
@@ -4883,75 +4917,71 @@ const PVR = (() => {
         const W = land ? 3508 : 2480, H = land ? 2480 : 3508;   // A4 at 300 dpi
         const c = document.createElement('canvas'); c.width = W; c.height = H;
         const g = c.getContext('2d');
-        const pad = 90, headH = 260, footH = 60;
-        const types = Array.from(d.pins.reduce((m, x) => m.set(x.type, { n: ((m.get(x.type) || {}).n || 0) + 1, color: x.color }), new Map()).entries())
-            .sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]));
-        const overdue = d.pins.filter(x => x.overdue).length;
-        const legItems = types.map(([t, o]) => ({ t, n: o.n, color: o.color })).concat(overdue ? [{ t: 'Overdue for service', n: overdue, ring: true }] : []);
-        const details = [['Client', d.siteName || '-'], ['Site address', d.address || '-'], ['Floor plan', d.planName || '-'], ['Stations on this plan', String(d.pins.length)],
-            ['Map made by', d.madeBy || 'Pesties'], ['Last updated', day(d.updated || d.created) || '-'], ['Generated', `${day(Date.now())}${d.by ? ' by ' + d.by : ''}`]];
-        const legCols = land ? 2 : 1, legRows = Math.max(1, Math.ceil(legItems.length / legCols));   // room for the long station type names
-        const legH = Math.max(130 + legRows * 70, 130 + Math.ceil(details.length / (land ? 4 : 2)) * 92);
+        const M = 120, gap = 70;   // the page margin (about 10 mm) and the space between parts
         const font = (w, px) => `${w} ${px}px system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif`;
-        const rr = (x, y, w, h, r) => { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); };
         const fit = (t, max) => { t = String(t); if (g.measureText(t).width <= max) return t; while (t.length > 1 && g.measureText(t + '…').width > max) t = t.slice(0, -1); return t + '…'; };
         g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
-        // header: the site, the plan, and the Pesties logo in the top right
-        g.fillStyle = '#0b1530'; g.fillRect(0, 0, W, headH);
-        g.fillStyle = '#f97316'; g.fillRect(0, headH - 14, W, 14);
-        const lg = await logo();
+        // the legend: every station type (how many are on this plan, or a dash), and overdue
+        const count = new Map(); d.pins.forEach(x => count.set(x.type, (count.get(x.type) || 0) + 1));
+        const all = (d.types || []).slice();
+        d.pins.forEach(x => { if (!all.some(t => t.type === x.type)) all.push({ type: x.type, color: x.color }); });
+        const overdue = d.pins.filter(x => x.overdue).length;
+        const legItems = all.map(t => ({ t: t.type, n: count.get(t.type) || 0, color: t.color })).concat([{ t: 'Overdue for service', n: overdue, ring: true }]);
+        const details = [['Client', d.siteName || '-'], ['Site address', d.address || '-'], ['Floor plan', d.planName || '-'], ['Stations on this plan', String(d.pins.length)],
+            ['Map made by', d.madeBy || 'Pesties'], ['Last updated', day(d.updated || d.created) || '-'], ['Generated', `${day(Date.now())}${d.by ? ' by ' + d.by : ''}`]];
+        const legCols = land ? 2 : 2, rowH = 64, legRows = Math.ceil(legItems.length / legCols);
+        const dCols = land ? 2 : 2, dRows = Math.ceil(details.length / dCols);
+        const legH = 70 + Math.max(legRows * rowH, dRows * 84) + 60;
+        // header: the site and plan on the left, the Pesties logo on the right, a thin orange line under it
+        const headH = 230, lg = await logo();
         let logoW = 0;
-        if (lg) { const lh = headH * .62, lw = lh * lg.k; logoW = lw + 60; g.drawImage(lg.img, W - pad - lw, (headH - 14 - lh) / 2, lw, lh); }
+        if (lg) { const lh = 170, lw = lh * lg.k; logoW = lw + 50; g.drawImage(lg.img, W - M - lw, M - 10, lw, lh); }
         g.textBaseline = 'alphabetic';
-        g.fillStyle = '#f97316'; g.font = font(800, 38); g.fillText('PEST MAP', pad, 84);
-        g.fillStyle = '#ffffff'; g.font = font(900, 76); g.fillText(fit(d.siteName || 'Site', W - pad * 2 - logoW), pad, 168);
-        g.fillStyle = '#9db0d1'; g.font = font(600, 36); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - pad * 2 - logoW), pad, 222);
-        // the plan, as big as the page allows
-        const top = headH + pad * .6, boxH = H - top - legH - pad * 1.2 - footH, boxW = W - pad * 2;
-        const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = pad + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
-        g.save(); g.shadowColor = 'rgba(15,23,42,.18)'; g.shadowBlur = 30; g.fillStyle = '#fff'; g.fillRect(mx, my, mw, mh); g.restore();
+        g.fillStyle = '#f97316'; g.font = font(800, 34); g.fillText('PEST MAP', M, M + 30);
+        g.fillStyle = '#0b1530'; g.font = font(900, 72); g.fillText(fit(d.siteName || 'Site', W - M * 2 - logoW), M, M + 112);
+        g.fillStyle = '#475569'; g.font = font(600, 34); g.fillText(fit(`${d.planName || 'Floor plan'}${d.address ? '  ·  ' + d.address : ''}`, W - M * 2 - logoW), M, M + 165);
+        g.fillStyle = '#f97316'; g.fillRect(M, M + headH - 20, W - M * 2, 6);
+        // the plan: as big as the space between the header and the legend allows, centred, with the margin all round
+        const top = M + headH + gap, bottom = H - M - legH - gap, boxW = W - M * 2, boxH = bottom - top;
+        const k = Math.min(boxW / iw, boxH / ih), mw = iw * k, mh = ih * k, mx = M + (boxW - mw) / 2, my = top + (boxH - mh) / 2;
         g.drawImage(d.image, mx, my, mw, mh);
-        g.strokeStyle = '#d8deeb'; g.lineWidth = 3; g.strokeRect(mx, my, mw, mh);
         const r = Math.max(14, Math.min(34, Math.min(mw, mh) / 55));
-        const labelFont = font(700, Math.round(r * 1.15));
         d.pins.forEach(x => pin(g, mx + x.x * mw, my + x.y * mh, r, x.color, x.overdue));
         if (d.labels) {
-            g.font = labelFont; g.textBaseline = 'middle';
+            g.font = font(700, Math.round(r * 1.15)); g.textBaseline = 'middle';
             d.pins.forEach(x => {
                 const px = mx + x.x * mw + r * 1.3, py = my + x.y * mh - r * Math.SQRT2, tw = g.measureText(x.name).width;
-                g.fillStyle = 'rgba(2,6,23,.82)'; rr(px, py - r * .85, tw + r * 1.1, r * 1.7, r * .4); g.fill();
+                g.fillStyle = 'rgba(2,6,23,.82)'; g.beginPath(); g.roundRect ? g.roundRect(px, py - r * .85, tw + r * 1.1, r * 1.7, r * .4) : g.rect(px, py - r * .85, tw + r * 1.1, r * 1.7); g.fill();
                 g.fillStyle = '#fff'; g.fillText(x.name, px + r * .55, py);
             });
             g.textBaseline = 'alphabetic';
         }
-        // legend and map details
-        const ly = H - legH - footH - pad * .6, splitX = pad + boxW * (land ? .42 : .5);
-        g.fillStyle = '#f8fafc'; rr(pad, ly, boxW, legH, 24); g.fill(); g.strokeStyle = '#e2e8f0'; g.lineWidth = 3; rr(pad, ly, boxW, legH, 24); g.stroke();
-        g.fillStyle = '#f97316'; g.font = font(800, 30); g.fillText('LEGEND', pad + 50, ly + 68); g.fillText('MAP DETAILS', splitX + 50, ly + 68);
-        g.strokeStyle = '#e2e8f0'; g.beginPath(); g.moveTo(splitX, ly + 36); g.lineTo(splitX, ly + legH - 36); g.stroke();
-        const lcW = (splitX - pad - 80) / legCols;
+        // legend and map details: on the white page, a thin line above them
+        const ly = H - M - legH, splitX = M + boxW * .55;
+        g.fillStyle = '#e2e8f0'; g.fillRect(M, ly, boxW, 4);
+        g.fillStyle = '#f97316'; g.font = font(800, 30); g.fillText('LEGEND', M, ly + 66); g.fillText('MAP DETAILS', splitX + 40, ly + 66);
+        g.fillStyle = '#64748b'; g.font = font(700, 26); g.textAlign = 'right'; g.fillText('Floor plan not to scale', splitX - 40, ly + 66); g.textAlign = 'left';
+        const lcW = (splitX - M - 40) / legCols;
         legItems.forEach((it, i) => {
-            const x = pad + 50 + (i % legCols) * lcW, y = ly + 136 + Math.floor(i / legCols) * 70;
-            if (it.ring) { g.beginPath(); g.arc(x + 18, y - 12, 18, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 6; g.stroke(); }
+            const x = M + (i % legCols) * lcW, y = ly + 132 + Math.floor(i / legCols) * rowH;
+            if (it.ring) { g.beginPath(); g.arc(x + 18, y - 12, 17, 0, Math.PI * 2); g.strokeStyle = '#dc2626'; g.lineWidth = 6; g.stroke(); }
             else pin(g, x + 18, y + 8, 16, it.color, false);
-            g.fillStyle = '#0b1530'; g.font = font(700, 30); g.fillText(fit(it.t, lcW - 130), x + 52, y);
-            g.fillStyle = '#64748b'; g.font = font(800, 30); g.textAlign = 'right'; g.fillText(String(it.n), x + lcW - 30, y); g.textAlign = 'left';
+            g.fillStyle = it.n ? '#0b1530' : '#94a3b8'; g.font = font(700, 28); g.fillText(fit(it.t, lcW - 130), x + 52, y);
+            g.fillStyle = '#64748b'; g.font = font(800, 28); g.textAlign = 'right'; g.fillText(it.n ? String(it.n) : '-', x + lcW - 30, y); g.textAlign = 'left';
         });
-        if (!legItems.length) { g.fillStyle = '#64748b'; g.font = font(600, 30); g.fillText('No stations placed on this plan yet.', pad + 50, ly + 136); }
-        const dCols = land ? 4 : 2, dW = (pad + boxW - splitX - 100) / dCols;
+        g.fillStyle = '#e2e8f0'; g.fillRect(splitX, ly + 30, 3, legH - 60);
+        const dW = (M + boxW - splitX - 40) / dCols;
         details.forEach(([key, val], i) => {
-            const x = splitX + 50 + (i % dCols) * dW, y = ly + 128 + Math.floor(i / dCols) * 92;
-            g.fillStyle = '#64748b'; g.font = font(800, 22); g.fillText(key.toUpperCase(), x, y);
-            g.fillStyle = '#0b1530'; g.font = font(700, 31); g.fillText(fit(val, dW - 24), x, y + 40);
+            const x = splitX + 40 + (i % dCols) * dW, y = ly + 124 + Math.floor(i / dCols) * 84;
+            g.fillStyle = '#64748b'; g.font = font(800, 21); g.fillText(key.toUpperCase(), x, y);
+            g.fillStyle = '#0b1530'; g.font = font(700, 29); g.fillText(fit(val, dW - 24), x, y + 38);
         });
-        g.fillStyle = '#94a3b8'; g.font = font(600, 24); g.fillText(`Generated from the Pesties ${d.app || ''} · ${dayTime(Date.now())}`.replace('  ', ' '), pad, H - 40);
-        // one A4 page, filled edge to edge
+        // one A4 page, edge to edge
         const doc = new jsPDF({ orientation: land ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' });
-        doc.addImage(c.toDataURL('image/jpeg', .9), 'JPEG', 0, 0, doc.internal.pageSize.getWidth(), doc.internal.pageSize.getHeight());
+        doc.addImage(c.toDataURL('image/jpeg', .92), 'JPEG', 0, 0, doc.internal.pageSize.getWidth(), doc.internal.pageSize.getHeight());
         doc.save(`${safe(d.siteName)} - ${safe(d.planName)} - Pest map.pdf`);
         return c;
     }
-
     async function build(v) {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
