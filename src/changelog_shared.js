@@ -3,6 +3,16 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r79', date: '2026-10-30', v: { svc: '2026.10.30-r79', adm: '2026.10.30-a22', cli: '2026.10.30-p38' },
+            svc: ['Pest names in old records match the pest list (e.g. House Mouse is now Mouse), and a pest renamed in Admin is renamed here too'],
+            adm: ['Lists › Pests: rename a pest in its guide (✎ Guide › Name) - every station check, pest sighting, critical limit and report uses the new name straight away',
+                  'Old pest names in records were matched to the pest list (e.g. House Mouse → Mouse, Norway / Ship Rat → Rat)',
+                  'Reports: the pest filters list the pests on the pest list'],
+            cli: ['Pests: every pest choice (pest sightings, pest activity, reports, critical limits) comes from the one Pesties pest list, and older records use the same names',
+                  'Floor plans: the plan cards show the stations on them',
+                  'Floor plans: "Station names" is on to start with',
+                  'Floor plans: a button lists every station on the plan - tap one to show it on the plan',
+                  'The site page is tidier: no "Live" mark, and no "on site now" note'] },
         { rev: 'r78', date: '2026-10-30', v: { svc: '2026.10.30-r78' },
             svc: ['Station check: the "Technician Service Notes" box is gone (notes for the whole visit are still added when you finish it)',
                   'Offline: no more warning strip across the top - the sync button turning red shows you\'re offline',

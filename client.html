@@ -658,7 +658,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (pestis_client_portal.sql); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.30-p37-oci';
+const PORTAL_VERSION = '2026.10.30-p38-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -1495,9 +1495,7 @@ function renderSiteHeader() {
     $('siteCoverWrap').classList.toggle('hidden', !cover);
     if (cover) $('siteCover').src = cover;
     const lastVisit = m.visits[m.visits.length - 1];
-    $('siteMeta').innerHTML = esc([s.technician ? 'Your technician: ' + s.technician : '', lastVisit ? 'Last service ' + fmtDate(lastVisit.completed) : ''].filter(Boolean).join(' · '))
-        + ` <span id="liveBadge" class="${live.state === 'live' ? '' : 'hidden'} ml-1 text-[11px] font-bold" style="color:#10b981;" title="Changes from Pesties show here straight away"><span class="live-dot"></span> Live</span>`
-        + (s.visit_started_at ? `<span class="block mt-1 text-xs font-semibold t-accent">● Your technician is on site now. This visit's results will appear here when the visit is finished.</span>` : '');
+    $('siteMeta').innerHTML = esc([s.technician ? 'Your technician: ' + s.technician : '', lastVisit ? 'Last service ' + fmtDate(lastVisit.completed) : ''].filter(Boolean).join(' · '));
     const openRecs = m.recs.filter(r => r.status !== 'complete').length;
     const toReview = (m.sightings || []).filter(x => x.status === 'actioned').length;
     const unreadVisits = unopenedVisits().length;
@@ -1579,13 +1577,15 @@ function setTypeFilter(v) {
     fillStationOptions();
     renderTab();
 }
+// the pests to choose from anywhere in the portal: the Admin pest list (only the records' own names if the list couldn't load)
+function listPests() { return sortText((state.speciesList && state.speciesList.length) ? state.speciesList : state.model.entries.map(e => e.species)); }
 function fillFilterOptions() {
     const m = state.model;
     $('fType').innerHTML = optionsHtml(allStationTypes(), 'All types');
     $('fMap').innerHTML = optionsHtml(m.maps.map(p => [p.id, p.name]), 'All floor plans');
     if (!zoneFilterOn()) F.zone = '';
     fillStationOptions();
-    $('fSpecies').innerHTML = optionsHtml(sortText(m.entries.map(e => e.species)), 'All pests');
+    $('fSpecies').innerHTML = optionsHtml(listPests(), 'All pests');
     $('fPrep').innerHTML = optionsHtml(sortText(m.entries.map(e => e.prep)), 'All preparations');
     $('fTech').innerHTML = optionsHtml(sortText(m.entries.map(e => e.tech).concat(m.visits.map(v => v.tech))), 'All technicians');
     [['fType', 'type'], ['fMap', 'map'], ['fZone', 'zone'], ['fStation', 'station'], ['fSpecies', 'species'], ['fPrep', 'prep'], ['fBatch', 'batch'], ['fTech', 'tech']].forEach(([id, k]) => { $(id).value = F[k]; });
@@ -1836,7 +1836,7 @@ window.addEventListener('resize', () => { clearTimeout(window.__ovT); window.__o
 function ovCombosHtml() {
     const m = state.model;
     const c = (k, list, all, label) => PR.combo({ k, label: '', list, cur: OV[k], all, cb: 'ovPick', cls: 'ov-combo' }).replace('<label class="pr-f', `<label aria-label="${esc(label)}" class="pr-f`);
-    return c('species', sortText(m.entries.map(e => e.species)).map(x => [x, x]), 'All pests', 'Pest')
+    return c('species', listPests().map(x => [x, x]), 'All pests', 'Pest')
         + c('station', m.stations.map(x => [x.barcode, x.name]), 'All stations', 'Station')
         + (m.maps.length ? c('map', m.maps.map(p => [p.id, p.name]), 'All floor plans', 'Floor plan') : '');
 }
@@ -2538,7 +2538,7 @@ function renderReports() {
     $('tabBody').innerHTML = '';
     $('tabBody').appendChild(holder);
     if (!state.prBox) state.prBox = holder; else { holder.replaceWith(state.prBox); }
-    const data = PR.build({ siteName: siteName(state.site), logs: d.logs || [], stations: d.stations || [], maps: d.maps || [], visits: d.visits || [], recs: d.recs || [], limits: d.limits || [] });
+    const data = PR.build({ siteName: siteName(state.site), logs: d.logs || [], stations: d.stations || [], maps: d.maps || [], visits: d.visits || [], recs: d.recs || [], limits: d.limits || [], species: state.speciesList || [] });
     // a preparation's name in the reports opens its safety data sheet (the same one as in Documents > SDS)
     PR.render(state.prBox, data, { colorOf: t => stationColor(t), onRec: id => openRec(id, 'none'), onMap: b => showOnPlan(b), sdsOf: name => { const o = (state.preps || []).find(x => x.label === name && x.sds_path); return o ? o.id : null; }, openSds: id => openPrepSds(id) });
 }
@@ -2626,14 +2626,18 @@ function nowLocal() { const d = new Date(Date.now() - new Date().getTimezoneOffs
 function openSightingForm() {
     const m = state.model, me = state.me || {};
     sightDraft = { files: [] };
-    const pests = sortText(COMMON_PESTS.concat(state.speciesList || [], m.entries.map(e => e.species), (m.sightings || []).map(x => x.pest)));
+    // only the pests on the Admin pest list, by category
+    const pests = sortText((state.speciesList && state.speciesList.length) ? state.speciesList : COMMON_PESTS);
+    const byCat = new Map();
+    pests.forEach(x => { const c = pestCategoryOf(findPest(x) || { label: x }); byCat.set(c, (byCat.get(c) || []).concat(x)); });
+    const cats = Array.from(byCat.keys()).sort((a, b) => PEST_CATEGORIES.concat('~').indexOf(a) - PEST_CATEGORIES.concat('~').indexOf(b) || a.localeCompare(b));
     sightDraft.stations = sightStationOptions();
     $('modalEyebrow').textContent = 'Pest sighting register';
     $('modalTitle').textContent = 'Report a pest sighting';
     $('modalSub').textContent = siteName(state.site);
     $('modalNav').classList.add('hidden');
     $('modalBody').innerHTML = `<form id="sightForm" class="grid grid-cols-1 sm:grid-cols-2 gap-3" onsubmit="event.preventDefault(); saveSighting();">
-        <div><label class="lbl" for="sgPest">Pest seen <span style="color:#ef4444;">*</span></label><input id="sgPest" list="sgPests" required maxlength="80" class="field" placeholder="e.g. Rat, Cockroach, Fly"><datalist id="sgPests">${pests.map(x => ({ x, c: pestCategoryOf(findPest(x) || { label: x }) })).sort((a, b) => PEST_CATEGORIES.concat('~').indexOf(a.c) - PEST_CATEGORIES.concat('~').indexOf(b.c) || a.x.localeCompare(b.x)).map(({ x, c }) => `<option value="${esc(x)}" label="${esc(c)}">`).join('')}</datalist></div>
+        <div><label class="lbl" for="sgPest">Pest seen <span style="color:#ef4444;">*</span></label><select id="sgPest" required class="field cursor-pointer"><option value="">Choose the pest...</option>${cats.map(c => `<optgroup label="${esc(c)}">${byCat.get(c).map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('')}</optgroup>`).join('')}</select></div>
         <div><label class="lbl" for="sgEvidence">What was seen</label><select id="sgEvidence" class="field">${EVIDENCE.map(x => `<option>${x}</option>`).join('')}</select></div>
         <div><label class="lbl" for="sgLocation">Where it was seen <span style="color:#ef4444;">*</span></label><input id="sgLocation" type="search" name="sg-where-${Date.now()}" required maxlength="120" autocomplete="off" autocorrect="off" spellcheck="false" data-lpignore="true" data-form-type="other" class="field" placeholder="Type where, e.g. behind the dock fridge"></div>
         <div><label class="lbl" for="sgStation">Nearest station (optional)</label><input id="sgStation" type="search" name="sg-station-${Date.now()}" list="sgStations" autocomplete="off" data-lpignore="true" data-form-type="other" class="field" placeholder="Type to search by station name"><datalist id="sgStations">${sightDraft.stations.map(o => `<option value="${esc(o.label)}">`).join('')}</datalist></div>
@@ -2957,7 +2961,7 @@ function limitsCardHtml() {
     const hist = m.limits.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Limit</th>${months.map(t => `<th class="num">${new Date(t).toLocaleString('en-NZ', { month: 'short' })} ${String(new Date(t).getFullYear()).slice(2)}</th>`).join('')}</tr></thead><tbody>
         ${sortedLimits.map(l => `<tr><td class="whitespace-nowrap"><b>${esc(l.zone)}</b> · ${esc(limitPest(l))} <span class="t-faint">(${l.max})</span></td>${months.map(t => { const st = limitStatus(l, t); return `<td class="num" ${st.over ? 'style="background:rgba(239,68,68,.15);color:#dc2626;font-weight:800;"' : ''}>${st.total || ''}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>` : '';
     const ed = limitEditing && limitEditing !== 'new' ? m.limits.find(l => l.id === limitEditing) : null;
-    const species = sortText(m.entries.map(e => e.species));
+    const species = listPests();
     const area = ed ? [ed, ...m.limits.filter(x => x.zone === ed.zone && x.id !== ed.id)] : [null];
     const form = limitEditing ? `<form class="inset p-4 space-y-3" onsubmit="event.preventDefault(); saveLimit();">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-3xl">
@@ -3606,7 +3610,7 @@ async function renderPlans() {
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex flex-wrap items-center gap-1.5"><button type="button" class="btn btn-secondary !py-1.5 !px-3" onclick="planId = null; planFocus = null; renderPlans()">‹ All floor plans</button>${m.maps.map(p => `<button type="button" class="tab-btn ${p.id === planId ? 'active' : ''}" onclick="planId = '${esc(p.id)}'; renderPlans();">${esc(p.name)}</button>`).join('')}</div>
             <div class="flex flex-wrap items-center gap-2">
-                <span class="text-xs t-muted">${plural(pins.length, 'station')} on this plan</span>
+                <button type="button" class="btn btn-secondary !py-2 !px-3" onclick="openPlanStations('${esc(plan.id)}')" title="Every station on this floor plan">📍 ${plural(pins.length, 'station')} on this plan</button>
                 <label class="flex items-center gap-1.5 text-xs font-semibold t-strong cursor-pointer" title="Show each station's name beside its pin (the download matches)"><input type="checkbox" id="planLabels" class="w-4 h-4 accent-orange-500" ${planLabelsOn() ? 'checked' : ''} onchange="setPlanLabels(this.checked)"> Station names</label>
                 <button type="button" class="btn btn-primary" onclick="downloadPlan('${esc(plan.id)}')">⬇ Pest map (A4 PDF)</button>
             </div>
@@ -3643,15 +3647,45 @@ function renderPlanCards() {
         }).join('')}</div></div>`;
     fillPlanCardImages($('planCards'));
 }
+// each card: the plan's picture with its station pins on it (the same pins as the open plan)
 async function fillPlanCardImages(box) {
     const els = Array.from(box.querySelectorAll('[data-plan-img]')).filter(el => el.dataset.planImg);
-    if (!els.length) return;
-    const urls = await signPaths(els.map(el => el.dataset.planImg));
-    els.forEach((el, i) => { const ph = el.querySelector('.rec-media-ph'); if (!ph) return; if (urls[i]) ph.outerHTML = `<img src="${esc(urls[i])}" alt="" loading="lazy">`; else ph.innerHTML = '<b>🗺️</b>Picture unavailable'; });
+    for (const el of els) {
+        const plan = state.model.maps.find(p => p.image_path === el.dataset.planImg), ph = el.querySelector('.rec-media-ph');
+        if (!plan || !ph) continue;
+        try {
+            const img = await planImage(plan);
+            const k = Math.min(1, 900 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+            c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+            const g = c.getContext('2d');
+            g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+            const r = Math.max(8, Math.round(Math.min(c.width, c.height) / 26));   // big enough to see on a small card
+            planPinData(plan).forEach(x => PVR.pin(g, x.x * c.width, x.y * c.height, r, x.color, x.overdue));
+            if (ph.isConnected) ph.outerHTML = `<img src="${c.toDataURL('image/jpeg', .85)}" alt="${esc(plan.name)} with its stations" style="object-fit:contain;background:#fff;">`;
+        } catch (e) { if (ph.isConnected) ph.innerHTML = '<b>🗺️</b>Picture unavailable'; }
+    }
 }
 function planPins(plan) { return state.model.stations.filter(x => x.mapId === plan.id && x.x != null && x.y != null); }
+// every station on a floor plan: tap one to point it out on the plan, or open its details
+function openPlanStations(id) {
+    const plan = state.model.maps.find(p => p.id === id);
+    if (!plan) return;
+    const pins = planPins(plan).slice().sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+    modalNav = { list: ['planStations'], kind: 'planStations' }; setModalNav('planStations');
+    $('modalEyebrow').textContent = 'Floor plan';
+    $('modalTitle').textContent = `${plan.name} · ${plural(pins.length, 'station')}`;
+    $('modalSub').textContent = 'Tap a station to show it on the plan.';
+    $('modalBody').innerHTML = pins.length ? `<div class="space-y-2">${pins.map(x => `
+        <div class="row-item p-3 flex flex-wrap items-center justify-between gap-2">
+            <button type="button" class="min-w-0 flex-1 text-left" data-b="${esc(x.barcode)}" onclick="closeModal(true); planFocus = this.dataset.b; renderPlans();" title="Show it on the plan">${stationCell(x)}
+                <span class="block text-[11px] t-faint">${esc(x.type || 'Station')} · ${x.lastAt ? 'last checked ' + fmtDate(x.lastAt) : 'not checked yet'}${x.overdue ? ' · <b style="color:#dc2626;">overdue</b>' : ''}</span></button>
+            <span class="flex gap-2 shrink-0"><button type="button" class="link-btn !no-underline" data-b="${esc(x.barcode)}" onclick="closeModal(true); planFocus = this.dataset.b; renderPlans();">Show on plan</button><button type="button" class="link-btn !no-underline" data-b="${esc(x.barcode)}" onclick="showStation(this.dataset.b)">Details ›</button></span>
+        </div>`).join('')}</div>` : emptyNote('No stations have been placed on this floor plan yet.');
+    $('modalFoot').classList.add('hidden');
+    openModal();
+}
 // station names beside the pins: on or off (the screen and the download match)
-function planLabelsOn() { return !!portalPrefs().planLabels; }
+function planLabelsOn() { return portalPrefs().planLabels !== false; }   // on unless switched off
 function setPlanLabels(on) { savePrefs({ planLabels: !!on }); if (state.tab === 'plans') renderPlans(); }
 // the plan image, loaded so it can be drawn into a download
 async function planImage(plan) {
@@ -4167,7 +4201,9 @@ const PR = (() => {
             let rules = l.rules; if (typeof rules === 'string') { try { rules = JSON.parse(rules); } catch (x) { rules = []; } }
             return { id: String(l.id), name: l.name || 'Critical limit', rules: (Array.isArray(rules) ? rules : []).filter(x => x && x.species).map(x => ({ species: String(x.species), max: Number(x.max) || 0 })) };
         }).sort((a, b) => a.name.localeCompare(b.name));
-        return { site: raw.siteName || '', entries, stations, visits, recs, limits };
+        // the pests to choose from: the Admin pest list when it's given
+        const species = Array.isArray(raw.species) && raw.species.length ? raw.species.slice() : null;
+        return { site: raw.siteName || '', entries, stations, visits, recs, limits, species };
     }
 
     // ---------- the reports ----------
@@ -4277,7 +4313,7 @@ const PR = (() => {
                 if (s.preset === 'custom') parts.push(`<label class="pr-f"><span>From</span><input type="date" value="${e(s.from)}" onchange="PR.set(this, 'from', this.value)"></label><label class="pr-f"><span>To</span><input type="date" value="${e(s.to)}" onchange="PR.set(this, 'to', this.value)"></label>`);
             }
             if (f === 'type') parts.push(sel('type', 'Station type', uniq(d.stations.map(x => x.type)), 'All types'));
-            if (f === 'pest') { const st = R.id === 'station' ? d.stations.find(x => x.barcode === s.station) : null; if (!(st && isActivity(st))) parts.push(cmb('pest', 'Pest', uniq((st ? st.entries : d.entries).map(x => x.species)), 'All pests')); }
+            if (f === 'pest') { const st = R.id === 'station' ? d.stations.find(x => x.barcode === s.station) : null; if (!(st && isActivity(st))) parts.push(cmb('pest', 'Pest', st ? uniq(st.entries.map(x => x.species)) : uniq(d.species || d.entries.map(x => x.species)), 'All pests')); }
             if (f === 'map') parts.push(cmb('map', 'Floor plan', uniq(d.stations.map(x => x.map)), 'All floor plans'));
             if (f === 'prep') parts.push(cmb('prep', 'Preparation', uniq(d.entries.map(x => x.prep)), 'All preparations'));
             if (f === 'tech') parts.push(sel('tech', 'Technician', uniq(d.visits.map(x => x.tech).concat(d.entries.map(x => x.tech))), 'Everyone'));
@@ -4597,6 +4633,16 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r79', date: '2026-10-30', v: { svc: '2026.10.30-r79', adm: '2026.10.30-a22', cli: '2026.10.30-p38' },
+            svc: ['Pest names in old records match the pest list (e.g. House Mouse is now Mouse), and a pest renamed in Admin is renamed here too'],
+            adm: ['Lists › Pests: rename a pest in its guide (✎ Guide › Name) - every station check, pest sighting, critical limit and report uses the new name straight away',
+                  'Old pest names in records were matched to the pest list (e.g. House Mouse → Mouse, Norway / Ship Rat → Rat)',
+                  'Reports: the pest filters list the pests on the pest list'],
+            cli: ['Pests: every pest choice (pest sightings, pest activity, reports, critical limits) comes from the one Pesties pest list, and older records use the same names',
+                  'Floor plans: the plan cards show the stations on them',
+                  'Floor plans: "Station names" is on to start with',
+                  'Floor plans: a button lists every station on the plan - tap one to show it on the plan',
+                  'The site page is tidier: no "Live" mark, and no "on site now" note'] },
         { rev: 'r78', date: '2026-10-30', v: { svc: '2026.10.30-r78' },
             svc: ['Station check: the "Technician Service Notes" box is gone (notes for the whole visit are still added when you finish it)',
                   'Offline: no more warning strip across the top - the sync button turning red shows you\'re offline',

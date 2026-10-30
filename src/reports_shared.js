@@ -71,7 +71,9 @@ const PR = (() => {
             let rules = l.rules; if (typeof rules === 'string') { try { rules = JSON.parse(rules); } catch (x) { rules = []; } }
             return { id: String(l.id), name: l.name || 'Critical limit', rules: (Array.isArray(rules) ? rules : []).filter(x => x && x.species).map(x => ({ species: String(x.species), max: Number(x.max) || 0 })) };
         }).sort((a, b) => a.name.localeCompare(b.name));
-        return { site: raw.siteName || '', entries, stations, visits, recs, limits };
+        // the pests to choose from: the Admin pest list when it's given
+        const species = Array.isArray(raw.species) && raw.species.length ? raw.species.slice() : null;
+        return { site: raw.siteName || '', entries, stations, visits, recs, limits, species };
     }
 
     // ---------- the reports ----------
@@ -181,7 +183,7 @@ const PR = (() => {
                 if (s.preset === 'custom') parts.push(`<label class="pr-f"><span>From</span><input type="date" value="${e(s.from)}" onchange="PR.set(this, 'from', this.value)"></label><label class="pr-f"><span>To</span><input type="date" value="${e(s.to)}" onchange="PR.set(this, 'to', this.value)"></label>`);
             }
             if (f === 'type') parts.push(sel('type', 'Station type', uniq(d.stations.map(x => x.type)), 'All types'));
-            if (f === 'pest') { const st = R.id === 'station' ? d.stations.find(x => x.barcode === s.station) : null; if (!(st && isActivity(st))) parts.push(cmb('pest', 'Pest', uniq((st ? st.entries : d.entries).map(x => x.species)), 'All pests')); }
+            if (f === 'pest') { const st = R.id === 'station' ? d.stations.find(x => x.barcode === s.station) : null; if (!(st && isActivity(st))) parts.push(cmb('pest', 'Pest', st ? uniq(st.entries.map(x => x.species)) : uniq(d.species || d.entries.map(x => x.species)), 'All pests')); }
             if (f === 'map') parts.push(cmb('map', 'Floor plan', uniq(d.stations.map(x => x.map)), 'All floor plans'));
             if (f === 'prep') parts.push(cmb('prep', 'Preparation', uniq(d.entries.map(x => x.prep)), 'All preparations'));
             if (f === 'tech') parts.push(sel('tech', 'Technician', uniq(d.visits.map(x => x.tech).concat(d.entries.map(x => x.tech))), 'Everyone'));

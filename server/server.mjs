@@ -609,6 +609,8 @@ const TRIGGERS = {
   },
   afterUpdate: {
     clients: (row, old) => { if (old.visit_hold_from && row.visit_hold_from !== old.visit_hold_from) releaseVisitHold(row.id, old.visit_hold_from); },
+    // a pest renamed in the Admin list: every record that uses it follows
+    species: (row, old) => { if (String(row.label || '').trim() !== String(old.label || '').trim()) renamePestEverywhere(old.label, row.label); },
     site_contacts: (row, old) => { siteContactAfter(row.client_id); if (old.client_id !== row.client_id) siteContactAfter(old.client_id); },
     client_users: (row, old) => { if (row.email !== old.email) sys.update('client_access', [['email', 'eq', old.email]], { email: row.email }); accessVersion++; },
     profiles: () => { accessVersion++; }, client_access: () => { accessVersion++; },
@@ -907,6 +909,49 @@ function updatePestList() {
   else sys.insert('app_settings', { key: 'pest_list_version', value: PEST_LIST_V, updated_by: 'Server' });
 }
 transaction(updatePestList);
+
+// Pest names everywhere come from the Admin pest list (species). A pest renamed there is renamed in every record that
+// uses it: station checks, pest sightings and critical limits.
+function renamePestEverywhere(from, to) {
+  from = String(from || '').trim(); to = String(to || '').trim();
+  if (!from || !to || from === to) return;
+  db.prepare(`UPDATE service_logs SET payload = json_set(payload, '$.speciesCaught', ?) WHERE lower(trim(json_extract(payload, '$.speciesCaught'))) = lower(?)`).run(to, from);
+  db.prepare('UPDATE pest_sightings SET pest = ? WHERE lower(trim(pest)) = lower(?)').run(to, from);
+  for (const l of sys.all('site_limits', [])) {
+    let rules = l.rules; if (typeof rules === 'string') { try { rules = JSON.parse(rules); } catch { rules = []; } }
+    if (!Array.isArray(rules) || !rules.some(r => r && String(r.species || '').trim().toLowerCase() === from.toLowerCase())) continue;
+    sys.update('site_limits', [['id', 'eq', l.id]], { rules: rules.map(r => r && String(r.species || '').trim().toLowerCase() === from.toLowerCase() ? Object.assign({}, r, { species: to }) : r) });
+  }
+  // the Service App's copies saved on phones are renamed as they're read (team setting pest_renames: old name -> new name)
+  const s = sys.one('app_settings', [['key', 'eq', 'pest_renames']]);
+  const map = Object.assign({}, (s && s.value && typeof s.value === 'object') ? s.value : {});
+  Object.keys(map).forEach(k => { if (String(map[k]).toLowerCase() === from.toLowerCase()) map[k] = to; });   // earlier renames follow too
+  map[from.toLowerCase()] = to;
+  delete map[to.toLowerCase()];
+  if (s) sys.update('app_settings', [['key', 'eq', 'pest_renames']], { value: map, updated_by: 'Server' });
+  else sys.insert('app_settings', { key: 'pest_renames', value: map, updated_by: 'Server' });
+}
+// once: names in records that aren't on the list are matched to it (House Mouse -> Mouse, Norway Rat -> Rat, different capitals)
+const PEST_NAMES_V = 1;
+function tidyPestNames() {
+  const done = sys.one('app_settings', [['key', 'eq', 'pest_names_version']]);
+  if (done && Number(done.value) >= PEST_NAMES_V) return;
+  const labels = sys.all('species', []).map(s => String(s.label || '').trim()).filter(Boolean);
+  const exact = new Map(labels.map(l => [l.toLowerCase(), l]));
+  const names = new Set();
+  db.prepare(`SELECT DISTINCT trim(json_extract(payload, '$.speciesCaught')) AS n FROM service_logs WHERE json_extract(payload, '$.speciesCaught') IS NOT NULL`).all().forEach(r => names.add(r.n));
+  db.prepare('SELECT DISTINCT trim(pest) AS n FROM pest_sightings').all().forEach(r => names.add(r.n));
+  for (const l of sys.all('site_limits', [])) { let rules = l.rules; if (typeof rules === 'string') { try { rules = JSON.parse(rules); } catch { rules = []; } } (Array.isArray(rules) ? rules : []).forEach(r => r && r.species && names.add(String(r.species).trim())); }
+  for (const n of names) {
+    if (!n || /^none$/i.test(n)) continue;
+    let to = exact.get(n.toLowerCase());
+    if (!to) { const p = PEST_LIST.find(x => x[3].test(n)); if (p && exact.has(p[0].toLowerCase())) to = exact.get(p[0].toLowerCase()); }
+    if (to && to !== n) renamePestEverywhere(n, to);
+  }
+  if (done) sys.update('app_settings', [['key', 'eq', 'pest_names_version']], { value: PEST_NAMES_V, updated_by: 'Server' });
+  else sys.insert('app_settings', { key: 'pest_names_version', value: PEST_NAMES_V, updated_by: 'Server' });
+}
+transaction(tidyPestNames);
 
 // Station types renamed (once), everywhere: the list, every station, and past records. Snap Trap leaves the list
 // (stations that are snap traps keep their type).

@@ -2257,7 +2257,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r78-oci';
+        const APP_VERSION = '2026.10.30-r79-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -6467,11 +6467,14 @@
         const OLD_STATION_TYPES = { 'internal rodent station': 'Internal Non-Toxic Rodent Station', 'external rodent station': 'External Non-Toxic Rodent Station',
             'crawling insect station': 'Crawling Insect Monitoring', 'flying insect station (ilt)': 'Flying Insect Monitoring', 'flying insect station': 'Flying Insect Monitoring' };
         const newStationType = t => (t && OLD_STATION_TYPES[String(t).trim().toLowerCase()]) || t;
+        // pests renamed in the Admin list (the server keeps old name -> new name in the team setting pest_renames)
+        const newPestName = n => { const m = (typeof teamSettings !== 'undefined' && teamSettings && teamSettings.pest_renames) || null; return (n && m && m[String(n).trim().toLowerCase()]) || n; };
         function renameOldStationTypes(c) {
             if (!c) return c;
-            (c.rows || []).forEach(r => { if (r.payload && r.payload.deviceType) r.payload.deviceType = newStationType(r.payload.deviceType); });
+            (c.rows || []).forEach(r => { if (r.payload && r.payload.deviceType) r.payload.deviceType = newStationType(r.payload.deviceType); if (r.payload && r.payload.speciesCaught) r.payload.speciesCaught = newPestName(r.payload.speciesCaught); });
             (c.recs || []).forEach(r => { if (r.station_type) r.station_type = newStationType(r.station_type); });
             if (c.tables && Array.isArray(c.tables.stations)) c.tables.stations.forEach(r => { if (r.type) r.type = newStationType(r.type); });
+            if (c.tables && Array.isArray(c.tables.pest_sightings)) c.tables.pest_sightings.forEach(r => { if (r.pest) r.pest = newPestName(r.pest); });
             return c;
         }
         async function saveSiteCache(clientId, cache) { await cacheSet('site_' + clientId, cache); }
@@ -14743,6 +14746,16 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r79', date: '2026-10-30', v: { svc: '2026.10.30-r79', adm: '2026.10.30-a22', cli: '2026.10.30-p38' },
+            svc: ['Pest names in old records match the pest list (e.g. House Mouse is now Mouse), and a pest renamed in Admin is renamed here too'],
+            adm: ['Lists › Pests: rename a pest in its guide (✎ Guide › Name) - every station check, pest sighting, critical limit and report uses the new name straight away',
+                  'Old pest names in records were matched to the pest list (e.g. House Mouse → Mouse, Norway / Ship Rat → Rat)',
+                  'Reports: the pest filters list the pests on the pest list'],
+            cli: ['Pests: every pest choice (pest sightings, pest activity, reports, critical limits) comes from the one Pesties pest list, and older records use the same names',
+                  'Floor plans: the plan cards show the stations on them',
+                  'Floor plans: "Station names" is on to start with',
+                  'Floor plans: a button lists every station on the plan - tap one to show it on the plan',
+                  'The site page is tidier: no "Live" mark, and no "on site now" note'] },
         { rev: 'r78', date: '2026-10-30', v: { svc: '2026.10.30-r78' },
             svc: ['Station check: the "Technician Service Notes" box is gone (notes for the whole visit are still added when you finish it)',
                   'Offline: no more warning strip across the top - the sync button turning red shows you\'re offline',

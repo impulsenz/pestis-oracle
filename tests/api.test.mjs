@@ -5,7 +5,7 @@ import path from 'node:path';
 import { start, idToken, mails, ROOT, tmpDir } from './harness.mjs';
 
 const PORT = 8093, BASE = `http://127.0.0.1:${PORT}`;
-const srv = await start({ port: PORT, dataDir: tmpDir('api') });
+let srv = await start({ port: PORT, dataDir: tmpDir('api') });
 
 // a browser-ish global for the shim
 const store = new Map();
@@ -218,6 +218,23 @@ try {
   ok(r.error && /not actioned/.test(r.error.message), 'cannot review before actioned', r.error);
   r = await cl.rpc('portal_technicians', { p_client_id: '1' });
   ok(Array.isArray(r.data) && r.data.some(t => t.name === 'tech'), 'technicians list', r.data);
+  // renaming a pest in the Admin list renames it everywhere: station checks, pest sightings, critical limits (and tells the phones)
+  await tech.from('service_logs').insert([{ client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Rat', activityLevel: 'Caught', pestCount: 2 } }]);
+  await boss.from('site_limits').insert([{ id: 'lim-r', client_id: '1', name: 'Dock', rules: [{ species: 'rat', max: 3 }] }]);
+  const ratRow = (await boss.from('species').select('id').eq('label', 'Rat').single()).data;
+  r = await boss.from('species').update({ label: 'Rodent (rat)' }).eq('id', ratRow.id).select('label');
+  ok(!r.error && r.data[0].label === 'Rodent (rat)', 'admin renames a pest', r);
+  r = await tech.from('service_logs').select('payload').eq('client_id', 1);
+  ok(r.data.some(x => x.payload.speciesCaught === 'Rodent (rat)') && !r.data.some(x => x.payload.speciesCaught === 'Rat'), 'station checks use the new name', r.data.map(x => x.payload.speciesCaught));
+  r = await tech.from('pest_sightings').select('pest').eq('client_id', '1');
+  ok(r.data.length && r.data.every(x => x.pest === 'Rodent (rat)'), 'pest sightings use the new name', r.data);
+  r = await boss.from('site_limits').select('rules').eq('id', 'lim-r').single();
+  ok(r.data.rules[0].species === 'Rodent (rat)', 'critical limits use the new name', r.data);
+  r = await tech.from('app_settings').select('value').eq('key', 'pest_renames').single();
+  ok(r.data && r.data.value.rat === 'Rodent (rat)', 'the rename is passed on to the phones', r.data);
+  await boss.from('species').update({ label: 'Rat' }).eq('id', ratRow.id);
+  r = await tech.from('app_settings').select('value').eq('key', 'pest_renames').single();
+  ok(r.data && r.data.value.rat === undefined && r.data.value['rodent (rat)'] === 'Rat', 'renaming back undoes it', r.data);
   // turning the client login off
   await boss.from('client_users').update({ active: false }).eq('email', 'client@acme.test');
   r = await cl.from('recommendations').select('id');
@@ -376,6 +393,22 @@ try {
   await boss.from('profiles').delete().eq('id', stranger.uid);
   r = await stranger.from('profiles').select('*').eq('id', stranger.uid);
   ok(r.data.length === 0, 'deleted profile');
+
+  // ---------- a restart: old pest names in records are matched to the pest list ----------
+  const techR = await as('tech@example.com');
+  r = await techR.from('service_logs').insert([{ client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'House Mouse' } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'norway rat' } },
+    { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'german cockroach' } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'Unicorn beetle' } }]);
+  ok(!r.error, 'records with old pest names added', r.error);
+  r = await (await as('boss@example.com')).from('app_settings').upsert({ key: 'pest_names_version', value: 0 });
+  ok(!r.error, 'the tidy is set to run again', r.error);
+  srv.stop(); await new Promise(res => setTimeout(res, 500));
+  srv = await start({ port: PORT, dataDir: tmpDir('api'), keep: true });
+  const tech2 = await as('tech@example.com');
+  r = await tech2.from('service_logs').select('payload').eq('barcode_id', 'B1');
+  if (r.error) console.log('after restart:', JSON.stringify(r.error));
+  const names = (r.data || []).map(x => x.payload.speciesCaught);
+  ok(names.includes('Mouse') && names.includes('Rat') && names.includes('German Cockroach') && !names.some(n => /house mouse|norway|^german cockroach$/.test(n)) && names.includes('Unicorn beetle'),
+    'on restart, old pest names are matched to the list (a name with no match is left alone)', names);
 } catch (e) { fails++; console.log('ERROR', e); }
 finally {
   srv.stop();

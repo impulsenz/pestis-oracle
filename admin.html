@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.30-a21-oci
+    Version 2026.10.30-a22-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -1335,6 +1335,8 @@
                 <label class="btn btn-secondary cursor-pointer">📷 Choose picture<input type="file" id="pestEditPhoto" accept="image/*" class="hidden" onchange="pestEditPreview(this)"></label>
                 <button type="button" id="pestEditPicRemove" class="btn btn-secondary" onclick="pestEditRemovePic()">Remove picture</button>
             </div>
+            <label class="lbl !mb-0" for="pestEditName">Name <span class="t-faint normal-case font-normal">(renaming it renames it in every record, report and app)</span></label>
+            <input type="text" id="pestEditName" class="field !w-full" maxlength="80">
             <label class="lbl !mb-0" for="pestEditCat">Category</label>
             <select id="pestEditCat" class="field !w-full cursor-pointer" onchange="pestCatNewToggle(this, 'pestEditCatNew')"></select>
             <input type="text" id="pestEditCatNew" placeholder="New category name" class="field !w-full hidden">
@@ -3453,6 +3455,16 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r79', date: '2026-10-30', v: { svc: '2026.10.30-r79', adm: '2026.10.30-a22', cli: '2026.10.30-p38' },
+            svc: ['Pest names in old records match the pest list (e.g. House Mouse is now Mouse), and a pest renamed in Admin is renamed here too'],
+            adm: ['Lists › Pests: rename a pest in its guide (✎ Guide › Name) - every station check, pest sighting, critical limit and report uses the new name straight away',
+                  'Old pest names in records were matched to the pest list (e.g. House Mouse → Mouse, Norway / Ship Rat → Rat)',
+                  'Reports: the pest filters list the pests on the pest list'],
+            cli: ['Pests: every pest choice (pest sightings, pest activity, reports, critical limits) comes from the one Pesties pest list, and older records use the same names',
+                  'Floor plans: the plan cards show the stations on them',
+                  'Floor plans: "Station names" is on to start with',
+                  'Floor plans: a button lists every station on the plan - tap one to show it on the plan',
+                  'The site page is tidier: no "Live" mark, and no "on site now" note'] },
         { rev: 'r78', date: '2026-10-30', v: { svc: '2026.10.30-r78' },
             svc: ['Station check: the "Technician Service Notes" box is gone (notes for the whole visit are still added when you finish it)',
                   'Offline: no more warning strip across the top - the sync button turning red shows you\'re offline',
@@ -3705,7 +3717,9 @@ const PR = (() => {
             let rules = l.rules; if (typeof rules === 'string') { try { rules = JSON.parse(rules); } catch (x) { rules = []; } }
             return { id: String(l.id), name: l.name || 'Critical limit', rules: (Array.isArray(rules) ? rules : []).filter(x => x && x.species).map(x => ({ species: String(x.species), max: Number(x.max) || 0 })) };
         }).sort((a, b) => a.name.localeCompare(b.name));
-        return { site: raw.siteName || '', entries, stations, visits, recs, limits };
+        // the pests to choose from: the Admin pest list when it's given
+        const species = Array.isArray(raw.species) && raw.species.length ? raw.species.slice() : null;
+        return { site: raw.siteName || '', entries, stations, visits, recs, limits, species };
     }
 
     // ---------- the reports ----------
@@ -3815,7 +3829,7 @@ const PR = (() => {
                 if (s.preset === 'custom') parts.push(`<label class="pr-f"><span>From</span><input type="date" value="${e(s.from)}" onchange="PR.set(this, 'from', this.value)"></label><label class="pr-f"><span>To</span><input type="date" value="${e(s.to)}" onchange="PR.set(this, 'to', this.value)"></label>`);
             }
             if (f === 'type') parts.push(sel('type', 'Station type', uniq(d.stations.map(x => x.type)), 'All types'));
-            if (f === 'pest') { const st = R.id === 'station' ? d.stations.find(x => x.barcode === s.station) : null; if (!(st && isActivity(st))) parts.push(cmb('pest', 'Pest', uniq((st ? st.entries : d.entries).map(x => x.species)), 'All pests')); }
+            if (f === 'pest') { const st = R.id === 'station' ? d.stations.find(x => x.barcode === s.station) : null; if (!(st && isActivity(st))) parts.push(cmb('pest', 'Pest', st ? uniq(st.entries.map(x => x.species)) : uniq(d.species || d.entries.map(x => x.species)), 'All pests')); }
             if (f === 'map') parts.push(cmb('map', 'Floor plan', uniq(d.stations.map(x => x.map)), 'All floor plans'));
             if (f === 'prep') parts.push(cmb('prep', 'Preparation', uniq(d.entries.map(x => x.prep)), 'All preparations'));
             if (f === 'tech') parts.push(sel('tech', 'Technician', uniq(d.visits.map(x => x.tech).concat(d.entries.map(x => x.tech))), 'Everyone'));
@@ -4130,7 +4144,7 @@ const PR = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a21-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a22-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');
@@ -5032,7 +5046,7 @@ const PR = (() => {
                 const [logs, stations, maps, visits, recs, limits] = await Promise.all([adminFetchAll('service_logs', cid), adminFetchAll('stations', cid), opt('site_maps'), opt('visits'), opt('recommendations'), opt('site_limits')]);
                 if (seq !== adminRepSeq) return;
                 const site = siteById(cid);
-                const data = PR.build({ siteName: site ? site.Name : 'Site', logs, stations, maps, visits, recs, limits });
+                const data = PR.build({ siteName: site ? site.Name : 'Site', logs, stations, maps, visits, recs, limits, species: speciesItems().map(o => o.label) });
                 if (box._prSite !== cid) { box.innerHTML = ''; box._prSite = cid; }
                 const holder = box.firstElementChild && box.firstElementChild.classList.contains('pr-holder') ? box.firstElementChild : (() => { const h = document.createElement('div'); h.className = 'pr-holder'; box.innerHTML = ''; box.appendChild(h); return h; })();
                 PR.render(holder, data, { colorOf: t => stationColor(t).color, sdsOf: name => { const o = appOptions.find(x => x.label === name && x.sds_path); return o ? o.id : null; }, openSds: id => openPrepSds(id) });
@@ -5645,6 +5659,7 @@ const PR = (() => {
             if (!isAdmin()) { showPestInfo(id); return; }
             pestEditId = o.id; pestEditFile = null; pestEditDropPic = false;
             document.getElementById('pestEditTitle').textContent = o.label;
+            document.getElementById('pestEditName').value = o.label;
             fillPestCatSelect('pestEditCat', pestCategoryOf(o));
             document.getElementById('pestEditCatNew').classList.add('hidden');
             document.getElementById('pestEditCatNew').value = '';
@@ -5697,7 +5712,12 @@ const PR = (() => {
             if (!o) { closePestEdit(); return; }
             const cat = pestCatValue('pestEditCat', 'pestEditCatNew');
             if (!cat) { alert('Enter the new category name.'); return; }
+            const name = document.getElementById('pestEditName').value.trim().replace(/\s+/g, ' ');
+            if (!name) { alert('Give the pest a name.'); return; }
+            if (name !== o.label && speciesItems().some(x => x.id !== o.id && String(x.label).toLowerCase() === name.toLowerCase())) { alert(`"${name}" is already on the pest list.`); return; }
+            if (name !== o.label && !confirm(`Rename "${o.label}" to "${name}"? Every station check, pest sighting and critical limit that uses "${o.label}" is renamed too, in all the apps.`)) return;
             const upd = {
+                label: name,
                 category: cat,
                 about: document.getElementById('pestEditAbout').value.trim(),
                 breeding: document.getElementById('pestEditBreeding').value.trim(),
@@ -5721,9 +5741,10 @@ const PR = (() => {
                 finally { btn.disabled = false; btn.textContent = 'Save'; }
             } else if (pestEditDropPic) { upd.photo_path = null; upd.photo_source = null; }
             if (old && !isWebPic(old) && upd.photo_path !== undefined && upd.photo_path !== old) _supabase.storage.from(PHOTO_BUCKET).remove([old]).catch(() => {});
+            const oldName = o.label;
             Object.assign(o, upd);
             await cacheSet('app_options', appOptions);
-            await enqueue({ kind: 'add_option', siteName: 'Settings', label: `Pest guide for "${o.label}" updated`, data: Object.assign({ id: o.id, kind: 'species', label: o.label, sort: o.sort || 0 }, upd) });
+            await enqueue({ kind: 'add_option', siteName: 'Settings', label: oldName !== o.label ? `Pest renamed "${oldName}" → "${o.label}"` : `Pest guide for "${o.label}" updated`, data: Object.assign({ id: o.id, kind: 'species', label: o.label, sort: o.sort || 0 }, upd) });
             closePestEdit();
             populateOptionSelects();
             renderSettingsLists();

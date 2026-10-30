@@ -33,7 +33,8 @@ export function idToken(email, extra = {}) {
   return `${h}.${p}.${sig}`;
 }
 
-export async function start({ port, dataDir, admins = 'boss@example.com' }) {
+// keep: start on the data already in dataDir (a restart) instead of a fresh, empty database
+export async function start({ port, dataDir, admins = 'boss@example.com', keep = false }) {
   const keys = http.createServer((req, res) => { res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'max-age=3600' }); res.end(JSON.stringify({ keys: [jwk] })); });
   await new Promise(r => keys.listen(0, '127.0.0.1', r));
   // a tiny SMTP server that keeps every message
@@ -55,7 +56,7 @@ export async function start({ port, dataDir, admins = 'boss@example.com' }) {
     });
   });
   await new Promise(r => smtp.listen(0, '127.0.0.1', r));
-  fs.rmSync(dataDir, { recursive: true, force: true });
+  if (!keep) fs.rmSync(dataDir, { recursive: true, force: true });
   const proc = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', path.join(ROOT, 'server', 'server.mjs')], {
     env: Object.assign({}, process.env, { PORT: String(port), DATA_DIR: dataDir, GOOGLE_CLIENT_ID: CLIENT_ID, ADMIN_EMAILS: admins,
       GOOGLE_CERTS_URL: `http://127.0.0.1:${keys.address().port}/certs`, SMTP_HOST: '127.0.0.1', SMTP_PORT: String(smtp.address().port),
