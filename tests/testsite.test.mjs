@@ -1,6 +1,7 @@
 // tools/test_site.mjs: adds a pretend site straight into the database of a running server, the apps read it like any
 // other site (staff, and a client given access), and "remove" takes away exactly that site's data.
 import path from 'node:path';
+import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { start, idToken, tmpDir } from './harness.mjs';
@@ -77,6 +78,42 @@ try {
   ok(oldest && Date.now() - Date.parse(oldest.payload.servicedAt) > 4.8 * 365 * 86400000, 'add-big: the history goes back about 5 years', oldest && oldest.payload.servicedAt);
   out = tool('remove');
   ok(/Removed test site/.test(out) && !(await left('service_logs')) && ((await api(boss)('clients', {})).data || []).length === 1, 'remove: the big test site is gone too, the real site stays', out);
+
+  // the huge pretend site (tools/huge_site.mjs), made small here: every part of it, and remove takes it all away (pictures too)
+  {
+    const huge = (...a) => execFileSync(process.execPath, [path.join(ROOT, 'tools', 'huge_site.mjs'), ...a, '--db', DB], { encoding: 'utf8' });
+    out = huge('add', '--stations', '240', '--years', '3', '--client', 'cara@acme.test');
+    const hm = /#(\d+) .*: (\d+) stations .* of (\d+) types, 6 buildings, 8 floor plans with every station pinned, (\d+) visits over 3 years \(([^)]*)\), ([\d,]+) station checks, 100 recommendations/.exec(out);
+    ok(hm, 'huge site: made', out);
+    const hid = hm && hm[1];
+    const rows = async (t, f) => ((await api(boss)(t, { filters: [['client_id', 'eq', t === 'service_logs' ? Number(hid) : String(hid)]].concat(f || []) })).data || []);
+    const st = await rows('stations'), maps = await rows('site_maps'), bld = await rows('site_buildings'), vis = await rows('visits');
+    ok(st.length > 200 && st.every(x => x.map_id && x.pin_x != null && maps.some(m => m.id === x.map_id)) && new Set(st.map(x => x.type)).size >= 8, 'huge site: stations of every type, each pinned on a floor plan', { n: st.length, types: new Set(st.map(x => x.type)).size });
+    ok(bld.length === 6 && maps.length === 8 && maps.every(m => bld.some(b => b.id === m.building_id) && m.image_path), 'huge site: 6 buildings, 8 floor plans under them, each with a picture', { b: bld.length, m: maps.length });
+    vis.sort((a, b) => Date.parse(a.started_at) - Date.parse(b.started_at));
+    const kinds = new Set(vis.map(v => v.visit_type));
+    ok(vis[0].visit_type === 'Initial Install' && ['Routine Service', 'Meeting', 'Call Out', 'Broken Treatment', 'Technical Support', 'Uninstall'].every(k => kinds.has(k)) || (vis[0].visit_type === 'Initial Install' && kinds.has('Meeting') && kinds.has('Routine Service')),
+      'huge site: the first visit is the initial install, then routine services, meetings, call outs and more', [vis[0].visit_type, ...kinds]);
+    const perMonth = new Map(); vis.forEach(v => { const k = String(v.started_at).slice(0, 7); perMonth.set(k, (perMonth.get(k) || 0) + 1); });
+    ok(Math.max(...perMonth.values()) >= 2 && Math.max(...perMonth.values()) <= 6, 'huge site: mostly one visit a month, up to five', [...perMonth.values()]);
+    const logs = await rows('service_logs');
+    ok(logs.length > 240 * 20 && logs.filter(l => l.payload.prepUsed && l.payload.prepUsed !== 'None - Monitoring Only').length > logs.length / 2, 'huge site: station checks for every month, most with a preparation', logs.length);
+    const [recs, sights, contacts, docs, lims] = await Promise.all(['recommendations', 'pest_sightings', 'site_contacts', 'site_documents', 'site_limits'].map(t => rows(t)));
+    ok(recs.length === 100 && sights.length === 300 && contacts.length === 15 && new Set(contacts.map(c => c.role)).size === 15 && docs.length === 21 && lims.length === 4, 'huge site: 100 recommendations, 300 sightings, 15 contacts (15 roles), 21 documents, 4 critical limits',
+      [recs.length, sights.length, contacts.length, docs.length, lims.length]);
+    const cara2 = await session('cara@acme.test');
+    const sees = await (await fetch(BASE + '/api/rpc/portal_sites', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cara2.access_token }, body: '{}' })).json();
+    ok((sees.data || []).some(s => String(s.id) === String(hid)), 'huge site: the client login given access sees it');
+    // a floor plan picture is served like any upload
+    const sign = await (await fetch(BASE + '/api/files/sign', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + boss.access_token }, body: JSON.stringify({ bucket: 'station-photos', paths: [maps[0].image_path], expiresIn: 60 }) })).json().catch(() => null);
+    const { DatabaseSync } = await import('node:sqlite');
+    const raw = new DatabaseSync(DB), files = raw.prepare("SELECT count(*) AS n FROM storage_objects WHERE name LIKE ? OR name LIKE ?").get(`${hid}/HUGE_%`, `site-covers/${hid}/HUGE_%`).n; raw.close();
+    ok(files > 40 && fs.existsSync(path.join(DIR, 'files', 'station-photos', ...maps[0].image_path.split('/'))), 'huge site: its pictures and documents are stored like uploads', { files, sign });
+    out = huge('remove');
+    ok(/Removed huge test site/.test(out) && !(await rows('stations')).length && !(await rows('service_logs')).length && !(await rows('site_buildings')).length, 'huge site: remove deletes it all', out);
+    const raw2 = new DatabaseSync(DB), left = raw2.prepare("SELECT count(*) AS n FROM storage_objects WHERE name LIKE ?").get(`${hid}/HUGE_%`).n; raw2.close();
+    ok(left === 0 && !fs.existsSync(path.join(DIR, 'files', 'station-photos', ...maps[0].image_path.split('/'))) && ((await api(boss)('clients', {})).data || []).some(c => c.Name === 'Real Site'), 'huge site: its pictures are gone too, the real site stays', left);
+  }
 } catch (e) { fails++; console.log('ERROR', e); }
 finally {
   srv.stop();

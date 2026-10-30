@@ -159,6 +159,18 @@ Where things are: database `/var/lib/pestis/pestis.db`; photos and documents `/v
 
 To start the test site again from scratch, run `remove` and then `add`. It appears in the apps straight away; tap Refresh (or reopen the app) if it's already open.
 
+**A huge pretend site, to push the apps to their limits.** "TEST - Kauri Coast Foods (huge pretend site)": about 3,000 stations of every station type in 6 buildings and 8 floor plans (drawn, every station pinned), 10 years of history (one routine visit most months, up to 5 in a busy month: the initial install, stage installs, call outs, broken treatments, technical support, meetings, fogging, an uninstall), a preparation on every check, about 317,000 station checks, 100 recommendations with notes and photos, 300 pest sightings, 15 contacts, 8 services, 4 critical limits, documents (some expired) and an activity log. It takes about 10 seconds to make and adds about 260 MB to the database.
+
+Heads-up: the apps download a site's whole history when it's opened, so this site takes minutes to open (about 110 MB) and may be too much for a phone. Open it on a computer first. Smaller sizes: add `--stations 500 --years 3`, for example.
+
+| Task | Command (on the server, over SSH) |
+|---|---|
+| Add the huge site | `sudo -u pestis node /opt/pestis/app/tools/huge_site.mjs add` |
+| ...smaller | `sudo -u pestis node /opt/pestis/app/tools/huge_site.mjs add --stations 500 --years 3` |
+| ...and let a client login see it | add `--client someone@example.com` (the client login must already exist in Admin) |
+| Is it there? | `sudo -u pestis node /opt/pestis/app/tools/huge_site.mjs status` |
+| Remove it (and give the space back) | `sudo -u pestis node /opt/pestis/app/tools/huge_site.mjs remove` |
+
 ---
 
 ## If something goes wrong
