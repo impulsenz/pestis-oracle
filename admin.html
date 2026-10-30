@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.30-a25-oci
+    Version 2026.10.30-a26-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -907,6 +907,13 @@
 .pr-lim-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .4rem; font-size: .8rem; color: var(--text); margin-bottom: .3rem; }
 .pr-chip { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .68rem; font-weight: 800; }
 .pr-chip.red { background: rgba(220, 38, 38, .14); color: #dc2626; }
+/* critical limits: the alert at the top (red breach, amber close, green all within) */
+.pr-alert { border: 1px solid rgba(220, 38, 38, .45); background: rgba(220, 38, 38, .08); color: var(--text); border-radius: .9rem; padding: .8rem 1rem; margin: .8rem 0; font-size: .82rem; display: grid; gap: .35rem; }
+.pr-alert b { color: #dc2626; font-size: .9rem; }
+.pr-alert.pr-alert-amber { border-color: rgba(217, 119, 6, .45); background: rgba(217, 119, 6, .08); }
+.pr-alert.pr-alert-amber b { color: #d97706; }
+.pr-alert.pr-alert-ok { border-color: rgba(22, 163, 74, .4); background: rgba(22, 163, 74, .07); }
+.pr-alert.pr-alert-ok b { color: #16a34a; }
 .pr-chip.amber { background: rgba(217, 119, 6, .16); color: #b45309; }
 .pr-chip.green { background: rgba(22, 163, 74, .14); color: #15803d; }
 @media (max-width: 639px) { .pr-bar-row { grid-template-columns: minmax(5rem, 8rem) 1fr 2.8rem; } .pr-acts { margin-left: 0; } }
@@ -3506,6 +3513,11 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r83', date: '2026-10-30', v: { svc: '2026.10.30-r83', adm: '2026.10.30-a26', cli: '2026.10.30-p42' },
+            svc: ['Notifications: critical limits are no longer listed here - the client is notified instead (you still get the warning when you record a count that goes over)'],
+            adm: ['Reports › Critical limits is now station by station: an alert for any station over (or within 10% of) its limit, and a graph of each station\'s captures in green (under), amber (within 10%) or red (over)'],
+            cli: ['Reports › Critical limits is now station by station: an alert for any station over (or within 10% of) its limit, and a graph of each station\'s captures month by month in green (under), amber (within 10%) or red (over)',
+                  'Notifications: when a station goes over a critical limit you get a notification naming the station - tap it to see that station\'s critical limits report'] },
         { rev: 'r82', date: '2026-10-30', v: { svc: '2026.10.30-r82', adm: '2026.10.30-a25', cli: '2026.10.30-p41' },
             svc: ['Flying and crawling insect monitoring: a pest you pick starts as Caught (the other choices are still there)',
                   'Flying and crawling insect monitoring: "+ Add another pest" records more than one pest on the same check - e.g. house flies and blowflies on one glue board, each with its own number. Critical limits, reports and the visit report count every one'],
@@ -3811,7 +3823,7 @@ const PR = (() => {
         { id: 'station', icon: '🔎', title: 'One station', blurb: 'A single station: each pest (or its activity) month by month over the years, and every visit to it.', f: ['type', 'station', 'view', 'years', 'pest'] },
         { id: 'scanned', icon: '✅', title: 'Last scanned', blurb: 'Every station and when it was last checked - spot any missed.', f: ['type', 'station', 'map', 'gap'] },
         { id: 'preps', icon: '🧪', title: 'Preparations used', blurb: 'What was used on which station, how much, and the batch numbers.', f: ['period', 'type', 'station', 'prep', 'batch'] },
-        { id: 'limits', icon: '⚠️', title: 'Critical limits', blurb: 'Monthly captures against each critical limit, and any breaches.', f: ['months'] },
+        { id: 'limits', icon: '⚠️', title: 'Critical limits', blurb: 'Station by station: any station over (or close to) its critical limit, and its captures month by month in green, amber or red.', f: ['months', 'type', 'station'] },
         { id: 'recs', icon: '📋', title: 'Recommendations', blurb: 'Raised and completed, by type, and how long they took.', f: ['period'] },
         { id: 'visits', icon: '🗓️', title: 'Service visits', blurb: 'Visits each month, the technician and the time on site.', f: ['period', 'tech'] }
     ];
@@ -4095,24 +4107,67 @@ const PR = (() => {
                 csv: [head.map(h => h.t)].concat(list.map(x => [fmtDT(x.at), x.station, x.prep, x.batch, x.qty != null ? x.qty : '', x.unit, x.tech]))
             };
         },
+        // Critical limits, station by station: an alert for each station that took a limit over (or close), and each
+        // station's captures month by month, the line coloured by where its area stood that month:
+        // red = over the limit (and this station added to it), amber = within 10% of the limit, green = under.
         limits(d, s, opts) {
             if (!d.limits.length) return { html: '<div class="pr-empty">No critical limits are set for this site.</div>', csv: [] };
             const k = Number(s.month), ks = months(monthStart(k - 11), monthStart(k + 1) - 1).filter(x => x <= k);
+            const limById = new Map(d.limits.map(l => [String(l.id), l]));
             const inLimit = l => new Set(d.stations.filter(x => String(x.limitId) === l.id).map(x => x.barcode));
-            const total = (l, rule, mk) => { const sts = inLimit(l); return d.entries.filter(x => sts.has(x.barcode) && monthKey(x.at) === mk && pestKey(x.species) === pestKey(rule.species)).reduce((n, x) => n + x.count, 0); };
-            const blocks = [], csv = [['Critical limit', 'Pest', 'Month', 'Captures', 'Limit', 'Over by']];
+            const zoneTotal = (l, rule, mk) => { const sts = inLimit(l); return d.entries.filter(x => sts.has(x.barcode) && monthKey(x.at) === mk && pestKey(x.species) === pestKey(rule.species)).reduce((n, x) => n + x.count, 0); };
+            const stCount = (st, rule, mk) => d.entries.filter(x => x.barcode === st.barcode && monthKey(x.at) === mk && pestKey(x.species) === pestKey(rule.species)).reduce((n, x) => n + x.count, 0);
+            // a station's month: its captures of the limit's pests, and how its area stood
+            const monthOf = (st, l, mk) => {
+                let n = 0, status = 'green';
+                const over = [], near = [];
+                l.rules.forEach(rule => {
+                    const mine = stCount(st, rule, mk), zone = zoneTotal(l, rule, mk);
+                    n += mine;
+                    if (zone > rule.max && mine > 0) over.push({ rule, mine, zone });
+                    else if (rule.max > 0 && zone >= rule.max * .9) near.push({ rule, mine, zone });
+                });
+                if (over.length) status = 'red'; else if (near.length) status = 'amber';
+                return { n, status, over, near };
+            };
+            const stations = d.stations.filter(st => limById.has(String(st.limitId)) && (!s.type || st.type === s.type) && (!s.station || st.barcode === s.station));
+            const COL = { red: '#dc2626', amber: '#d97706', green: '#16a34a' }, WORD = { red: 'Over the limit', amber: 'Close to the limit', green: 'Under the limit' };
+            const rows = stations.map(st => {
+                const l = limById.get(String(st.limitId)), hist = ks.map(mk => monthOf(st, l, mk));
+                return { st, l, hist, now: hist[hist.length - 1], total: hist.reduce((n, h) => n + h.n, 0) };
+            }).sort((p, q) => ({ red: 0, amber: 1, green: 2 }[p.now.status] - { red: 0, amber: 1, green: 2 }[q.now.status]) || q.now.n - p.now.n || q.total - p.total);
+            // the graph: one line, each stretch coloured by the month it leads to
+            const chart = (r) => {
+                const W = 760, H = 220, pl = 40, pr = 12, pt = 14, pb = 34, n = ks.length;
+                const max = Math.max(1, ...r.hist.map(h => h.n));
+                const x = i => pl + (n <= 1 ? (W - pl - pr) / 2 : i * (W - pl - pr) / (n - 1)), y = v => pt + (H - pt - pb) * (1 - v / max);
+                const ticks = Array.from(new Set([0, .5, 1].map(f => Math.round(max * f))));
+                const every = Math.ceil(n / 12);
+                return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(r.st.name)}: captures each month">
+                    ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="pr-grid"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" class="pr-ax">${t}</text>`).join('')}
+                    ${ks.map((mk, i) => i % every === 0 || i === n - 1 ? `<text x="${x(i)}" y="${H - 12}" text-anchor="${i === n - 1 ? 'end' : i === 0 ? 'start' : 'middle'}" class="pr-ax">${e(monthLbl(mk))}</text>` : '').join('')}
+                    ${r.hist.slice(1).map((h, i) => `<line x1="${x(i)}" y1="${y(r.hist[i].n)}" x2="${x(i + 1)}" y2="${y(h.n)}" stroke="${COL[h.status]}" stroke-width="3" stroke-linecap="round"/>`).join('')}
+                    ${r.hist.map((h, i) => `<circle cx="${x(i)}" cy="${y(h.n)}" r="${h.status === 'green' ? 3.5 : 5.5}" fill="${COL[h.status]}"><title>${e(monthLong(ks[i]))}: ${h.n} caught · ${WORD[h.status]}${h.over.concat(h.near).map(o => ` · ${o.rule.species}: area ${o.zone} of ${o.rule.max}`).join('')}</title></circle>`).join('')}
+                </svg>`;
+            };
+            const why = h => h.over.concat(h.near).map(o => `${e(o.rule.species)}: this station ${o.mine}, the whole area ${o.zone} of ${o.rule.max}${o.zone > o.rule.max ? ` (${o.zone - o.rule.max} over)` : ''}`).join(' · ');
+            const reds = rows.filter(r => r.now.status === 'red'), ambers = rows.filter(r => r.now.status === 'amber');
+            const alert = reds.length || ambers.length ? `<div class="pr-alert ${reds.length ? '' : 'pr-alert-amber'}"><b>${reds.length ? `⚠ Critical limit breached in ${e(monthLong(k))}` : `Getting close to a critical limit in ${e(monthLong(k))}`}</b>
+                ${reds.concat(ambers).map(r => `<div>${r.now.status === 'red' ? '🔴' : '🟠'} ${stLink(opts, r.st)} · ${e(r.l.name)} - ${why(r.now)}</div>`).join('')}</div>` : `<div class="pr-alert pr-alert-ok"><b>✓ Every station was within its critical limit in ${e(monthLong(k))}.</b></div>`;
+            const cards = rows.map(r => `<div class="pr-lim"><div class="pr-lim-h"><b>${stLink(opts, r.st)}</b><span class="pr-chip ${r.now.status}">${e(monthLong(k))}: ${r.now.n} caught · ${WORD[r.now.status]}</span></div>
+                <p class="pr-note">${e(r.st.type || 'Station')} · critical limit: ${e(r.l.name)} (${r.l.rules.map(x => `${e(x.species)} ${x.max} a month`).join(', ')})</p>
+                ${chart(r)}</div>`).join('');
             const breaches = [];
-            d.limits.forEach(l => l.rules.forEach(rule => {
-                const vals = ks.map(mk => total(l, rule, mk));
-                ks.forEach((mk, i) => { csv.push([l.name, rule.species, monthLong(mk), vals[i], rule.max, Math.max(0, vals[i] - rule.max)]); if (vals[i] > rule.max) breaches.push({ l, rule, mk, n: vals[i] }); });
-                const now = vals[vals.length - 1];
-                blocks.push(`<div class="pr-lim"><div class="pr-lim-h"><b>${e(l.name)} · ${e(rule.species)}</b><span class="pr-chip ${now > rule.max ? 'red' : now >= rule.max * .8 ? 'amber' : 'green'}">${monthLong(k)}: ${now} of ${rule.max}</span></div>${lineChart([{ name: rule.species, color: '#2563eb', vals }], ks, { lbl: monthLbl, limit: rule.max, label: `${l.name} ${rule.species}` })}<p class="pr-note">${plural(inLimit(l).size, 'station')} on this limit.</p></div>`);
-            }));
+            rows.forEach(r => r.hist.forEach((h, i) => h.over.forEach(o => breaches.push({ mk: ks[i], r, o }))));
+            const csv = [['Month', 'Station', 'Station type', 'Critical limit', 'Pest', 'Station captures', 'Area total', 'Limit', 'Status']];
+            rows.forEach(r => r.hist.forEach((h, i) => r.l.rules.forEach(rule => csv.push([monthLong(ks[i]), r.st.name, r.st.type, r.l.name, rule.species, stCount(r.st, rule, ks[i]), zoneTotal(r.l, rule, ks[i]), rule.max, WORD[h.status]]))));
             return {
-                html: kpis([{ v: d.limits.length, l: 'critical limits' }, { v: breaches.filter(x => x.mk === k).length, l: `breached in ${monthLong(k)}`, c: breaches.some(x => x.mk === k) ? '#dc2626' : '#16a34a' }, { v: breaches.length, l: 'breaches in the 12 months' }])
-                    + `<div class="pr-lims">${blocks.join('')}</div>`
-                    + `<h4 class="pr-h4">Breaches</h4>` + table([{ t: 'Month' }, { t: 'Critical limit' }, { t: 'Pest' }, { t: 'Captures', num: true }, { t: 'Limit', num: true }, { t: 'Over by', num: true }],
-                        breaches.sort((p, q) => q.mk - p.mk).map(b => ({ _cls: 'pr-late', cells: [e(monthLong(b.mk)), e(b.l.name), e(b.rule.species), b.n, b.rule.max, b.n - b.rule.max] })), { empty: 'No breaches - every limit was kept. 🎉' }),
+                html: kpis([{ v: rows.length, l: 'stations on a critical limit' }, { v: reds.length, l: `over in ${monthLong(k)}`, c: reds.length ? '#dc2626' : '#16a34a' }, { v: ambers.length, l: 'close to the limit', c: ambers.length ? '#d97706' : undefined }, { v: breaches.length, l: 'breaches in the 12 months' }])
+                    + alert
+                    + `<div class="pr-legend"><span><i style="background:#16a34a"></i>Under the limit</span><span><i style="background:#d97706"></i>Within 10% of the limit</span><span><i style="background:#dc2626"></i>Over the limit</span></div>`
+                    + `<div class="pr-lims">${cards || '<div class="pr-empty">No stations on a critical limit match these filters.</div>'}</div>`
+                    + `<h4 class="pr-h4">Breaches by station</h4>` + table([{ t: 'Month' }, { t: 'Station' }, { t: 'Critical limit' }, { t: 'Pest' }, { t: 'This station', num: true }, { t: 'Whole area', num: true }, { t: 'Limit', num: true }, { t: 'Over by', num: true }],
+                        breaches.sort((p, q) => q.mk - p.mk).map(b => ({ _cls: 'pr-late', cells: [e(monthLong(b.mk)), stLink(opts, b.r.st), e(b.r.l.name), e(b.o.rule.species), b.o.mine, b.o.zone, b.o.rule.max, b.o.zone - b.o.rule.max] })), { empty: 'No breaches - every limit was kept. 🎉' }),
                 csv
             };
         },
@@ -4231,12 +4286,19 @@ const PR = (() => {
     function rec(btn, id) { const box = btn.closest('.pr-root').parentElement, o = (box._pr && box._pr.opts) || {}; if (o.onRec) o.onRec(id); }
     function mapGo(btn, barcode) { const box = btn.closest('.pr-root').parentElement, o = (box._pr && box._pr.opts) || {}; if (o.onMap) o.onMap(barcode); }
     function sds(btn, id) { const box = btn.closest('.pr-root').parentElement, o = (box._pr && box._pr.opts) || {}; if (o.openSds) o.openSds(id); }
-    return { build, render, set, download, print, station, sds, rec, mapGo, combo, comboOpen, comboClose, REPORTS };
+    // open a report straight away, with some filters set (e.g. from a notification: the critical limits of one station)
+    function show(box, report, patch) {
+        const s = ST.get(box);
+        if (!s || !box._pr) return;
+        Object.assign(s, { report }, patch || {});
+        draw(box);
+    }
+    return { build, render, set, download, print, station, sds, rec, mapGo, combo, comboOpen, comboClose, show, REPORTS };
 })();
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a25-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a26-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');

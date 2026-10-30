@@ -2260,7 +2260,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r82-oci';
+        const APP_VERSION = '2026.10.30-r83-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -5601,9 +5601,8 @@
             const fresh = newClientUpdates();
             const inScope = id => notifSites().some(c => String(c.id) === String(id));
             const docsDue = docsNeedingAttention(notifDocs || adminData.docs).filter(d => inScope(d.client_id)).sort((a, b) => (a.expires_on > b.expires_on ? 1 : -1));
-            // one line per site and limit: the newest breach logged this month
-            const seenB = new Set();
-            const breaches = notifBreaches.filter(b => inScope(b.client_id) && !seenB.has(b.client_id + '|' + b.title) && seenB.add(b.client_id + '|' + b.title));
+            // critical limits are notified to the client (Client Portal), not to the team here
+            const breaches = [];
             const unplaced = [];   // stations not placed on a plan are listed under Needs action
             // sightings actioned on this device leave the list straight away
             const doneHere = new Set(queueItems.filter(i => i.kind === 'table_upsert' && i.data.table === 'pest_sightings' && i.data.row.status === 'actioned' && !i.cancelled).map(i => i.data.row.id));
@@ -14812,6 +14811,11 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r83', date: '2026-10-30', v: { svc: '2026.10.30-r83', adm: '2026.10.30-a26', cli: '2026.10.30-p42' },
+            svc: ['Notifications: critical limits are no longer listed here - the client is notified instead (you still get the warning when you record a count that goes over)'],
+            adm: ['Reports › Critical limits is now station by station: an alert for any station over (or within 10% of) its limit, and a graph of each station\'s captures in green (under), amber (within 10%) or red (over)'],
+            cli: ['Reports › Critical limits is now station by station: an alert for any station over (or within 10% of) its limit, and a graph of each station\'s captures month by month in green (under), amber (within 10%) or red (over)',
+                  'Notifications: when a station goes over a critical limit you get a notification naming the station - tap it to see that station\'s critical limits report'] },
         { rev: 'r82', date: '2026-10-30', v: { svc: '2026.10.30-r82', adm: '2026.10.30-a25', cli: '2026.10.30-p41' },
             svc: ['Flying and crawling insect monitoring: a pest you pick starts as Caught (the other choices are still there)',
                   'Flying and crawling insect monitoring: "+ Add another pest" records more than one pest on the same check - e.g. house flies and blowflies on one glue board, each with its own number. Critical limits, reports and the visit report count every one'],

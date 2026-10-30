@@ -54,6 +54,13 @@
 .pr-lim-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .4rem; font-size: .8rem; color: var(--text); margin-bottom: .3rem; }
 .pr-chip { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .68rem; font-weight: 800; }
 .pr-chip.red { background: rgba(220, 38, 38, .14); color: #dc2626; }
+/* critical limits: the alert at the top (red breach, amber close, green all within) */
+.pr-alert { border: 1px solid rgba(220, 38, 38, .45); background: rgba(220, 38, 38, .08); color: var(--text); border-radius: .9rem; padding: .8rem 1rem; margin: .8rem 0; font-size: .82rem; display: grid; gap: .35rem; }
+.pr-alert b { color: #dc2626; font-size: .9rem; }
+.pr-alert.pr-alert-amber { border-color: rgba(217, 119, 6, .45); background: rgba(217, 119, 6, .08); }
+.pr-alert.pr-alert-amber b { color: #d97706; }
+.pr-alert.pr-alert-ok { border-color: rgba(22, 163, 74, .4); background: rgba(22, 163, 74, .07); }
+.pr-alert.pr-alert-ok b { color: #16a34a; }
 .pr-chip.amber { background: rgba(217, 119, 6, .16); color: #b45309; }
 .pr-chip.green { background: rgba(22, 163, 74, .14); color: #15803d; }
 @media (max-width: 639px) { .pr-bar-row { grid-template-columns: minmax(5rem, 8rem) 1fr 2.8rem; } .pr-acts { margin-left: 0; } }

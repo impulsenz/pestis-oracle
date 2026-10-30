@@ -3,6 +3,11 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r83', date: '2026-10-30', v: { svc: '2026.10.30-r83', adm: '2026.10.30-a26', cli: '2026.10.30-p42' },
+            svc: ['Notifications: critical limits are no longer listed here - the client is notified instead (you still get the warning when you record a count that goes over)'],
+            adm: ['Reports › Critical limits is now station by station: an alert for any station over (or within 10% of) its limit, and a graph of each station\'s captures in green (under), amber (within 10%) or red (over)'],
+            cli: ['Reports › Critical limits is now station by station: an alert for any station over (or within 10% of) its limit, and a graph of each station\'s captures month by month in green (under), amber (within 10%) or red (over)',
+                  'Notifications: when a station goes over a critical limit you get a notification naming the station - tap it to see that station\'s critical limits report'] },
         { rev: 'r82', date: '2026-10-30', v: { svc: '2026.10.30-r82', adm: '2026.10.30-a25', cli: '2026.10.30-p41' },
             svc: ['Flying and crawling insect monitoring: a pest you pick starts as Caught (the other choices are still there)',
                   'Flying and crawling insect monitoring: "+ Add another pest" records more than one pest on the same check - e.g. house flies and blowflies on one glue board, each with its own number. Critical limits, reports and the visit report count every one'],
