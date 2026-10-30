@@ -2260,7 +2260,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const SQL_HINT = ' Run pestis_offline_sites_update.sql on the Pestis server (it updates the database itself when it restarts).';
-        const APP_VERSION = '2026.10.30-r87-oci';
+        const APP_VERSION = '2026.10.30-r89-oci';
         // Critical limits are switched off while they are rebuilt (the code stays, dormant, behind this one switch)
         const LIMITS_ON = true;   // critical limits (rebuilt in r65)
         // after Check for updates, tidy the address bar
@@ -7724,8 +7724,10 @@
         //  CRITICAL LIMITS (flying insect control and crawling insect monitoring).
         //  An admin gives each site its own limits in Admin: a name, and pests each with how many captures a month are allowed.
         //  Insect stations are linked to a limit by its id, so renaming a limit never unlinks anything.
-        //  Over a limit: the technician must add a recommendation, the breach is logged (the client is alerted in the
-        //  Client Portal) and it is highlighted on the service report.
+        //  The limit applies to EACH station on its own: a station linked to "Midges 150 a month" breaches when that
+        //  station alone catches more than 150 midges in a month. Breaches are per station.
+        //  Over a limit: the technician is asked to add a recommendation (they can skip it), the breach is logged (the
+        //  client is alerted in the Client Portal) and it is highlighted on the service report.
         // ===================================================================
         const pestKey = p => String(p || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/ies$/, 'y').replace(/([^s])s$/, '$1');
         function limitRules(l) {
@@ -7736,7 +7738,8 @@
         const limitById = id => id ? siteLimits.find(l => String(l.id) === String(id)) || null : null;
         const stationLimitId = bc => { const st = siteStations.get(bc); return (st && st.limit_id) || ''; };
         const stationLimitName = bc => { const l = limitById(stationLimitId(bc)); return l ? l.name : ''; };
-        const limitLabel = x => `${x.limit.name} · ${x.rule.species}`;
+        const stationNameOf = bc => { const d = siteDevices.find(s => s.barcode_id === bc); return d ? d.locationName : bc; };
+        const limitLabel = x => `${x.name} · ${x.rule.species}`;
         function monthBounds(t) { const d = new Date(t); return [new Date(d.getFullYear(), d.getMonth(), 1).getTime(), new Date(d.getFullYear(), d.getMonth() + 1, 1).getTime()]; }
         const monthName = t => new Date(t).toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' });
         const pestN = (species, count) => species && species !== NONE_SPECIES ? (parseFloat(count) > 0 ? parseFloat(count) : 1) : 0;
@@ -7746,25 +7749,24 @@
             siteDevices.filter(d => isInsectType(d.deviceType) && !/rodent|\brat|mouse|mice/i.test(d.deviceType || '')).forEach(d => (d.history || []).forEach(h => (h.pests || [{ species: h.species, count: h.count }]).forEach(x => { const n = pestN(x.species, x.count); if (n) out.push({ barcode: d.barcode_id, at: h.at, species: x.species, n, thisVisit: !!h.thisVisit }); })));
             return out;
         }
-        // one pest of one limit, for the month containing t (records up to upTo)
-        function limitTotal(l, rule, t, upTo, recs, limitOf) {
+        // one station, one pest of its limit, for the month containing t (records up to upTo)
+        function limitTotal(barcode, l, rule, t, upTo, recs) {
             const [a, b] = monthBounds(t == null ? Date.now() : t);
-            const lf = limitOf || stationLimitId;
-            const list = (recs || sitePestRecords()).filter(r => r.at >= a && r.at < b && (upTo == null || r.at <= upTo) && String(lf(r.barcode)) === String(l.id) && pestKey(r.species) === pestKey(rule.species));
-            return { limit: l, rule, total: list.reduce((n, r) => n + r.n, 0), records: list, month: a };
+            const list = (recs || sitePestRecords()).filter(r => r.barcode === barcode && r.at >= a && r.at < b && (upTo == null || r.at <= upTo) && pestKey(r.species) === pestKey(rule.species));
+            return { barcode, name: stationNameOf(barcode), limit: l, rule, total: list.reduce((n, r) => n + r.n, 0), records: list, month: a };
         }
-        const allLimitTotals = (t, upTo, recs, limitOf) => siteLimits.flatMap(l => limitRules(l).map(rule => limitTotal(l, rule, t, upTo, recs, limitOf)));
-        // the limits a station record would take over (its earlier record on this visit is replaced)
+        // every insect station on a limit, and every pest of its limit
+        const allLimitTotals = (t, upTo, recs) => Array.from(siteStations.values()).flatMap(st => { const l = limitById(st.limit_id); return l ? limitRules(l).map(rule => limitTotal(st.barcode, l, rule, t, upTo, recs)) : []; });
+        // the limits a station record would take this station over (its earlier record on this visit is replaced)
         function limitsHitBy(barcode, limitId, species, count) {
             const n = pestN(species, count), l = limitById(limitId);
             if (!n || !l) return [];
             const now = Date.now();
             const recs = sitePestRecords().filter(r => !(r.barcode === barcode && r.thisVisit)).concat([{ barcode, at: now, species, n, thisVisit: true }]);
-            const limitOf = bc => bc === barcode ? limitId : stationLimitId(bc);
-            return limitRules(l).filter(rule => pestKey(rule.species) === pestKey(species)).map(rule => limitTotal(l, rule, now, null, recs, limitOf)).filter(x => x.total > x.rule.max);
+            return limitRules(l).filter(rule => pestKey(rule.species) === pestKey(species)).map(rule => limitTotal(barcode, l, rule, now, null, recs)).filter(x => x.total > x.rule.max);
         }
         function limitBreachesNow() { return allLimitTotals(null, null, sitePestRecords()).filter(x => x.total > x.rule.max); }
-        // limits a visit went over: that month's records up to the end of the visit, with this visit adding to it
+        // stations a visit took over their limit: that month's records up to the end of the visit, with this visit adding to it
         function visitLimitBreaches(v) {
             if (!siteLimits.length || !v) return [];
             const endAt = v.inProgress ? Date.now() : Date.parse(v.endedAt || v.date);
@@ -7772,15 +7774,10 @@
             const mine = new Set((v.entries || []).filter(e => !e.recOnly && pestN(e.species, e.count)).map(e => e.barcode + '@' + e.at));
             return allLimitTotals(end - 5 * 60000, end, sitePestRecords()).filter(x => x.total > x.rule.max && x.records.some(r => mine.has(r.barcode + '@' + r.at)));
         }
-        function breachStations(x) {
-            const by = new Map();
-            x.records.forEach(r => { const d = siteDevices.find(s => s.barcode_id === r.barcode); const k = r.barcode; const o = by.get(k) || { name: d ? d.locationName : r.barcode, barcode: r.barcode, n: 0, species: new Set() }; o.n += r.n; o.species.add(r.species); by.set(k, o); });
-            return Array.from(by.values()).sort((a, b) => b.n - a.n);
-        }
         const limitAlertHtml = (list, title) => list.length ? `<div class="limit-alert space-y-2" role="alert"><div class="limit-alert-head">⚠ ${esc(title)}</div>${list.map(x => {
             const max = x.rule.max, over = x.total - max;
             return `<div class="limit-alert-row"><div class="flex flex-wrap items-baseline justify-between gap-2"><b class="text-sm">${esc(limitLabel(x))}</b><span class="chip chip-red">${x.total} of ${esc(max)} allowed${max ? ` · ${Math.round(x.total / max * 100)}%` : ''}</span></div>
-                <div class="text-[11px] mt-0.5">${over} over the monthly limit in ${esc(monthName(x.month))}. Caught at: ${breachStations(x).map(b => `${esc(b.name)} (${b.n})`).join(', ')}</div></div>`;
+                <div class="text-[11px] mt-0.5">${over} over this station's monthly limit in ${esc(monthName(x.month))} (critical limit: ${esc(x.limit.name)}).</div></div>`;
         }).join('')}</div>` : '';
         function renderSiteLimits() {}   // limits are set up in Admin; the site page has nothing to draw
 
@@ -8947,7 +8944,7 @@
                 siteName: selectedClient.Name, address: selectedClient.Address || '', completed: v.endedAt || v.date || Date.now(), type: visitTypeOf(v), tech: v.technician || '',
                 start: v.startedAt || (entries[0] && entries[0].at) || null, end: v.inProgress ? null : (v.endedAt || v.date), inProgress: !!v.inProgress,
                 stationsChecked: new Set(entries.map(e => e.barcode)).size, services: v.servicesCompleted || [], notes: v.summaryNote || '',
-                breaches: visitLimitBreaches(v).map(x => `${x.limit.name} · ${x.rule.species}: ${x.total} recorded in ${monthName(x.month)}, limit ${x.rule.max} a month (${x.total - x.rule.max} over). Caught at: ${breachStations(x).map(b => `${b.name} (${b.n})`).join(', ')}`),
+                breaches: visitLimitBreaches(v).map(x => `${x.name} · ${x.rule.species}: ${x.total} caught in ${monthName(x.month)}, this station's limit ${x.rule.max} a month (${x.total - x.rule.max} over) - critical limit ${x.limit.name}`),
                 entries: entries.map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity,
                     pests: (e.pests && e.pests.length ? e.pests : e.species && e.species !== NONE_SPECIES ? [{ species: e.species, count: e.count }] : []).map(x => `${x.species}${x.count ? ' x' + x.count : ''}`).join(', '),
                     prep: e.prep && e.prep !== NONE_PREP ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '', notes: e.notes || '' })),
@@ -13180,20 +13177,20 @@
                     return false;
                 }
             }
-            // Critical limits: a count that takes a limit over is double-checked, and needs a recommendation
+            // Critical limits: a count that takes this station over its limit is double-checked, and the technician is
+            // asked to add a recommendation (they can save without one)
             const hit = [[f.speciesCaught, f.pestCount]].concat(morePests.map(x => [x.species, x.count])).flatMap(([sp, n]) => limitsHitBy(currentBarcode, f.limitId, sp, n));
             const hasRec = !!(f.recTitle || f.recommendation || pendingPhotos.length);
             const devNow = siteDevices.find(d => d.barcode_id === currentBarcode);
             const recThisVisit = !!(devNow && (devNow.recommendationsHistory || []).some(r => r.thisVisit));
             if (hit.length) {
-                if (!confirm('⚠ CRITICAL LIMIT EXCEEDED\n\n' + hit.map(x => `${limitLabel(x)}: this makes ${x.total} this month (limit ${x.rule.max}).`).join('\n') +
+                if (!confirm('⚠ CRITICAL LIMIT EXCEEDED\n\n' + hit.map(x => `${x.rule.species}: this makes ${x.total} at this station this month (its limit is ${x.rule.max}).`).join('\n') +
                     '\n\nPlease double-check the pest and the number are right.\nOK if they are right, Cancel to check again.')) {
                     document.getElementById('pestCount').focus();
                     return false;
                 }
-                if (!hasRec && !recThisVisit) {
-                    alert(`A recommendation is required: ${limitLabel(hit[0])} is over its critical limit.\n\nAdd the recommendation, then save.`);
-                    openRecEditor({ type: 'Pest activity', title: `${hit[0].rule.species} over the critical limit (${hit[0].limit.name})` });
+                if (!hasRec && !recThisVisit && confirm(`This station is over its critical limit for ${hit.map(x => x.rule.species).join(' and ')}.\n\nAdd a recommendation for the customer?\nOK to add one, Cancel to save without.`)) {
+                    openRecEditor({ type: 'Pest activity', title: `${hit[0].rule.species} over the critical limit at ${locNameInput}` });
                     return false;
                 }
             }
@@ -13256,8 +13253,8 @@
                 const newRec = f.recTitle || f.recommendation || newBlobs.length;
                 const photoBit = newBlobs.length ? ` + ${mediaCountText(pendingPhotos)}` : '';
                 await queueLog(currentBarcode, payloadData, null, `Service record · ${locNameInput}`);
-                for (const x of hit) await queueSiteChange({ action: 'limit_breach', title: `Critical limit exceeded: ${limitLabel(x)}`,
-                    detail: `${x.total} this month, limit ${x.rule.max} · ${locNameInput} (${pestsText(payloadData)})` });
+                for (const x of hit) await queueSiteChange({ action: 'limit_breach', title: `Critical limit exceeded: ${locNameInput} · ${x.rule.species}`,
+                    detail: `${x.total} this month at this station, its limit ${x.rule.max} (critical limit ${x.limit.name}) · ${pestsText(payloadData)}` });
                 // The station's own row: created the first time, updated when its name or type changes
                 const st = siteStations.get(currentBarcode);
                 if (!st || st.name !== locNameInput || (st.type || '') !== (devType || '') || String(st.limit_id || '') !== String(f.limitId || '') || pendingStationPhoto) {
@@ -14832,6 +14829,13 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r89', date: '2026-10-30', v: { svc: '2026.10.30-r89', adm: '2026.10.30-a32', cli: '2026.10.30-p47' },
+            svc: ['Critical limits are per station: each station on a limit is allowed that many of each pest a month on its own (e.g. Midges 150 - any one unit that catches more than 150 has breached). Breaches are reported for the station',
+                  'Going over a critical limit asks if you want to add a recommendation - you can now save without one'],
+            adm: ['Critical limits are per station: the number you set is what each station on the limit is allowed a month on its own, and breaches are reported per station',
+                  'Reports › Critical limits: each station is judged on its own catches; the alert lists, insect by insect, the stations over their limit and when'],
+            cli: ['Critical limits are per station: each monitoring unit is allowed a set number of each insect a month, and a breach is reported for the unit that went over',
+                  'Reports › Critical limits: the alert lists, insect by insect, the stations over their limit and when'] },
         { rev: 'r88', date: '2026-10-30', v: { adm: '2026.10.30-a31' },
             adm: ['The Documents tab no longer shows a number beside it'] },
         { rev: 'r87', date: '2026-10-30', v: { svc: '2026.10.30-r87', adm: '2026.10.30-a30', cli: '2026.10.30-p46' },

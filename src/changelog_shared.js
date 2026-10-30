@@ -3,6 +3,13 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r89', date: '2026-10-30', v: { svc: '2026.10.30-r89', adm: '2026.10.30-a32', cli: '2026.10.30-p47' },
+            svc: ['Critical limits are per station: each station on a limit is allowed that many of each pest a month on its own (e.g. Midges 150 - any one unit that catches more than 150 has breached). Breaches are reported for the station',
+                  'Going over a critical limit asks if you want to add a recommendation - you can now save without one'],
+            adm: ['Critical limits are per station: the number you set is what each station on the limit is allowed a month on its own, and breaches are reported per station',
+                  'Reports › Critical limits: each station is judged on its own catches; the alert lists, insect by insect, the stations over their limit and when'],
+            cli: ['Critical limits are per station: each monitoring unit is allowed a set number of each insect a month, and a breach is reported for the unit that went over',
+                  'Reports › Critical limits: the alert lists, insect by insect, the stations over their limit and when'] },
         { rev: 'r88', date: '2026-10-30', v: { adm: '2026.10.30-a31' },
             adm: ['The Documents tab no longer shows a number beside it'] },
         { rev: 'r87', date: '2026-10-30', v: { svc: '2026.10.30-r87', adm: '2026.10.30-a30', cli: '2026.10.30-p46' },

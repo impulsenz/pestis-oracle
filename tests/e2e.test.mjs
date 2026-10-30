@@ -256,19 +256,21 @@ try {
     { id: 'stE2', client_id: sid, barcode: 'RB-E1', name: 'Rodent box', type: 'Internal Non-Toxic Rodent Station', limit_id: 'limE' },
     { id: 'stE3', client_id: sid, barcode: 'ILT-E3', name: 'Quiet ILT', type: 'Flying Insect Monitoring', limit_id: 'limE' }] });
   const lg = (b, name, ty, n, more) => ({ client_id: Number(sid), barcode_id: b, payload: { locationName: name, deviceType: ty, activityLevel: 'Caught', speciesCaught: 'House Fly', pestCount: n, morePests: more || [], technician: 'Tina Tech', servicedAt: new Date(Date.now() - 3600000).toISOString() } });
-  await api(t2)('service_logs', { op: 'insert', values: [lg('ILT-E1', 'Dock ILT', 'Flying Insect Monitoring', 4, [{ species: 'Blowfly', count: 7 }]), lg('RB-E1', 'Rodent box', 'Internal Non-Toxic Rodent Station', 30)] });
+  await api(t2)('service_logs', { op: 'insert', values: [lg('ILT-E1', 'Dock ILT', 'Flying Insect Monitoring', 4, [{ species: 'Blowfly', count: 7 }]), lg('RB-E1', 'Rodent box', 'Internal Non-Toxic Rodent Station', 30),
+    // 8 house flies here and 4 at the Dock: 12 together, but each station is under its own limit of 10 - no breach
+    lg('ILT-E3', 'Quiet ILT', 'Flying Insect Monitoring', 8)] });
   await api(t2)('visits', { op: 'insert', values: [{ id: 'vE1', client_id: sid, technician: 'Tina Tech', visit_type: 'Routine Service', completed_at: new Date().toISOString() }] });
   await api(b2)('client_access', { op: 'insert', values: [{ email: 'cara@acme.test', client_id: sid }] });
   const lc = await newPage(browser, await session('cara@acme.test'));
   await lc.goto(`${BASE}/client.html#/site/${sid}/overview`); await sleep(3500);
   const limBell = await lc.evaluate("bellItems(true).filter(i => i.key.startsWith('lim:')).map(i => i.sub)");
-  ok(limBell.length === 1 && /Blowfly/.test(limBell[0]), 'limit notification: only the insect over, and a rodent station never counts', limBell);
+  ok(limBell.length === 1 && /Blowfly: 7 this month/.test(limBell[0]), 'limit notification: per station - only Blowfly at the Dock is over; stations under their own limit and a rodent station never count', limBell);
   await lc.evaluate("openLimitReport('ILT-E1')"); await sleep(1000);
   const lim = await lc.evaluate(() => ({ filters: Array.from(document.querySelectorAll('.pr-f')).map(f => f.textContent.replace(/\s+/g, ' ').trim()),
     alert: (document.querySelector('.pr-alert') || {}).innerText || '', pests: Array.from(document.querySelectorAll('.pr-lim-p > .pr-lim-ph b')).map(b => b.textContent) }));
   ok(!lim.filters.some(f => /^Month/.test(f)) && lim.filters.some(f => /Insect/.test(f)), 'critical limits: no month filter, an insect filter', lim.filters);
   ok(lim.filters.some(f => /Flying Insect Monitoring/.test(f)) && !lim.filters.some(f => /Rodent/.test(f)), 'critical limits: only insect station types', lim.filters);
-  ok(/Blowfly - Dispatch: over in [A-Z][a-z]+ \d{4} \(7 of 5\)/.test(lim.alert) && !/House Fly/.test(lim.alert), 'critical limits: the alert names the insect that is over, and the month', lim.alert);
+  ok(/Blowfly\s+Over at: Dock ILT \([A-Z][a-z]+ \d{4}: 7 of 5\)/.test(lim.alert) && !/House Fly/.test(lim.alert), 'critical limits: the alert names the insect, the station over its own limit, and the month', lim.alert);
   ok(lim.pests[0] === 'Blowfly' && lim.pests.includes('House Fly'), 'critical limits: a section per insect, the one over first', lim.pests);
   ok(lim.filters.some(f => /^From/.test(f)) && lim.filters.some(f => /^To/.test(f)) && lim.filters.some(f => /^Breached.*Yes/.test(f)), 'critical limits: From and To months, and Breached (Yes to start with)', lim.filters);
   // Breached: Yes shows only the stations that breached; No shows every insect station on a limit
@@ -282,7 +284,7 @@ try {
   // Visits: the visit that breached has a red "!", says which limit, and the tab shows a red "!" while it's unopened
   await lc.evaluate("setTab('visits')"); await sleep(600);
   const vis = await lc.evaluate(() => ({ row: (document.querySelector('.visit-breach') || {}).innerText || '', mark: !!document.querySelector('.visit-breach .breach-mark'), tab: !!document.querySelector('.nav-tab .count.alert') }));
-  ok(vis.mark && vis.tab && /Critical limit breach: Blowfly in Dispatch/.test(vis.row), 'visits: a breached visit has a red "!" and says which limit; the Visits tab shows "!"', vis);
+  ok(vis.mark && vis.tab && /Critical limit breach: Dock ILT - Blowfly 7 caught this month, its limit 5/.test(vis.row), 'visits: a breached visit has a red "!" and says which limit; the Visits tab shows "!"', vis);
   // no automatic sign-out; services due as a month; certain months each year
   ok(await lc.evaluate("typeof idleCheck === 'undefined' && !document.getElementById('idleWarning')"), 'portal: no automatic sign-out');
   ok(await lc.evaluate("freqLabel('months:2,3,11') === 'Feb, Mar, Nov each year' && dueText(toDayStr(new Date())).text === 'Due this month'"), 'portal: certain months, and "Due this month"');
@@ -292,6 +294,21 @@ try {
       now: dueInfo({ nextDue: toDayStr(first) }).text, idle: typeof idleCheck };
   });
   ok(svcDue.a === '2026-11-15' && svcDue.b === '2027-02-28' && svcDue.lbl === 'Feb, Mar, Nov each year' && svcDue.now === 'Due this month' && svcDue.idle === 'undefined', 'service app: certain months each year, "Due this month", no automatic sign-out', svcDue);
+  // Service App: a limit applies to each station on its own (Midges 150): 120 + 120 at two units is no breach;
+  // 160 at one unit is, and it's reported for that unit
+  const perStation = await sp.evaluate(() => {
+    const keep = { siteLimits, siteStations, siteDevices };
+    // (Unit 2's 120 is this visit's check, so re-saving it as 160 replaces it; an earlier check this month would add to it)
+    const now = Date.now(), dev = (bc, name, n) => ({ barcode_id: bc, locationName: name, deviceType: 'Flying Insect Monitoring', history: [{ at: now - 60000, thisVisit: bc === 'U2', pests: [{ species: 'Midge', count: n }] }] });
+    siteLimits = [{ id: 'LM', name: 'Food hall', rules: [{ species: 'Midge', max: 150 }] }];
+    siteStations = new Map([['U1', { barcode: 'U1', limit_id: 'LM' }], ['U2', { barcode: 'U2', limit_id: 'LM' }]]);
+    siteDevices = [dev('U1', 'Unit 1', 120), dev('U2', 'Unit 2', 120)];
+    const together = limitBreachesNow().length;
+    const hit = limitsHitBy('U2', 'LM', 'Midge', 160).map(x => `${x.name}:${x.total}/${x.rule.max}`);
+    siteLimits = keep.siteLimits; siteStations = keep.siteStations; siteDevices = keep.siteDevices;
+    return { together, hit };
+  });
+  ok(perStation.together === 0 && perStation.hit.join() === 'Unit 2:160/150', 'service app: critical limits are per station (two units under 150 each is no breach; 160 at one unit breaches that unit)', perStation);
   const folders = await api(b2)('site_document_folders', { op: 'select', filters: [['client_id', 'eq', sid]] });
   ok((folders.data || []).some(f => f.name === 'Meeting notes') && !(folders.data || []).some(f => f.name === 'Meetings'), 'documents: the Meeting notes folder (not Meetings)', folders);
   ok(lc.errors.length === 0, 'critical limits: no errors', lc.errors);

@@ -49,7 +49,7 @@
 .pr-faint { color: var(--faint); }
 .pr-station { font-size: .9rem; color: var(--text); }
 .pr-station span { color: var(--muted); font-size: .75rem; }
-.pr-lims { display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: .7rem; }
+.pr-lims { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 26rem), 1fr)); gap: .7rem; }   /* one station alone keeps a card's width */
 .pr-lim { padding: .7rem; border-radius: .9rem; border: 1px solid var(--border); background: var(--surface); }
 .pr-lim-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .4rem; font-size: .8rem; color: var(--text); margin-bottom: .3rem; }
 .pr-lim-p { border-top: 1px solid var(--border); padding: .55rem 0 .2rem; }
