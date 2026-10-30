@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.31-a40-oci
+    Version 2026.10.31-a41-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -808,7 +808,7 @@
         .map-pin-inner { position: absolute; left: 0; top: 0; transform-origin: 50% 100%; cursor: pointer; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
         .map-pin-head { width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2.5px solid #fff; box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .6); display: flex; align-items: center; justify-content: center; }
         .map-pin-head span { transform: rotate(45deg); color: #fff; font-size: 12px; font-weight: 900; line-height: 1; }
-        .map-pin-label { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 4px; white-space: nowrap; font-size: 11px; font-weight: 800; padding: 1px 6px; border-radius: 6px; background: rgba(2, 6, 23, .82); color: #fff; }
+        .map-pin-label { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 4px; white-space: nowrap; font-size: 11px; font-weight: 800; padding: 1px 2px; color: var(--pin-color, #0f172a); text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff; }
         .map-pin-ring { position: absolute; left: 50%; bottom: 0; width: 26px; height: 26px; margin-left: -13px; margin-bottom: -13px; border-radius: 999px; border: 3px solid var(--pin-color, rgb(var(--b500))); opacity: 0; pointer-events: none; }
         .map-pin.focus .map-pin-ring { animation: pinRing 2.6s cubic-bezier(.25, .1, .25, 1) infinite; }
         .map-pin.focus .map-pin-ring.two { animation-delay: 1.3s; }
@@ -996,7 +996,8 @@
         /* the site page's cards packed into columns (no gaps beside a short card); one column on narrow screens */
         .as-grid { column-gap: 1.25rem; }
         .as-pin { position: absolute; transform: translate(-50%, -100%) scale(var(--pz-inv, 1)); transform-origin: 50% 100%; }
-        .as-pin span { display: block; width: 16px; height: 16px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 3px 8px -2px rgba(0, 0, 0, .6); }
+        .as-pin-label { position: absolute; left: calc(100% + 3px); top: 0; white-space: nowrap; font-style: normal; font-size: 11px; font-weight: 800; line-height: 1; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff; pointer-events: none; }
+        .as-pin > span { display: block; width: 16px; height: 16px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 3px 8px -2px rgba(0, 0, 0, .6); }
         .as-grid > * { break-inside: avoid; margin-bottom: 1.25rem; }
         @media (min-width: 1024px) { .as-grid { column-count: 2; } }
         .wn-badge { margin-left: .35rem; font-size: 9px; font-weight: 800; color: #fff; background: rgb(var(--b500)); padding: 0 .4rem; border-radius: 999px; line-height: 1.6; }
@@ -3289,8 +3290,9 @@ const PVR = (() => {
             g.font = font(700, Math.round(r * 1.15)); g.textBaseline = 'middle';
             pins.forEach(x => {
                 const px = mx + x.x * mw + r * 1.3, py = my + x.y * mh - r * Math.SQRT2, tw = g.measureText(x.name).width;
-                g.fillStyle = 'rgba(2,6,23,.82)'; rr(px, py - r * .85, tw + r * 1.1, r * 1.7, r * .4); g.fill();
-                g.fillStyle = '#fff'; g.fillText(x.name, px + r * .55, py);
+                // the name in the pin's colour, with a white edge so it reads on any plan
+                g.lineJoin = 'round'; g.lineWidth = Math.max(3, r * .4); g.strokeStyle = '#fff'; g.strokeText(x.name, px + r * .2, py);
+                g.fillStyle = x.color || '#0f172a'; g.fillText(x.name, px + r * .2, py);
             });
             g.textBaseline = 'alphabetic';
         }
@@ -3485,7 +3487,7 @@ const PVR = (() => {
     function heatCss() {
         if (heatCssDone || typeof document === 'undefined') return; heatCssDone = true;
         const s = document.createElement('style');
-        s.textContent = `.heat-panel{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem .9rem;font-size:12px;color:var(--text,#0f172a);text-align:left}
+        s.textContent = `.heat-panel{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.6rem 1.5rem;font-size:12px;color:var(--text,#0f172a);text-align:left}
 .heat-panel select,.heat-dd-pop input[type=search]{font:inherit;font-weight:600;color:var(--text,#0f172a);background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.35rem .5rem}
 .heat-f{display:flex;flex-direction:column;gap:.25rem}.heat-f>span{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#64748b)}
 .heat-dd{position:relative;min-width:11rem;max-width:18rem}
@@ -3499,10 +3501,11 @@ const PVR = (() => {
 .heat-list{max-height:14rem;overflow-y:auto}
 .heat-list label{display:flex;align-items:center;gap:.45rem;padding:.3rem .4rem;border-radius:.35rem;cursor:pointer;font-weight:600}.heat-list label:hover{background:var(--surface2,#f1f5f9)}
 .heat-list input{width:15px;height:15px;accent-color:#ea580c}
-.heat-key{display:flex;flex-direction:column;gap:.3rem;min-width:10rem;flex:1 1 12rem;max-width:22rem}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
-.heat-bar-l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--faint,#64748b)}.heat-sum{font-weight:700;color:var(--muted,#475569)}
+.heat-ctrls{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem .9rem}
+.heat-key{display:flex;flex-direction:column;gap:.35rem;flex:0 1 26rem;min-width:14rem}.heat-scale{display:flex;align-items:center;gap:.5rem;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#64748b);white-space:nowrap}.heat-scale .heat-bar{flex:1}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
+.heat-bar-l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--faint,#64748b)}.heat-sum{font-weight:700;color:var(--muted,#475569);text-align:right}
 .heat-layer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-@media (max-width:640px){.heat-panel{gap:.45rem .6rem}.heat-key{flex:1 1 100%;max-width:none}.heat-key>.heat-f{display:none}.heat-dd{min-width:9rem}}
+@media (max-width:640px){.heat-panel{gap:.5rem .6rem}.heat-key{flex:1 1 100%;min-width:0}.heat-sum{text-align:left}.heat-dd{min-width:9rem}}
 .pz-view{position:relative;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;background:var(--surface2,#f1f5f9);border-radius:.7rem;cursor:grab;height:min(70vh,560px);min-height:240px}
 .pz-view.pz-drag{cursor:grabbing}.pz-stage{position:absolute;left:0;top:0;transform-origin:0 0}
 .pz-stage>img{display:block;max-width:none;width:100%;height:100%;pointer-events:none;-webkit-user-drag:none}
@@ -3520,14 +3523,14 @@ body.pz-lock{overflow:hidden}`;
         const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         const on = new Set((st.pests || []).map(heatKey)), hot = (pts || []).filter(p => p.v > 0), top = hot.slice().sort((p, q) => q.v - p.v)[0];
         const ticked = pests.filter(p => on.has(heatKey(p))), txt = !on.size ? 'All pests' : ticked.length === 1 ? ticked[0] : `${on.size} pests`;
-        return `<div class="heat-panel" data-heat-cb="${esc(cb)}">
+        return `<div class="heat-panel" data-heat-cb="${esc(cb)}"><div class="heat-ctrls">
             <label class="heat-f"><span>Time frame</span><select onchange="${esc(cb)}('period', this.value)">${HEAT_PERIODS.map(([v, l]) => `<option value="${v}" ${st.period === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
             <div class="heat-f"><span>Pests</span><div class="heat-dd">
                 <button type="button" class="heat-dd-btn ${on.size ? 'on' : ''}" onclick="PVR.heatOpen(this)" aria-haspopup="listbox" title="${esc(ticked.join(', ') || txt)}">${esc(txt)}</button>
                 <div class="heat-dd-pop" hidden><input type="search" placeholder="Search pests..." aria-label="Search pests" oninput="PVR.heatFilter(this)">
                     <div class="heat-dd-bar"><button type="button" onclick="${esc(cb)}('pests', [])">Clear (all pests)</button><button type="button" class="heat-done" onclick="PVR.heatOpen(this, false)">Done</button></div>
                     <div class="heat-list" role="listbox" aria-multiselectable="true">${pests.map(p => `<label data-q="${esc(String(p).toLowerCase())}"><input type="checkbox" value="${esc(p)}" ${on.has(heatKey(p)) ? 'checked' : ''} onchange="${esc(cb)}('pest', this.value, this.checked)">${esc(p)}</label>`).join('') || '<div class="heat-bar-l" style="padding:.4rem">No pests recorded yet</div>'}</div></div></div></div>
-            <div class="heat-key"><span class="heat-f"><span>Activity</span></span><div class="heat-bar"></div><div class="heat-bar-l"><span>A little</span><span>The most</span></div>
+            </div><div class="heat-key"><div class="heat-scale"><span>A little</span><div class="heat-bar"></div><span>The most</span></div>
                 <div class="heat-sum">${hot.length ? `${hot.length} station${hot.length === 1 ? '' : 's'} with activity${top ? ` · most at ${esc(top.name)} (${Math.round(top.v * 10) / 10})` : ''}` : 'No activity for this choice'}</div></div>
         </div>`;
     }
@@ -3575,9 +3578,15 @@ body.pz-lock{overflow:hidden}`;
             view.appendChild(ctl);
         }
         const apply = () => { stage.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`; stage.style.setProperty('--pz-inv', String(1 / v.z)); };
+        const size = () => {
+            if (view.classList.contains('pz-full')) { view.style.height = ''; return; }
+            const want = Math.round(Math.min(Math.max(240, view.clientWidth * h / w), window.innerHeight * .85));
+            if (Math.abs(view.clientHeight - want) > 2) view.style.height = want + 'px';
+        };
         const fit = () => {
+            size();
             const vw = view.clientWidth, vh = view.clientHeight; if (!vw || !vh) return;
-            v.fit = Math.min(vw / w, vh / h) * .96; v.z = v.fit; v.x = (vw - w * v.z) / 2; v.y = (vh - h * v.z) / 2; v.atFit = true; apply();
+            v.fit = Math.min(vw / w, vh / h) * .98; v.z = v.fit; v.x = (vw - w * v.z) / 2; v.y = (vh - h * v.z) / 2; v.atFit = true; apply();
         };
         const zoomAt = (f, cx, cy) => {
             if (cx == null) { cx = view.clientWidth / 2; cy = view.clientHeight / 2; }
@@ -3607,7 +3616,7 @@ body.pz-lock{overflow:hidden}`;
         const click = e => { if (e.target.closest('.pz-ctl')) return; if (moved > 6) { e.stopPropagation(); e.preventDefault(); } else if (view.classList.contains('pz-full') && e.target.closest('button, a, [onclick]') && e.target.closest('.pz-stage')) full(false); moved = 0; };
         const wheel = e => { e.preventDefault(); const p = local(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y); };
         const key = e => { if (e.key === 'Escape' && view.classList.contains('pz-full')) full(false); };
-        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { if (v.atFit) fit(); }) : null;
+        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { if (v.atFit) fit(); else size(); }) : null;
         ctl.addEventListener('click', onCtl);
         view.addEventListener('pointerdown', down); view.addEventListener('pointermove', move); view.addEventListener('pointerup', up); view.addEventListener('pointercancel', up);
         view.addEventListener('click', click, true); view.addEventListener('wheel', wheel, { passive: false }); document.addEventListener('keydown', key);
@@ -3802,6 +3811,14 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r99', date: '2026-10-31', v: { svc: '2026.10.31-r99', adm: '2026.10.31-a41', cli: '2026.10.31-p54' },
+            svc: ['Floor plans: station names are in the same colour as their pin, with no black box behind them (the screen and the pest map PDF)',
+                  'Floor plans: the heat map controls are tidier - time frame and pests on the left, the colour key and what it found on the right'],
+            adm: ['Sites › Floor plans: the plan fills the box (it is as tall as the plan needs, no grey space at the sides), and station names show beside the pins in their colour',
+                  'Floor plans: the heat map controls are tidier - time frame and pests on the left, the colour key and what it found on the right'],
+            cli: ['Floor plans: the plan fills the box (it is as tall as the plan needs, no grey space at the sides)',
+                  'Floor plans: station names are in the same colour as their pin, with no black box behind them (the screen and the pest map PDF)',
+                  'Floor plans: the heat map controls are tidier - time frame and pests on the left, the colour key and what it found on the right'] },
         { rev: 'r98', date: '2026-10-31', v: { svc: '2026.10.31-r98', adm: '2026.10.31-a40', cli: '2026.10.31-p53' },
             svc: ['Floor plans: the heat map pests are a compact drop-down - tap it, search, and tick the pests you want'],
             adm: ['Sites › Floor plans: drag the plan to move around, zoom in and out (+ and −, or the mouse wheel), FIT to see the whole plan, and ⛶ for full screen',
@@ -4802,7 +4819,7 @@ const PR = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a40-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a41-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');
@@ -5748,7 +5765,7 @@ const PR = (() => {
             if (!stage || (adminPlan.maps.find(x => x.id === adminPlan.id) || adminPlan.maps[0]).id !== m.id) return;
             if (!url) { stage.innerHTML = '<div class="t-faint p-8">The floor plan picture could not be loaded.</div>'; return; }
             const pins = adminPlan.stations.filter(x => String(x.map_id) === String(m.id) && x.pin_x != null && x.pin_y != null);
-            stage.innerHTML = `<img src="${esc(url)}" alt="${esc(m.name || 'Floor plan')}">${pins.map(x => `<span class="as-pin" style="left:${x.pin_x * 100}%;top:${x.pin_y * 100}%;" title="${esc(x.name || x.barcode)} · ${esc(x.type || '')}"><span style="background:${stationColor(x.type).color}"></span></span>`).join('')}`;
+            stage.innerHTML = `<img src="${esc(url)}" alt="${esc(m.name || 'Floor plan')}">${pins.map(x => `<span class="as-pin" style="left:${x.pin_x * 100}%;top:${x.pin_y * 100}%;" title="${esc(x.name || x.barcode)} · ${esc(x.type || '')}"><span style="background:${stationColor(x.type).color}"></span><em class="as-pin-label" style="color:${stationColor(x.type).color}">${esc(x.name || x.barcode)}</em></span>`).join('')}`;
             const img = stage.querySelector('img');
             const ready = () => { if (!img.isConnected) return; PVR.panZoom(document.getElementById('asPlanView'), stage, img.naturalWidth, img.naturalHeight); drawAdminPlanHeat(); };
             drawAdminPlanHeat();

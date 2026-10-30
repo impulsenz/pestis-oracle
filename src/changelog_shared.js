@@ -3,6 +3,14 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r99', date: '2026-10-31', v: { svc: '2026.10.31-r99', adm: '2026.10.31-a41', cli: '2026.10.31-p54' },
+            svc: ['Floor plans: station names are in the same colour as their pin, with no black box behind them (the screen and the pest map PDF)',
+                  'Floor plans: the heat map controls are tidier - time frame and pests on the left, the colour key and what it found on the right'],
+            adm: ['Sites › Floor plans: the plan fills the box (it is as tall as the plan needs, no grey space at the sides), and station names show beside the pins in their colour',
+                  'Floor plans: the heat map controls are tidier - time frame and pests on the left, the colour key and what it found on the right'],
+            cli: ['Floor plans: the plan fills the box (it is as tall as the plan needs, no grey space at the sides)',
+                  'Floor plans: station names are in the same colour as their pin, with no black box behind them (the screen and the pest map PDF)',
+                  'Floor plans: the heat map controls are tidier - time frame and pests on the left, the colour key and what it found on the right'] },
         { rev: 'r98', date: '2026-10-31', v: { svc: '2026.10.31-r98', adm: '2026.10.31-a40', cli: '2026.10.31-p53' },
             svc: ['Floor plans: the heat map pests are a compact drop-down - tap it, search, and tick the pests you want'],
             adm: ['Sites › Floor plans: drag the plan to move around, zoom in and out (+ and −, or the mouse wheel), FIT to see the whole plan, and ⛶ for full screen',

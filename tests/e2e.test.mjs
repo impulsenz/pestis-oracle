@@ -431,6 +431,10 @@ try {
   const heat1 = await hp.evaluate(() => ({ layer: !!document.querySelector('#planStage canvas.heat-layer'), sum: (document.querySelector('#planHeatBox .heat-sum') || {}).textContent }));
   ok(heat1.layer && /^4 stations with activity · most at Dock ILT/.test(heat1.sum) && (await px('#planStage .heat-layer', .25, .3)) > 0 && !(await px('#planStage .heat-layer', .1, .8)), 'portal heat map: drawn over the plan, hot where there was activity and not at a quiet station', heat1);
   await hp.screenshot({ path: SHOTS + '/heat-portal-390.png', fullPage: true });
+  // the plan area is the plan's own shape (no grey bands at the sides); station names are in the pin's colour with no dark box
+  const shape = await hp.evaluate(() => { const v = document.getElementById('planView').getBoundingClientRect(), l = document.querySelector('#planStage .plan-pin-label'), pin = l.parentElement.querySelector('span'), cs = getComputedStyle(l);
+    return { w: v.width, h: v.height, ih: innerHeight, color: cs.color, pin: getComputedStyle(pin).backgroundColor, bg: cs.backgroundColor }; });
+  ok(Math.abs(shape.h - Math.min(shape.w * 300 / 400, shape.ih * .85)) < 4 && shape.color === shape.pin && shape.bg === 'rgba(0, 0, 0, 0)', 'floor plan: the area fits the plan, and station names are in the pin colour with no box', shape);
   // the pests are a drop-down with tick boxes and a search; it stays open while ticking
   await hp.click('#planHeatBox .heat-dd-btn'); await sleep(200);
   await hp.fill('#planHeatBox .heat-dd-pop input[type=search]', 'ra'); await sleep(100);

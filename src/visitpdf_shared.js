@@ -121,8 +121,9 @@ const PVR = (() => {
             g.font = font(700, Math.round(r * 1.15)); g.textBaseline = 'middle';
             pins.forEach(x => {
                 const px = mx + x.x * mw + r * 1.3, py = my + x.y * mh - r * Math.SQRT2, tw = g.measureText(x.name).width;
-                g.fillStyle = 'rgba(2,6,23,.82)'; rr(px, py - r * .85, tw + r * 1.1, r * 1.7, r * .4); g.fill();
-                g.fillStyle = '#fff'; g.fillText(x.name, px + r * .55, py);
+                // the name in the pin's colour, with a white edge so it reads on any plan
+                g.lineJoin = 'round'; g.lineWidth = Math.max(3, r * .4); g.strokeStyle = '#fff'; g.strokeText(x.name, px + r * .2, py);
+                g.fillStyle = x.color || '#0f172a'; g.fillText(x.name, px + r * .2, py);
             });
             g.textBaseline = 'alphabetic';
         }
@@ -317,7 +318,7 @@ const PVR = (() => {
     function heatCss() {
         if (heatCssDone || typeof document === 'undefined') return; heatCssDone = true;
         const s = document.createElement('style');
-        s.textContent = `.heat-panel{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem .9rem;font-size:12px;color:var(--text,#0f172a);text-align:left}
+        s.textContent = `.heat-panel{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.6rem 1.5rem;font-size:12px;color:var(--text,#0f172a);text-align:left}
 .heat-panel select,.heat-dd-pop input[type=search]{font:inherit;font-weight:600;color:var(--text,#0f172a);background:var(--surface,#fff);border:1px solid var(--border,#cbd5e1);border-radius:.5rem;padding:.35rem .5rem}
 .heat-f{display:flex;flex-direction:column;gap:.25rem}.heat-f>span{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--faint,#64748b)}
 .heat-dd{position:relative;min-width:11rem;max-width:18rem}
@@ -331,10 +332,11 @@ const PVR = (() => {
 .heat-list{max-height:14rem;overflow-y:auto}
 .heat-list label{display:flex;align-items:center;gap:.45rem;padding:.3rem .4rem;border-radius:.35rem;cursor:pointer;font-weight:600}.heat-list label:hover{background:var(--surface2,#f1f5f9)}
 .heat-list input{width:15px;height:15px;accent-color:#ea580c}
-.heat-key{display:flex;flex-direction:column;gap:.3rem;min-width:10rem;flex:1 1 12rem;max-width:22rem}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
-.heat-bar-l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--faint,#64748b)}.heat-sum{font-weight:700;color:var(--muted,#475569)}
+.heat-ctrls{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.6rem .9rem}
+.heat-key{display:flex;flex-direction:column;gap:.35rem;flex:0 1 26rem;min-width:14rem}.heat-scale{display:flex;align-items:center;gap:.5rem;font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--faint,#64748b);white-space:nowrap}.heat-scale .heat-bar{flex:1}.heat-bar{height:10px;border-radius:99px;background:linear-gradient(90deg,rgb(37,99,235),rgb(22,163,74),rgb(234,179,8),rgb(234,88,12),rgb(220,38,38))}
+.heat-bar-l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;color:var(--faint,#64748b)}.heat-sum{font-weight:700;color:var(--muted,#475569);text-align:right}
 .heat-layer{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
-@media (max-width:640px){.heat-panel{gap:.45rem .6rem}.heat-key{flex:1 1 100%;max-width:none}.heat-key>.heat-f{display:none}.heat-dd{min-width:9rem}}
+@media (max-width:640px){.heat-panel{gap:.5rem .6rem}.heat-key{flex:1 1 100%;min-width:0}.heat-sum{text-align:left}.heat-dd{min-width:9rem}}
 .pz-view{position:relative;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none;background:var(--surface2,#f1f5f9);border-radius:.7rem;cursor:grab;height:min(70vh,560px);min-height:240px}
 .pz-view.pz-drag{cursor:grabbing}.pz-stage{position:absolute;left:0;top:0;transform-origin:0 0}
 .pz-stage>img{display:block;max-width:none;width:100%;height:100%;pointer-events:none;-webkit-user-drag:none}
@@ -352,14 +354,14 @@ body.pz-lock{overflow:hidden}`;
         const esc = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         const on = new Set((st.pests || []).map(heatKey)), hot = (pts || []).filter(p => p.v > 0), top = hot.slice().sort((p, q) => q.v - p.v)[0];
         const ticked = pests.filter(p => on.has(heatKey(p))), txt = !on.size ? 'All pests' : ticked.length === 1 ? ticked[0] : `${on.size} pests`;
-        return `<div class="heat-panel" data-heat-cb="${esc(cb)}">
+        return `<div class="heat-panel" data-heat-cb="${esc(cb)}"><div class="heat-ctrls">
             <label class="heat-f"><span>Time frame</span><select onchange="${esc(cb)}('period', this.value)">${HEAT_PERIODS.map(([v, l]) => `<option value="${v}" ${st.period === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
             <div class="heat-f"><span>Pests</span><div class="heat-dd">
                 <button type="button" class="heat-dd-btn ${on.size ? 'on' : ''}" onclick="PVR.heatOpen(this)" aria-haspopup="listbox" title="${esc(ticked.join(', ') || txt)}">${esc(txt)}</button>
                 <div class="heat-dd-pop" hidden><input type="search" placeholder="Search pests..." aria-label="Search pests" oninput="PVR.heatFilter(this)">
                     <div class="heat-dd-bar"><button type="button" onclick="${esc(cb)}('pests', [])">Clear (all pests)</button><button type="button" class="heat-done" onclick="PVR.heatOpen(this, false)">Done</button></div>
                     <div class="heat-list" role="listbox" aria-multiselectable="true">${pests.map(p => `<label data-q="${esc(String(p).toLowerCase())}"><input type="checkbox" value="${esc(p)}" ${on.has(heatKey(p)) ? 'checked' : ''} onchange="${esc(cb)}('pest', this.value, this.checked)">${esc(p)}</label>`).join('') || '<div class="heat-bar-l" style="padding:.4rem">No pests recorded yet</div>'}</div></div></div></div>
-            <div class="heat-key"><span class="heat-f"><span>Activity</span></span><div class="heat-bar"></div><div class="heat-bar-l"><span>A little</span><span>The most</span></div>
+            </div><div class="heat-key"><div class="heat-scale"><span>A little</span><div class="heat-bar"></div><span>The most</span></div>
                 <div class="heat-sum">${hot.length ? `${hot.length} station${hot.length === 1 ? '' : 's'} with activity${top ? ` · most at ${esc(top.name)} (${Math.round(top.v * 10) / 10})` : ''}` : 'No activity for this choice'}</div></div>
         </div>`;
     }
@@ -407,9 +409,15 @@ body.pz-lock{overflow:hidden}`;
             view.appendChild(ctl);
         }
         const apply = () => { stage.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.z})`; stage.style.setProperty('--pz-inv', String(1 / v.z)); };
+        const size = () => {
+            if (view.classList.contains('pz-full')) { view.style.height = ''; return; }
+            const want = Math.round(Math.min(Math.max(240, view.clientWidth * h / w), window.innerHeight * .85));
+            if (Math.abs(view.clientHeight - want) > 2) view.style.height = want + 'px';
+        };
         const fit = () => {
+            size();
             const vw = view.clientWidth, vh = view.clientHeight; if (!vw || !vh) return;
-            v.fit = Math.min(vw / w, vh / h) * .96; v.z = v.fit; v.x = (vw - w * v.z) / 2; v.y = (vh - h * v.z) / 2; v.atFit = true; apply();
+            v.fit = Math.min(vw / w, vh / h) * .98; v.z = v.fit; v.x = (vw - w * v.z) / 2; v.y = (vh - h * v.z) / 2; v.atFit = true; apply();
         };
         const zoomAt = (f, cx, cy) => {
             if (cx == null) { cx = view.clientWidth / 2; cy = view.clientHeight / 2; }
@@ -439,7 +447,7 @@ body.pz-lock{overflow:hidden}`;
         const click = e => { if (e.target.closest('.pz-ctl')) return; if (moved > 6) { e.stopPropagation(); e.preventDefault(); } else if (view.classList.contains('pz-full') && e.target.closest('button, a, [onclick]') && e.target.closest('.pz-stage')) full(false); moved = 0; };
         const wheel = e => { e.preventDefault(); const p = local(e); zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, p.x, p.y); };
         const key = e => { if (e.key === 'Escape' && view.classList.contains('pz-full')) full(false); };
-        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { if (v.atFit) fit(); }) : null;
+        const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => { if (v.atFit) fit(); else size(); }) : null;
         ctl.addEventListener('click', onCtl);
         view.addEventListener('pointerdown', down); view.addEventListener('pointermove', move); view.addEventListener('pointerup', up); view.addEventListener('pointercancel', up);
         view.addEventListener('click', click, true); view.addEventListener('wheel', wheel, { passive: false }); document.addEventListener('keydown', key);
