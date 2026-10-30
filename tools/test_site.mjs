@@ -4,11 +4,13 @@
 // apps: it only adds rows to the database, which the apps show like any other site - and removes them again.
 //
 // On the server (over SSH), as the pestis user so the database keeps the right owner:
-//   sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add                      add the test site
+//   sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add                      add the test site (14 stations, 18 months)
+//   sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add-big                  a bigger one: 20 stations, 5 years
 //   sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add --client you@x.com   ...and let that client login see it
 //   sudo -u pestis node /opt/pestis/app/tools/test_site.mjs status                   is there a test site?
 //   sudo -u pestis node /opt/pestis/app/tools/test_site.mjs remove                   delete the test site and everything on it
-// Options: --db <path to pestis.db> (default $DATA_DIR/pestis.db, i.e. /var/lib/pestis/pestis.db), --months <n> (default 18)
+// Options: --db <path to pestis.db> (default $DATA_DIR/pestis.db, i.e. /var/lib/pestis/pestis.db),
+//          --stations <n> (2-20, default 14), --years <n> or --months <n> (up to 6 years; default 18 months)
 //
 // Everything it makes is marked: the site's Notes say TEST_MARK, and every row of its own carries the site's id, so
 // "remove" deletes exactly the test site's data and nothing else. Run "add" again only after "remove".
@@ -23,12 +25,14 @@ const SITE_NAME = 'TEST - Harbour Foods (pretend site)';
 const TECH = 'Test Technician';
 
 const args = process.argv.slice(2);
-const cmd = args[0];
+const big = args[0] === 'add-big';   // 20 stations, 5 years
+const cmd = big ? 'add' : args[0];
 const opt = name => { const i = args.indexOf('--' + name); return i >= 0 ? args[i + 1] : null; };
 const dbPath = opt('db') || path.join(process.env.DATA_DIR || '/var/lib/pestis', 'pestis.db');
-const MONTHS = Math.max(2, Math.min(36, Number(opt('months')) || 18));
+const MONTHS = Math.max(2, Math.min(72, Number(opt('years')) * 12 || Number(opt('months')) || (big ? 60 : 18)));
+const STATION_COUNT = Math.max(2, Math.min(20, Number(opt('stations')) || (big ? 20 : 14)));
 if (!['add', 'remove', 'status'].includes(cmd)) {
-  console.log('Use: test_site.mjs add [--client email] | status | remove   (options: --db path, --months n)');
+  console.log('Use: test_site.mjs add | add-big | status | remove   (options: --client email, --stations n, --years n, --months n, --db path)');
   process.exit(1);
 }
 if (!fs.existsSync(dbPath)) { console.error(`No database at ${dbPath} (use --db to say where it is).`); process.exit(1); }
@@ -90,7 +94,8 @@ const uuid = () => crypto.randomUUID();
 const now = new Date();
 const monthStart = back => new Date(now.getFullYear(), now.getMonth() - back, 1);
 
-const STATIONS = [
+// every station type (the first --stations of them are used; 20 = all of them)
+const ALL_STATIONS = [
   // [barcode, name, type, limit]
   ['TEST-ILT-01', 'Dock ILT', 'Flying Insect Monitoring', 'Food hall'],
   ['TEST-ILT-02', 'Packing ILT', 'Flying Insect Monitoring', 'Food hall'],
@@ -106,14 +111,21 @@ const STATIONS = [
   ['TEST-EN-02', 'Back fence trap', 'External Non-Toxic Rodent Station', null],
   ['TEST-ET-01', 'Car park bait', 'External Toxic Rodent Station', null],
   ['TEST-ET-02', 'Loading bay bait', 'External Toxic Rodent Station', null],
+  ['TEST-ILT-05', 'Canteen ILT', 'Flying Insect Monitoring', 'Food hall'],
+  ['TEST-CR-04', 'Cool store crawler', 'Crawling Insect Monitoring', 'Warehouse'],
+  ['TEST-IN-02', 'Office trap', 'Internal Non-Toxic Rodent Station', null],
+  ['TEST-ET-03', 'Side gate bait', 'External Toxic Rodent Station', null],
+  ['TEST-PS-01', 'Reception sighting register', 'Pest Sighting Register', null],
+  ['TEST-IP-01', 'Roof inspection point', 'Inspection Point', null],
 ];
+const STATIONS = ALL_STATIONS.slice(0, STATION_COUNT);
 const LIMITS = [
   { name: 'Food hall', rules: [{ species: 'Fly', max: 40 }, { species: 'Midges', max: 150 }, { species: 'Blowfly', max: 15 }] },
   { name: 'Warehouse', rules: [{ species: 'Fly', max: 60 }, { species: 'German Cockroach', max: 10 }] },
 ];
 // how busy each month is (summer in New Zealand: more flies), 0-11 = Jan-Dec
 const season = m => [1.6, 1.7, 1.4, 1.0, 0.6, 0.4, 0.3, 0.4, 0.6, 0.9, 1.2, 1.5][m];
-const isFly = t => /flying/i.test(t), isCrawl = t => /crawling/i.test(t), isToxic = t => /toxic/i.test(t) && !/non-toxic/i.test(t);
+const isFly = t => /flying/i.test(t), isCrawl = t => /crawling/i.test(t), isToxic = t => /toxic/i.test(t) && !/non-toxic/i.test(t), isLook = t => /sighting|inspection/i.test(t);
 
 let site;
 tx(() => {
@@ -149,6 +161,10 @@ tx(() => {
         const n = Math.round(int(0, 9) * s);
         Object.assign(p, n ? { activityLevel: 'Caught', speciesCaught: 'German Cockroach', pestCount: n } : { activityLevel: 'None', speciesCaught: 'None' },
           n > 4 ? { prepUsed: 'Advion Cockroach Gel', quantity: int(2, 6), quantityUnit: 'g', batchNumber: 'AV-' + (88 + back) } : { prepUsed: 'None - Monitoring Only' });
+      } else if (isLook(type)) {
+        // a sighting register or inspection point: usually nothing; now and then something seen
+        const seen = rnd() < 0.15;
+        Object.assign(p, seen ? { activityLevel: 'Low', speciesCaught: pick(['Mice', 'German Cockroach', 'Ants', 'Fly']), notes: 'Seen by staff - checked and treated' } : { activityLevel: 'None', speciesCaught: 'None' }, { prepUsed: 'None - Monitoring Only' });
       } else if (isToxic(type)) {
         const lv = pick(['None', 'None', 'Low', 'Low', 'Medium', 'High']);
         Object.assign(p, { activityLevel: lv, speciesCaught: lv === 'None' ? 'None' : pick(['Rat', 'Mice']), prepUsed: pick(['Contrac', 'Generation']), quantity: int(1, 4), quantityUnit: 'each', batchNumber: 'RB-' + (310 + back) });

@@ -50,6 +50,19 @@ try {
   ok(!(await left('service_logs')) && !(await left('stations')) && !(await left('visits')) && !(await left('recommendations')) && !(await left('site_limits')), 'none of the test site\'s data is left');
   ok(((await api(boss)('stations', {})).data || []).length === 1 && ((await api(boss)('recommendations', {})).data || []).length === 2, 'the real site\'s stations and recommendations are untouched');
   ok(/no test site/i.test(tool('status')), 'status: no test site');
+
+  // the bigger one: 20 stations of every type, 5 years of history - and remove takes it all away again
+  out = tool('add-big');
+  const m = /#(\d+).*: 20 stations, (\d+) visits, (\d+) station checks over 60 months/.exec(out);
+  ok(m && Number(m[2]) >= 59 && Number(m[3]) >= 59 * 20, 'add-big: 20 stations and 5 years of visits and checks', out);
+  const bid = m && m[1];
+  const bst = ((await api(boss)('stations', { filters: [['client_id', 'eq', String(bid)]] })).data || []);
+  const types = new Set(bst.map(x => x.type));
+  ok(bst.length === 20 && ['Flying Insect Monitoring', 'Crawling Insect Monitoring', 'Internal Toxic Rodent Station', 'External Toxic Rodent Station', 'Internal Non-Toxic Rodent Station', 'External Non-Toxic Rodent Station', 'Pest Sighting Register', 'Inspection Point'].every(ty => types.has(ty)), 'add-big: stations of every type', [...types]);
+  const oldest = ((await api(boss)('service_logs', { filters: [['client_id', 'eq', Number(bid)]], order: [['created_at', true]], limit: 1 })).data || [])[0];
+  ok(oldest && Date.now() - Date.parse(oldest.payload.servicedAt) > 4.8 * 365 * 86400000, 'add-big: the history goes back about 5 years', oldest && oldest.payload.servicedAt);
+  out = tool('remove');
+  ok(/Removed test site/.test(out) && !(await left('service_logs')) && ((await api(boss)('clients', {})).data || []).length === 1, 'remove: the big test site is gone too, the real site stays', out);
 } catch (e) { fails++; console.log('ERROR', e); }
 finally {
   srv.stop();

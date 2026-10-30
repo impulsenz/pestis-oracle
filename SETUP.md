@@ -152,6 +152,7 @@ Where things are: database `/var/lib/pestis/pestis.db`; photos and documents `/v
 | Task | Command (on the server, over SSH) |
 |---|---|
 | Add the test site | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add` |
+| ...or a bigger one: 20 stations of every type, 5 years of history | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add-big` |
 | ...and let a client login see it | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add --client someone@example.com` (the client login must already exist in Admin) |
 | Is there a test site? | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs status` |
 | Remove it again | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs remove` |
