@@ -2259,7 +2259,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.30-r93-oci';
+        const APP_VERSION = '2026.10.31-r96-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -14682,6 +14682,10 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r96', date: '2026-10-31', v: { svc: '2026.10.31-r96', adm: '2026.10.31-a38', cli: '2026.10.31-p51' },
+            svc: ['Fixed: actioning a pest sighting could be refused ("null value in column photos") - it now uploads, including any that were set aside'],
+            adm: ['Reports: the "Show" choice says Month by month instead of Over time', 'Fixed: actioning a pest sighting could be refused ("null value in column photos")'],
+            cli: ['Reports: the "Show" choice says Month by month instead of Over time'] },
         { rev: 'r95', date: '2026-10-30', v: { cli: '2026.10.30-p50' },
             cli: ['Reports: tapping the Reports tab while you are in a report takes you back to the list of reports'] },
         { rev: 'r94', date: '2026-10-30', v: { adm: '2026.10.30-a37' },

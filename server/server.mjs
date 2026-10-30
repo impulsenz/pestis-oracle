@@ -463,6 +463,10 @@ function insertRow(t, input, me, opts = {}) {
 function updateRow(t, rowid, old, patch, me, opts = {}) {
   guardNewColumns(t, patch, me);
   let row = Object.assign({}, old, patch);
+  // a record saved without a required value that has a plain default (e.g. an empty photo list) gets the default,
+  // so changing it isn't refused
+  for (const [col, cd] of t.cols) if (cd.nn && (row[col] === null || row[col] === undefined) && cd.def !== undefined && !['identity', 'uid', 'now', 'uuid'].includes(cd.def))
+    row[col] = typeof cd.def === 'object' ? JSON.parse(JSON.stringify(cd.def)) : cd.def;
   row = TRIGGERS.beforeUpdate[t.name] ? TRIGGERS.beforeUpdate[t.name](row, old, me) : row;
   if (!opts.skipCheck && !canWrite(t.name, 'update', row, me)) throw rlsError(t.name);
   checkNotNull(t, row);

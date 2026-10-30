@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.30-a37-oci
+    Version 2026.10.31-a38-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -3579,6 +3579,10 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r96', date: '2026-10-31', v: { svc: '2026.10.31-r96', adm: '2026.10.31-a38', cli: '2026.10.31-p51' },
+            svc: ['Fixed: actioning a pest sighting could be refused ("null value in column photos") - it now uploads, including any that were set aside'],
+            adm: ['Reports: the "Show" choice says Month by month instead of Over time', 'Fixed: actioning a pest sighting could be refused ("null value in column photos")'],
+            cli: ['Reports: the "Show" choice says Month by month instead of Over time'] },
         { rev: 'r95', date: '2026-10-30', v: { cli: '2026.10.30-p50' },
             cli: ['Reports: tapping the Reports tab while you are in a report takes you back to the list of reports'] },
         { rev: 'r94', date: '2026-10-30', v: { adm: '2026.10.30-a37' },
@@ -4045,7 +4049,7 @@ const PR = (() => {
         const uniq = a => Array.from(new Set(a.filter(Boolean))).sort((x, y) => String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }));
         const parts = [];
         R.f.forEach(f => {
-            if (f === 'view') parts.push(sel('view', 'Show', [['time', 'Over time'], ['yoy', 'Year on year (each year on top of the last)']]));
+            if (f === 'view') parts.push(sel('view', 'Show', [['time', 'Month by month'], ['yoy', 'Year on year (each year on top of the last)']]));
             if (f === 'years' && (R.id === 'station' || s.view === 'yoy')) parts.push(sel('years', R.id === 'station' && s.view !== 'yoy' ? 'Over the last' : 'Years', [['1', 'This year'], ['2', '2 years'], ['3', '3 years'], ['5', '5 years'], ['all', 'All years']]));
             if (f === 'period' && R.f.includes('view') && s.view === 'yoy') return;
             if (f === 'period') {
@@ -4478,7 +4482,7 @@ const PR = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.30-a37-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a38-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');

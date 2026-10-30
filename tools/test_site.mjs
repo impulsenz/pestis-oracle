@@ -18,7 +18,7 @@ import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
-import { STANDARD_FOLDERS, SITE_TABLES } from '../server/schema.mjs';
+import { STANDARD_FOLDERS, SITE_TABLES, TABLES } from '../server/schema.mjs';
 
 const TEST_MARK = 'PESTIS TEST SITE - made by tools/test_site.mjs (remove it with: test_site.mjs remove)';
 const SITE_NAME = 'TEST - Harbour Foods (pretend site)';
@@ -41,7 +41,13 @@ const db = new DatabaseSync(dbPath);
 db.exec('PRAGMA busy_timeout = 5000;');
 const testSites = () => db.prepare('SELECT id, Name FROM clients WHERE Notes = ?').all(TEST_MARK);
 const tx = fn => { db.exec('BEGIN IMMEDIATE'); try { fn(); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; } };
-const insert = (table, row) => {
+// a row as the server would save it: every required column that has a default gets it (e.g. an empty photo list)
+const insert = (table, input) => {
+  const row = Object.assign({}, input);
+  for (const [col, cd] of Object.entries((TABLES[table] || {}).cols || {})) {
+    if (row[col] !== undefined || cd.def === undefined || cd.def === 'identity' || cd.def === 'uid') continue;
+    row[col] = cd.def === 'now' ? new Date().toISOString() : cd.def === 'uuid' ? crypto.randomUUID() : (typeof cd.def === 'object' ? JSON.parse(JSON.stringify(cd.def)) : cd.def);
+  }
   const cols = Object.keys(row);
   return db.prepare(`INSERT INTO "${table}" (${cols.map(c => `"${c}"`).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
     .run(...cols.map(c => row[c] === undefined ? null : (row[c] !== null && typeof row[c] === 'object' ? JSON.stringify(row[c]) : row[c])));

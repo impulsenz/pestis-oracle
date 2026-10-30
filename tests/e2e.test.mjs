@@ -328,6 +328,9 @@ try {
   await lc.evaluate("setTab('overview')"); await sleep(600);
   await repTab(); await sleep(800);
   ok(await onList(), 'reports: tapping Reports from another tab opens the list of reports');
+  await lc.evaluate("PR.show(state.prBox, 'station')"); await sleep(600);
+  const showOpts = await lc.evaluate(() => { const f = Array.from(document.querySelectorAll('.pr-f')).find(x => /^Show/.test(x.textContent.trim())); return f ? Array.from(f.querySelectorAll('option')).map(o => o.textContent) : []; });
+  ok(showOpts[0] === 'Month by month' && !showOpts.includes('Over time'), 'One station: "Show" offers Month by month (not Over time)', showOpts);
   // Visits: the visit that breached has a red "!", says which limit, and the tab shows a red "!" while it's unopened
   await lc.evaluate("setTab('visits')"); await sleep(600);
   const vis = await lc.evaluate(() => ({ row: (document.querySelector('.visit-breach') || {}).innerText || '', mark: !!document.querySelector('.visit-breach .breach-mark'), tab: !!document.querySelector('.nav-tab .count.alert') }));

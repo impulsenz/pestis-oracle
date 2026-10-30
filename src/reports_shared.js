@@ -182,7 +182,7 @@ const PR = (() => {
         const uniq = a => Array.from(new Set(a.filter(Boolean))).sort((x, y) => String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }));
         const parts = [];
         R.f.forEach(f => {
-            if (f === 'view') parts.push(sel('view', 'Show', [['time', 'Over time'], ['yoy', 'Year on year (each year on top of the last)']]));
+            if (f === 'view') parts.push(sel('view', 'Show', [['time', 'Month by month'], ['yoy', 'Year on year (each year on top of the last)']]));
             if (f === 'years' && (R.id === 'station' || s.view === 'yoy')) parts.push(sel('years', R.id === 'station' && s.view !== 'yoy' ? 'Over the last' : 'Years', [['1', 'This year'], ['2', '2 years'], ['3', '3 years'], ['5', '5 years'], ['all', 'All years']]));
             if (f === 'period' && R.f.includes('view') && s.view === 'yoy') return;
             if (f === 'period') {

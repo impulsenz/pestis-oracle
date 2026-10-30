@@ -22,7 +22,7 @@ try {
   await api(boss)('recommendations', { op: 'insert', values: [{ id: 'real-rec', client_id: '1', text: 'A real recommendation' }] });
   await api(boss)('client_users', { op: 'insert', values: { email: 'cara@acme.test', full_name: 'Cara Client', company: 'Acme' } });
 
-  let out = tool('add', '--client', 'cara@acme.test');
+  let out = tool('add', '--client', 'cara@acme.test'), r;
   ok(/Added test site #2/.test(out), 'add: the test site is made', out);
   try { out = tool('add'); } catch (e) { out = String(e.stdout || ''); }
   ok(/already there/.test(out), 'add twice is refused', out);
@@ -41,6 +41,20 @@ try {
   const portal = await (await fetch(BASE + '/api/rpc/portal_sites', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + cara.access_token }, body: '{}' })).json();
   ok(Array.isArray(portal.data) && portal.data.length === 1 && portal.data[0].Name === t.Name, 'the client login given access sees the test site (and only it)', portal);
   ok(/stations, \d+ station checks/.test(tool('status')), 'status describes the test site');
+  // its pest sighting can be actioned (it was saved with an empty photo list, as the app would)
+  const tech = await session('boss@example.com');
+  const sight = ((await api(tech)('pest_sightings', { filters: [['client_id', 'eq', String(t.id)]] })).data || [])[0];
+  r = await api(tech)('pest_sightings', { op: 'update', filters: [['id', 'eq', sight.id]], values: { status: 'actioned', action_notes: 'Checked', actioned_by: 'Bob' }, returning: true });
+  ok(!r.error && r.data && r.data[0].status === 'actioned' && Array.isArray(r.data[0].photos), "the test site's pest sighting can be actioned", r);
+  // a record saved without its photo list (as an older version of this script did) is repaired when it's changed
+  {
+    const { DatabaseSync } = await import('node:sqlite');
+    const raw = new DatabaseSync(DB); raw.exec('PRAGMA busy_timeout = 5000;');
+    raw.prepare('UPDATE pest_sightings SET photos = NULL, action_photos = NULL WHERE id = ?').run(sight.id);
+    raw.close();
+    r = await api(tech)('pest_sightings', { op: 'update', filters: [['id', 'eq', sight.id]], values: { action_notes: 'Checked again' }, returning: true });
+    ok(!r.error && r.data && JSON.stringify(r.data[0].photos) === '[]' && JSON.stringify(r.data[0].action_photos) === '[]', 'a record missing its photo list is repaired instead of refused', r);
+  }
 
   out = tool('remove');
   ok(/Removed test site/.test(out), 'remove: the test site is deleted', out);

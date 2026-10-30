@@ -3,6 +3,10 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r96', date: '2026-10-31', v: { svc: '2026.10.31-r96', adm: '2026.10.31-a38', cli: '2026.10.31-p51' },
+            svc: ['Fixed: actioning a pest sighting could be refused ("null value in column photos") - it now uploads, including any that were set aside'],
+            adm: ['Reports: the "Show" choice says Month by month instead of Over time', 'Fixed: actioning a pest sighting could be refused ("null value in column photos")'],
+            cli: ['Reports: the "Show" choice says Month by month instead of Over time'] },
         { rev: 'r95', date: '2026-10-30', v: { cli: '2026.10.30-p50' },
             cli: ['Reports: tapping the Reports tab while you are in a report takes you back to the list of reports'] },
         { rev: 'r94', date: '2026-10-30', v: { adm: '2026.10.30-a37' },
