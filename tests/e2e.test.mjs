@@ -184,6 +184,29 @@ try {
   const profs = await api(boss)('profiles', {});
   ok(profs.data.length === 2, 'two staff profiles', profs.data.map(p => p.email));
   await ad.screenshot({ path: SHOTS + '/admin.png' });
+  // Sites: a card for each site; tap one for its page, change its details, and (another site) delete it
+  await api(boss)('clients', { op: 'insert', values: [{ Name: 'Throwaway Site', Address: '2 Bin Rd' }] });
+  await ad.evaluate('loadClients ? loadClients() : null').catch(() => {}); await sleep(800);
+  await ad.evaluate("setAdminTab('sites')"); await sleep(800);
+  const cards = await ad.evaluate(() => Array.from(document.querySelectorAll('#adminSites .site-card .site-name')).map(x => x.textContent));
+  ok(cards.includes('Acme Foods'), 'Admin › Sites: a card for each site', cards);
+  await ad.evaluate("openAdminSite('1')"); await sleep(1500);
+  const page = await ad.evaluate(() => ({ title: (document.querySelector('#adminSites h3') || {}).textContent, stations: (document.getElementById('asStations') || {}).innerText || '', sections: Array.from(document.querySelectorAll('#adminSites .eyebrow')).map(x => x.textContent) }));
+  ok(page.title === 'Acme Foods' && /Store Room/.test(page.stations) && ['Site details', 'Services & schedule', 'Site contacts', 'Visits', 'Stations', 'Documents', 'Client portal logins', 'Critical limits', 'Delete this site'].every(s => page.sections.includes(s)), 'Admin › Sites: a site page with every section', page);
+  await ad.fill('#asd_Address', '1 Main St, Gisborne');
+  await ad.evaluate("saveAdminSiteDetails('1')"); await sleep(400);
+  await ad.evaluate('flushQueue && flushQueue()'); await sleep(1500);
+  const site1 = ((await api(boss)('clients', { filters: [['id', 'eq', 1]] })).data || [])[0];
+  ok(site1 && site1.Address === '1 Main St, Gisborne', 'Admin › Sites: the site page saves the site details', site1 && site1.Address);
+  const throwId = String(((await api(boss)('clients', {})).data || []).find(c => c.Name === 'Throwaway Site').id);
+  await ad.evaluate('loadClients ? loadClients() : null').catch(() => {}); await sleep(800);
+  ad.removeAllListeners('dialog');
+  ad.on('dialog', d => d.type() === 'prompt' ? d.accept('Throwaway Site') : d.accept());
+  await ad.evaluate(id => { openAdminSite(id); return deleteAdminSite(id); }, throwId); await sleep(800);
+  ad.removeAllListeners('dialog'); ad.on('dialog', d => d.accept());
+  const left = ((await api(boss)('clients', {})).data || []).map(c => c.Name);
+  ok(!left.includes('Throwaway Site') && left.includes('Acme Foods'), 'Admin › Sites: delete a site (typing its name to confirm)', left);
+  await ad.evaluate("setAdminTab('overview')"); await sleep(300);
   ok(ad.errors.length === 0, 'Admin: no errors', ad.errors);
 
   // ---------- Client Portal (emailed link) ----------

@@ -397,6 +397,35 @@ try {
   r = await stranger.from('profiles').select('*').eq('id', stranger.uid);
   ok(r.data.length === 0, 'deleted profile');
 
+  // ---------- deleting a site (admins only): the site and everything on it, and its files; other sites untouched ----------
+  {
+    const adm = await as('boss@example.com'), tch = await as('tech@example.com');
+    r = await adm.from('clients').insert([{ Name: 'Doomed Site', Address: '1 Gone St' }]).select('*');
+    const did = String(r.data[0].id);
+    await adm.from('stations').insert([{ id: 'doom-st', client_id: did, barcode: 'D1', name: 'Doomed station', photo_path: did + '/doom.jpg' }]);
+    await adm.from('service_logs').insert([{ client_id: Number(did), barcode_id: 'D1', payload: { speciesCaught: 'Rat' } }]);
+    await adm.from('recommendations').insert([{ id: 'doom-rec', client_id: did, text: 'Doomed' }]);
+    await adm.from('site_contacts').insert([{ client_id: did, name: 'Doomed contact' }]);
+    await adm.from('client_access').insert([{ email: 'cara@acme.test', client_id: did }]);
+    await tch.storage.from('station-photos').upload(did + '/doom.jpg', new Blob(['DOOM']), { contentType: 'image/jpeg' });
+    const fileThere = async () => { const u = (await adm.storage.from('station-photos').createSignedUrl(did + '/doom.jpg', 60)).data; return !!u && (await fetch(u.signedUrl.startsWith('http') ? u.signedUrl : BASE + u.signedUrl)).ok; };
+    ok(await fileThere(), 'the doomed site has a photo');
+    r = await tch.from('clients').delete().eq('id', Number(did));
+    ok((await adm.from('clients').select('id').eq('id', Number(did))).data.length === 1, 'a technician cannot delete a site', r.error);
+    r = await tch.rpc('admin_delete_site', { p_client_id: did, p_confirm_name: 'Doomed Site' });
+    ok(r.error && /admins/.test(r.error.message), 'a technician cannot use admin_delete_site', r);
+    r = await adm.rpc('admin_delete_site', { p_client_id: did, p_confirm_name: 'Doomed' });
+    ok(r.error && /exactly/.test(r.error.message), 'the name must be typed exactly', r);
+    const before = (await adm.from('stations').select('id')).data.length;
+    r = await adm.rpc('admin_delete_site', { p_client_id: did, p_confirm_name: 'Doomed Site' });
+    ok(!r.error && r.data && r.data.name === 'Doomed Site' && r.data.files === 1, 'an admin deletes the site', r);
+    const gone = async (tn, k = 'client_id', v = did) => !((await adm.from(tn).select('*').eq(k, v)).data || []).length;
+    ok(await gone('clients', 'id', Number(did)) && await gone('stations') && await gone('service_logs', 'client_id', Number(did)) && await gone('recommendations') && await gone('site_contacts') && await gone('client_access') && await gone('site_document_folders'),
+      'everything on the site is gone');
+    ok(!(await fileThere()), "the site's photo file is gone");
+    ok((await adm.from('stations').select('id')).data.length === before - 1 && (await adm.from('clients').select('id').eq('id', 1)).data.length === 1, 'other sites are untouched');
+  }
+
   // ---------- a restart: old pest names in records are matched to the pest list ----------
   const techR = await as('tech@example.com');
   r = await techR.from('service_logs').insert([{ client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'House Mouse' } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'norway rat' } },

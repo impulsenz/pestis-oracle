@@ -145,6 +145,12 @@
 @media print { .pr-combo-btn { background-image: none; padding-right: .65rem; } .pr-map-btn { display: none; } }
 .pr-station > span:first-child { color: var(--text); font-size: .9rem; }
 /* PESTIS-REPORTS-CSS:END */
+        /* Admin › Sites: one site's page */
+        .as-head { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+        .as-cover { flex: 0 0 11rem; aspect-ratio: 4 / 3; border-radius: .75rem; overflow: hidden; position: relative; }
+        .as-head-text { flex: 1 1 14rem; min-width: 0; }
+        @media (max-width: 640px) { .as-cover { flex-basis: 100%; } }
+        .as-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 30rem), 1fr)); gap: 1.25rem; align-items: start; }
         .wn-badge { margin-left: .35rem; font-size: 9px; font-weight: 800; color: #fff; background: rgb(var(--b500)); padding: 0 .4rem; border-radius: 999px; line-height: 1.6; }
 </style>
 </head>
@@ -196,6 +202,8 @@
                     </div></div>
                 </div>
             </section>
+
+            <section data-admin-tab="sites" class="hidden space-y-5"><div id="adminSites" class="space-y-5"></div></section>
 
             <section data-admin-tab="team" class="hidden card p-5 sm:p-6 space-y-5">
                 <div id="adminPanel" class="space-y-5">
@@ -933,6 +941,11 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r91', date: '2026-10-30', v: { adm: '2026.10.30-a34' },
+            adm: ['New Sites tab: every site as a card (search, filter by technician, sort by next service or most to sort out), and "+ New site"',
+                  'Each site has its own page: change its details (name, address, contact, technician, contract, staff notes), its services, and see its visits, stations (and when each was last checked), contacts, outstanding recommendations, documents, client logins, critical limits and recent changes - with buttons to change each',
+                  'Delete a site (on its page): deletes the site and everything on it, after you type its name to confirm. Only admins can delete a site',
+                  'Overview › Needs attention now lists documents expiring soon as well as expired ones - tap one to open it'] },
         { rev: 'r90', date: '2026-10-30', v: { svc: '2026.10.30-r90', adm: '2026.10.30-a33', cli: '2026.10.30-p48' },
             svc: ['Pests: Mouse is now Mice, House fly is now Fly and Midge is now Midges (past records too). Cluster fly, Fruit fly and Lesser house fly are off the list',
                   'Preparations: the list is now Light Bulb, Maki Block, Contrac, Generation, Key Aqua Delta, Zetapy, Forgot, VK2, Anteater Ant Gel, Advion Cockroach Gel, Glue Board, MAC Slay Residual Insecticide, Dust to Dust, WaspJet Pro and STORGARD'],
@@ -2281,7 +2294,7 @@ const PR = (() => {
         // ===================================================================
         //  ADMIN PAGE: team-wide information and settings in one place (admins only)
         // ===================================================================
-        const ADMIN_TABS = [['overview', 'Overview'], ['team', 'Users'], ['clients', 'Client portal'], ['services', 'Services'], ['documents', 'Documents'], ['contacts', 'Site contacts'], ['limits', 'Critical limits'], ['reports', 'Reports'], ['lists', 'Lists'], ['days', 'Day log'], ['activity', 'Activity'], ['exports', 'Exports']];
+        const ADMIN_TABS = [['overview', 'Overview'], ['sites', 'Sites'], ['team', 'Users'], ['clients', 'Client portal'], ['services', 'Services'], ['documents', 'Documents'], ['contacts', 'Site contacts'], ['limits', 'Critical limits'], ['reports', 'Reports'], ['lists', 'Lists'], ['days', 'Day log'], ['activity', 'Activity'], ['exports', 'Exports']];
         let adminTab = 'overview';
         function openAdmin(tab) {
             if (!isAdmin()) { alert('Only admins can open the Admin page.'); return; }
@@ -2317,6 +2330,7 @@ const PR = (() => {
             if (adminTab === 'reports' && adminTabShown !== 'reports') { const b = document.getElementById('adminReports'); if (b) b._prSite = null; }
             adminTabShown = adminTab;
             if (adminTab === 'overview') renderAdminOverview();
+            else if (adminTab === 'sites') renderAdminSites();
             else if (adminTab === 'team') loadAdminPanel();
             else if (adminTab === 'clients') { loadClientAdmin(); renderSitesWithoutClients(); }
             else if (adminTab === 'services') renderAdminServices();
@@ -2380,7 +2394,11 @@ const PR = (() => {
             pending.forEach(u => rows.push(item('👤', `${esc(u.full_name || u.email)} is waiting for approval`, esc(u.email), "setAdminTab('team')", '<span class="chip chip-amber">Staff</span>')));
             n.longVisits.forEach(x => rows.push(item('⏱', `${esc(x.c.Name)}: visit open ${esc(visitAgeText(x.v))}`, `Started by ${esc(teamName(x.v.by) || 'unknown')}`, `goToSite('${esc(String(x.c.id))}')`, '<span class="chip chip-red">Visit</span>')));
             n.missed.slice(0, 15).forEach(x => rows.push(item('📅', `${esc(x.c.Name)}: ${esc(x.sv.type)} missed`, `Was due ${esc(dueMonth(x.sv.nextDue))}${x.c.assigned_to ? ' · ' + esc(teamName(x.c.assigned_to)) : ' · no technician assigned'}`, `goToSite('${esc(String(x.c.id))}')`, `<span class="chip chip-red">${-x.days}d overdue</span>`)));
-            expired.forEach(d => rows.push(item('📄', `${esc(siteById(d.client_id) ? siteById(d.client_id).Name : 'Site')}: "${esc(d.title)}" has expired`, `${esc(d.category || 'Document')} · expired ${esc(fmtDay(d.expires_on))}`, "setAdminTab('documents')", '<span class="chip chip-red">Document</span>')));
+            // documents to renew: expired and expiring soon (tap to open the document)
+            docs.slice().sort((a, b) => String(a.expires_on).localeCompare(String(b.expires_on))).forEach(d => {
+                const gone = d.expires_on < toDayStr(new Date());
+                rows.push(item('📄', `${esc(siteById(d.client_id) ? siteById(d.client_id).Name : 'Site')}: "${esc(d.title)}" ${gone ? 'has expired' : 'expires soon'}`, `${esc(d.category || 'Document')} · ${gone ? 'expired' : 'expires'} ${esc(fmtDay(d.expires_on))} - tap to open it`, `adminOpenDoc('${esc(String(d.id))}')`, `<span class="chip ${gone ? 'chip-red' : 'chip-amber'}">Document</span>`));
+            });
             n.contracts.filter(x => x.ci.days < 0).forEach(x => rows.push(item('📝', `${esc(x.c.Name)}: contract ended`, esc(x.ci.text), `goToSite('${esc(String(x.c.id))}')`, '<span class="chip chip-purple">Contract</span>')));
             if (noTech.length) rows.push(item('🧭', `${noTech.length} site${noTech.length === 1 ? ' has' : 's have'} no technician assigned`, esc(noTech.slice(0, 4).map(c => c.Name).join(', ') + (noTech.length > 4 ? '...' : '')), "setAdminTab('exports')", '<span class="chip chip-blue">Sites</span>'));
             const noClient = clientsData.filter(c => !portalSites.has(String(c.id)));
@@ -2546,6 +2564,220 @@ const PR = (() => {
             WN.markSeen('adm');
         }
         setTimeout(() => { try { WN.badges('adm'); } catch (e) {} }, 0);
+
+        // ---------- Sites: every site as a card (like the Service App); tap one for its own admin page ----------
+        // a short message at the bottom of the screen
+        function adminToast(msg) {
+            const el = document.createElement('div');
+            el.className = 'fixed left-1/2 -translate-x-1/2 bottom-6 z-[90] card px-4 py-2.5 text-sm font-bold t-strong shadow-lg';
+            el.setAttribute('role', 'status'); el.textContent = msg;
+            document.body.appendChild(el); setTimeout(() => el.remove(), 2600);
+        }
+        let adminSitePage = null;   // the site open on its own page (its id), or null for the cards
+        const adminSitesF = { q: '', tech: '', sort: 'name' };
+        let adminCoversAsked = false;
+        function adminSiteStats(c) {
+            const cid = String(c.id);
+            const dues = getServices(c).map(sv => ({ sv, d: dueInfo(sv) })).filter(x => x.d.days !== null).sort((a, b) => a.d.days - b.d.days);
+            return {
+                due: dues[0] || null,
+                recs: adminData.recs.filter(r => String(r.client_id) === cid).length,
+                docs: adminDocsNeedingAttention().filter(d => String(d.client_id) === cid).length,
+                logins: adminClientAccess.filter(a => String(a.client_id) === cid).length,
+                contract: contractInfo(c), visit: visitInfo(c)
+            };
+        }
+        function renderAdminSites() {
+            if (adminSitePage && siteById(adminSitePage)) { renderAdminSitePage(adminSitePage); return; }
+            adminSitePage = null;
+            // the cover photos (once; the cards are drawn again when they arrive)
+            if (!adminCoversAsked && isOnline) {
+                adminCoversAsked = true;
+                const paths = clientsData.map(c => c.image_path).filter(p => p && !coverSigned.has(p));
+                if (paths.length) getSignedUrls(paths).then(m => { m.forEach((u, p) => coverSigned.set(p, u)); if (adminTab === 'sites' && !adminSitePage) renderAdminSites(); }).catch(() => {});
+            }
+            const q = adminSitesF.q.trim().toLowerCase();
+            let list = clientsData.filter(c => c && (!q || `${c.Name || ''} ${c.Address || ''} ${c.Contact || ''}`.toLowerCase().includes(q))
+                && (!adminSitesF.tech || (adminSitesF.tech === '-' ? !c.assigned_to : c.assigned_to === adminSitesF.tech)));
+            const st = new Map(list.map(c => [c, adminSiteStats(c)]));
+            const byName = (a, b) => String(a.Name || '').localeCompare(String(b.Name || ''), undefined, { sensitivity: 'base', numeric: true });
+            list.sort(adminSitesF.sort === 'due' ? (a, b) => ((st.get(a).due ? st.get(a).due.d.days : 1e9) - (st.get(b).due ? st.get(b).due.d.days : 1e9)) || byName(a, b)
+                : adminSitesF.sort === 'attention' ? (a, b) => ((st.get(b).recs + st.get(b).docs) - (st.get(a).recs + st.get(a).docs)) || byName(a, b) : byName);
+            const staff = adminProfiles.filter(u => u.approved).sort((a, b) => String(a.full_name || a.email).localeCompare(String(b.full_name || b.email)));
+            const card = c => {
+                const s = st.get(c), name = txt(c.Name) || 'Unnamed site', cover = coverUrl(c);
+                const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+                const chips = [
+                    s.due ? `<span class="site-due" style="background:${s.due.d.days < 0 ? '#dc2626' : s.due.d.cls === 'chip-amber' ? 'rgb(var(--b600))' : '#0f766e'};">${esc(s.due.d.text)}</span>` : '',
+                    s.recs ? `<span class="site-due" style="background:#ea580c;">${s.recs} rec${s.recs === 1 ? '' : 's'} open</span>` : '',
+                    s.docs ? `<span class="site-due" style="background:#d97706;">${s.docs} doc${s.docs === 1 ? '' : 's'} to renew</span>` : '',
+                    s.contract && s.contract.days <= RENEWAL_WARN_DAYS ? `<span class="site-due" style="background:${s.contract.days < 0 ? '#991b1b' : '#7c3aed'};">${esc(s.contract.short)}</span>` : ''
+                ].join('');
+                const tech = c.assigned_to ? teamName(c.assigned_to) : '';
+                return `<button type="button" class="site-card" data-id="${esc(String(c.id))}" onclick="openAdminSite(this.dataset.id)" title="${esc([name, txt(c.Address), tech ? 'Technician: ' + tech : ''].filter(Boolean).join(' - '))}" style="background:${CARD_GRADIENTS[hashString(name) % CARD_GRADIENTS.length]}">
+                    ${cover ? `<img src="${esc(cover)}" alt="" loading="lazy" class="site-cover" onerror="this.remove()">` : `<span class="site-initials">${esc(initials)}</span>`}
+                    ${s.visit ? `<span class="site-progress" style="background:${s.visit.stale ? '#dc2626' : '#2563eb'};">${s.visit.stale ? '⚠ Open ' + esc(visitAgeText(s.visit)) : '<span class="dot"></span>Visit in progress'}</span>` : ''}
+                    ${chips ? `<span class="site-chips">${chips}</span>` : ''}
+                    <span class="site-overlay${chips ? ' has-chips' : ''}"><span class="site-name">${esc(name)}</span>
+                        <span class="text-[10px] font-semibold" style="color:rgba(255,255,255,.8);text-shadow:0 1px 3px rgba(0,0,0,.6);">${esc(tech ? 'Technician: ' + tech : 'No technician')}${s.logins ? ' · ' + s.logins + ' client login' + (s.logins === 1 ? '' : 's') : ''}</span></span>
+                </button>`;
+            };
+            document.getElementById('adminSites').innerHTML = `<div class="card p-5 sm:p-6 space-y-4">
+                <div class="flex flex-wrap items-end justify-between gap-3">
+                    <div><h3 class="font-black t-strong">Sites</h3><p class="text-xs t-muted mt-1">Every site. Tap one for its own page: its details, services, visits, stations, contacts, documents, client logins, critical limits and reports - and to delete it.</p></div>
+                    <button type="button" class="btn btn-primary !py-2" onclick="newAdminSite()">+ New site</button>
+                </div>
+                <div class="flex flex-wrap items-end gap-2">
+                    <div class="flex-1 min-w-[12rem]"><label class="lbl" for="asQ">Search</label><input id="asQ" type="search" class="field !py-2 !text-sm" placeholder="Name, address or contact" value="${esc(adminSitesF.q)}" oninput="adminSitesF.q = this.value; renderAdminSites(); const i = document.getElementById('asQ'); i.focus(); i.setSelectionRange(i.value.length, i.value.length);"></div>
+                    <div><label class="lbl" for="asTech">Technician</label><select id="asTech" class="field !w-auto !py-2 !text-sm" onchange="adminSitesF.tech = this.value; renderAdminSites()"><option value="">Everyone</option><option value="-" ${adminSitesF.tech === '-' ? 'selected' : ''}>No technician</option>${staff.map(u => `<option value="${esc(u.id)}" ${adminSitesF.tech === u.id ? 'selected' : ''}>${esc(u.full_name || u.email)}</option>`).join('')}</select></div>
+                    <div><label class="lbl" for="asSort">Sort</label><select id="asSort" class="field !w-auto !py-2 !text-sm" onchange="adminSitesF.sort = this.value; renderAdminSites()">${[['name', 'Name'], ['due', 'Next service due'], ['attention', 'Most to sort out']].map(([v, l]) => `<option value="${v}" ${adminSitesF.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+                </div>
+                <p class="text-[11px] t-faint">${list.length} of ${clientsData.length} site${clientsData.length === 1 ? '' : 's'}</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">${list.map(card).join('') || '<div class="row-item p-4 t-faint italic text-center">No sites match.</div>'}</div>
+            </div>`;
+        }
+        function openAdminSite(cid) { adminSitePage = String(cid); if (adminTab !== 'sites') setAdminTab('sites'); else renderAdminSites(); document.getElementById('adminPage').scrollTop = 0; }
+        function closeAdminSite() { adminSitePage = null; renderAdminSites(); document.getElementById('adminPage').scrollTop = 0; }
+        // go to another Admin tab with this site already chosen there
+        function adminSiteTab(tab, cid) {
+            adminSiteId = String(cid);
+            setAdminTab(tab);
+            if (tab === 'documents') { const s = document.getElementById('adminDocSite'); if (s) { s.value = String(cid); if (typeof fillAdminDocFolders === 'function') fillAdminDocFolders(); } }
+        }
+        async function newAdminSite() {
+            const name = (prompt('Name of the new site:') || '').trim();
+            if (!name) return;
+            const address = (prompt('Its address (you can change it later):') || '').trim();
+            try {
+                const { data, error } = await _supabase.from('clients').insert([{ Name: name, Address: address || null }]).select('*');
+                if (error) throw error;
+                const c = data && data[0];
+                if (c) { normalizeClientRow(c); clientsData.push(c); await queueSiteChange({ client_id: c.id, action: 'site_edit', title: 'Site added in Admin' }); openAdminSite(c.id); }
+            } catch (e) { alert('Could not add the site: ' + (e.message || e)); }
+        }
+
+        // ---------- one site's admin page ----------
+        let adminSiteData = { cid: null };
+        function renderAdminSitePage(cid) {
+            const c = siteById(cid), s = adminSiteStats(c), name = txt(c.Name) || 'Unnamed site', cover = coverUrl(c);
+            const staff = adminProfiles.filter(u => u.approved).sort((a, b) => String(a.full_name || a.email).localeCompare(String(b.full_name || b.email)));
+            const tile = (v, k, sub, color) => `<div class="card p-4"><div class="text-xl font-black" style="color:${color || 'var(--text)'}">${v}</div><div class="eyebrow t-faint mt-1">${k}</div>${sub ? `<div class="text-[11px] t-muted mt-0.5">${sub}</div>` : ''}</div>`;
+            const sec = (id, title, color, inner, actions) => `<div class="card p-5 space-y-3"><div class="flex flex-wrap items-center justify-between gap-2"><span class="eyebrow" style="color:${color};">${title}</span><span class="flex flex-wrap gap-2">${actions || ''}</span></div><div id="${id}" class="space-y-2 text-xs">${inner}</div></div>`;
+            const btn = (label, onclick, primary) => `<button type="button" class="btn ${primary ? 'btn-primary' : 'btn-secondary'} !py-1.5 !px-3 !text-xs" onclick="${onclick}">${label}</button>`;
+            const f = (k, label, val, type, extra) => `<div ${extra || ''}><label class="lbl" for="asd_${k}">${label}</label>${type === 'area' ? `<textarea id="asd_${k}" rows="3" class="field !text-sm">${esc(val || '')}</textarea>` : `<input id="asd_${k}" type="${type || 'text'}" class="field !text-sm" value="${esc(val || '')}">`}</div>`;
+            const cidQ = `'${esc(String(c.id))}'`;
+            const loading = '<div class="t-faint italic">Loading...</div>';
+            document.getElementById('adminSites').innerHTML = `
+                <div class="flex flex-wrap items-center justify-between gap-2"><button type="button" class="btn btn-secondary !py-2" onclick="closeAdminSite()">‹ All sites</button>
+                    <span class="flex flex-wrap gap-2">${btn('Open in the Service App', `openInServiceApp(${cidQ})`)}${btn('Reports', `adminSiteTab('reports', ${cidQ})`)}</span></div>
+                <div class="card p-5 sm:p-6"><div class="as-head">
+                    <div class="as-cover" style="background:${CARD_GRADIENTS[hashString(name) % CARD_GRADIENTS.length]}">${cover ? `<img src="${esc(cover)}" alt="" class="w-full h-full object-cover">` : `<span class="site-initials">${esc(name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase())}</span>`}</div>
+                    <div class="as-head-text space-y-1"><h3 class="text-2xl font-black t-strong break-words">${esc(name)}</h3><p class="text-xs t-muted">${esc(c.Address || 'No address')}</p>
+                        <div class="flex flex-wrap gap-1.5 pt-1">${s.visit ? `<span class="chip ${s.visit.stale ? 'chip-red' : 'chip-blue'}">${s.visit.stale ? '⚠ Visit open ' + esc(visitAgeText(s.visit)) : 'Visit in progress'}</span>` : ''}${c.assigned_to ? `<span class="chip chip-grey">👤 ${esc(teamName(c.assigned_to))}</span>` : '<span class="chip chip-amber">No technician</span>'}${s.contract ? `<span class="chip ${s.contract.cls}">${esc(s.contract.short || s.contract.text)}</span>` : ''}</div></div>
+                </div></div>
+                <div class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+                    ${tile('<span id="asTileStations">…</span>', 'Stations')}${tile('<span id="asTileLast">…</span>', 'Last visit')}
+                    ${tile(s.due ? esc(s.due.d.text) : '-', 'Next service', s.due ? esc(s.due.sv.type) : 'Not scheduled', s.due && s.due.d.days < 0 ? '#dc2626' : '')}
+                    ${tile(s.recs, 'Outstanding recs', '', s.recs ? '#ea580c' : '#10b981')}${tile(s.docs, 'Documents to renew', '', s.docs ? '#d97706' : '#10b981')}${tile(s.logins, 'Client logins', '', s.logins ? '' : '#d97706')}
+                </div>
+                <div class="as-grid">
+                    ${sec('asDetails', 'Site details', '#2563eb', `<form class="grid grid-cols-1 sm:grid-cols-2 gap-3" onsubmit="event.preventDefault(); saveAdminSiteDetails(${cidQ});">
+                        ${f('Name', 'Name *', c.Name)}${f('Address', 'Address', c.Address)}${f('Contact', 'Contact (name and phone)', c.Contact)}${f('Email', 'Email', c.Email, 'email')}
+                        <div><label class="lbl" for="asd_assigned_to">Technician</label><select id="asd_assigned_to" class="field !text-sm"><option value="">No technician</option>${staff.map(u => `<option value="${esc(u.id)}" ${c.assigned_to === u.id ? 'selected' : ''}>${esc(u.full_name || u.email)}</option>`).join('')}</select></div>
+                        <div></div>${f('contract_start', 'Contract start', c.contract_start ? String(c.contract_start).slice(0, 10) : '', 'date')}${f('contract_end', 'Contract end', c.contract_end ? String(c.contract_end).slice(0, 10) : '', 'date')}
+                        ${f('contract_notes', 'Contract notes (staff only)', c.contract_notes, 'area', 'class="sm:col-span-2"')}${f('Notes', 'Site notes - safety and access (staff only)', c.Notes, 'area', 'class="sm:col-span-2"')}
+                        <div class="sm:col-span-2 flex justify-end"><button type="submit" id="asSaveBtn" class="btn btn-primary">Save details</button></div></form>`)}
+                    ${sec('asServices', 'Services & schedule', '#10b981', getServices(c).length ? getServices(c).map(sv => { const d = dueInfo(sv); return `<div class="row-item p-3 flex flex-wrap items-center justify-between gap-2"><div class="min-w-0"><b class="t-strong">${esc(sv.type)}</b><div class="t-muted">${esc(freqLabel(sv.frequency))}${sv.lastDone ? ' · last done ' + esc(fmtDay(sv.lastDone)) : ''}</div>${sv.notes ? `<div class="t-faint">📝 ${esc(sv.notes)}</div>` : ''}</div><span class="chip ${d.cls}">${esc(d.text)}</span></div>`; }).join('') : '<div class="row-item p-3 t-faint italic">No services set up.</div>', btn('Change services', `openAdminServices(${cidQ})`, true))}
+                    ${sec('asContacts', 'Site contacts', '#0891b2', loading, btn('Add or change contacts', `adminSiteTab('contacts', ${cidQ})`))}
+                    ${sec('asVisits', 'Visits', '#7c3aed', loading, btn('Visit reports in the Service App', `openInServiceApp(${cidQ})`))}
+                    ${sec('asStations', 'Stations', '#16a34a', loading)}
+                    ${sec('asRecs', 'Outstanding recommendations', '#ea580c', loading)}
+                    ${sec('asDocs', 'Documents', '#d97706', loading, btn('Add a document', `adminSiteTab('documents', ${cidQ})`))}
+                    ${sec('asLogins', 'Client portal logins', '#db2777', loading, btn('Manage client logins', "setAdminTab('clients')"))}
+                    ${sec('asLimits', 'Critical limits', '#dc2626', loading, btn('Set critical limits', `adminSiteTab('limits', ${cidQ})`))}
+                    ${sec('asActivity', 'Recent changes (30 days)', '#64748b', loading)}
+                </div>
+                <div class="card p-5 space-y-2" style="border-color:rgba(220,38,38,.45);"><span class="eyebrow" style="color:#dc2626;">Delete this site</span>
+                    <p class="text-xs t-muted">Deletes the site and everything on it for good: stations, every visit and station check, recommendations, documents, floor plans, photos, contacts, critical limits and client access. It can't be undone - download what you need first (Reports, or Documents › Download all).</p>
+                    <div><button type="button" class="btn btn-outline-danger" onclick="deleteAdminSite(${cidQ})">Delete this site...</button></div></div>`;
+            loadAdminSitePage(String(c.id));
+        }
+        async function loadAdminSitePage(cid) {
+            const here = () => adminSitePage === cid && adminTab === 'sites';
+            const put = (id, html) => { const el = document.getElementById(id); if (el && here()) el.innerHTML = html; };
+            const grab = async q => { try { const r = await q; if (r.error) throw r.error; return r.data || []; } catch (e) { return { error: e.message || String(e) }; } };
+            const failed = x => x && x.error ? `<div class="row-item p-3" style="color:#dc2626;">Could not load: ${esc(x.error)}</div>` : '';
+            const [stations, visits, contacts, limits, logs] = await Promise.all([
+                grab(_supabase.from('stations').select('*').eq('client_id', cid)),
+                grab(_supabase.from('visits').select('*').eq('client_id', cid).order('completed_at', { ascending: false }).limit(25)),
+                grab(_supabase.from('site_contacts').select('*').eq('client_id', cid)),
+                grab(_supabase.from('site_limits').select('*').eq('client_id', cid)),
+                grab(_supabase.from('service_logs').select('barcode_id, created_at, payload').eq('client_id', Number(cid)).order('created_at', { ascending: false }).limit(3000))
+            ]);
+            if (!here()) return;
+            adminSiteData = { cid, stations, visits, contacts, limits };
+            // stations: each one's last check
+            const lastAt = new Map();
+            if (Array.isArray(logs)) logs.forEach(l => { const at = Date.parse((l.payload && l.payload.servicedAt) || l.created_at); if (at && !(lastAt.get(l.barcode_id) > at)) lastAt.set(l.barcode_id, at); });
+            const limName = id => (Array.isArray(limits) ? limits.find(l => String(l.id) === String(id)) : null) || null;
+            const stTile = document.getElementById('asTileStations'); if (stTile) stTile.textContent = Array.isArray(stations) ? stations.length : '-';
+            put('asStations', failed(stations) || (stations.length ? `<div class="overflow-x-auto"><table class="w-full text-left"><thead class="t-faint"><tr><th class="py-1 pr-2">Station</th><th class="py-1 pr-2">Type</th><th class="py-1 pr-2">Critical limit</th><th class="py-1">Last checked</th></tr></thead><tbody>${stations.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' })).map(x => { const t = lastAt.get(x.barcode); const old = !t || Date.now() - t > 45 * 86400000; return `<tr class="border-t divider"><td class="py-1.5 pr-2"><b class="t-strong">${esc(x.name || x.barcode)}</b><div class="t-faint font-mono text-[10px]">${esc(x.barcode)}</div></td><td class="py-1.5 pr-2 t-muted">${esc(x.type || '-')}</td><td class="py-1.5 pr-2 t-muted">${esc(limName(x.limit_id) ? limName(x.limit_id).name : '-')}</td><td class="py-1.5" ${old ? 'style="color:#dc2626;font-weight:700;"' : ''}>${t ? esc(fmtDay(toDayStr(new Date(t)))) : 'Never'}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="row-item p-3 t-faint italic">No stations yet - they are added in the Service App when scanned.</div>'));
+            // visits
+            const lastTile = document.getElementById('asTileLast'); if (lastTile) lastTile.textContent = Array.isArray(visits) && visits[0] ? fmtDay(String(visits[0].completed_at).slice(0, 10)) : '-';
+            const mins = v => { const a = Date.parse(v.signed_in_at || v.started_at), b = Date.parse(v.signed_out_at || v.completed_at); return a && b && b > a ? Math.round((b - a) / 60000) : null; };
+            const visitRow = v => { const m = mins(v); return `<div class="row-item p-3 space-y-0.5"><div class="flex flex-wrap justify-between gap-2"><b class="t-strong">${esc(fmtDay(String(v.completed_at).slice(0, 10)))} · ${esc(v.visit_type || 'Routine Service')}</b><span class="t-muted">${esc(v.technician || '')}${m != null ? ' · ' + (m >= 60 ? Math.floor(m / 60) + ' h ' + (m % 60) + ' min' : m + ' min') : ''}</span></div>
+                <div class="t-muted">${v.signed_by ? '✍ Signed by ' + esc(v.signed_by) : v.no_signature_reason ? 'No signature: ' + esc(v.no_signature_reason) : 'Not signed'}${v.unscanned_count ? ' · ' + v.unscanned_count + ' station' + (v.unscanned_count === 1 ? '' : 's') + ' not checked' : ''}</div>${v.notes ? `<div class="t-strong whitespace-pre-line break-words">${esc(String(v.notes).slice(0, 300))}</div>` : ''}</div>`; };
+            put('asVisits', failed(visits) || (visits.length ? visits.slice(0, 6).map(visitRow).join('') + (visits.length > 6 ? `<details><summary class="cursor-pointer font-bold t-accent py-1">${visits.length - 6} earlier visit${visits.length === 7 ? '' : 's'}${visits.length === 25 ? ' (of the latest 25)' : ''} - show</summary><div class="space-y-2 pt-2">${visits.slice(6).map(visitRow).join('')}</div></details>` : '') : '<div class="row-item p-3 t-faint italic">No visits yet.</div>'));
+            // contacts
+            put('asContacts', failed(contacts) || (contacts.length ? contacts.slice().sort((a, b) => (b.is_primary - a.is_primary) || String(a.name).localeCompare(String(b.name))).map(x => `<div class="row-item p-3"><b class="t-strong">${esc(x.name)}</b>${x.is_primary ? ' <span class="chip chip-orange !py-0">Main</span>' : ''}${x.role ? `<span class="t-muted"> · ${esc(x.role)}</span>` : ''}<div class="flex flex-wrap gap-x-4">${x.phone ? `<a class="link-btn !no-underline font-mono" href="tel:${esc(String(x.phone).replace(/[^\d+]/g, ''))}">📞 ${esc(x.phone)}</a>` : ''}${x.email ? `<a class="link-btn !no-underline font-mono break-all" href="mailto:${esc(x.email)}">✉ ${esc(x.email)}</a>` : ''}</div></div>`).join('') : '<div class="row-item p-3 t-faint italic">No contacts yet.</div>'));
+            // critical limits
+            put('asLimits', failed(limits) || (limits.filter(l => !l.deleted).length ? limits.filter(l => !l.deleted).map(l => `<div class="row-item p-3"><b class="t-strong">${esc(l.name)}</b> <span class="t-faint">· ${(Array.isArray(stations) ? stations.filter(x => String(x.limit_id) === String(l.id)).length : 0)} stations</span><div class="flex flex-wrap gap-1.5 mt-1">${limRulesOf(l).map(r => `<span class="chip chip-red">${esc(r.species)}: ${esc(r.max)} a month per station</span>`).join('')}</div></div>`).join('') : '<div class="row-item p-3 t-faint italic">No critical limits set.</div>'));
+            // outstanding recommendations, documents, client logins, recent changes (already loaded for Admin)
+            const recs = adminData.recs.filter(r => String(r.client_id) === cid).sort((a, b) => String(b.raised_at || '').localeCompare(String(a.raised_at || '')));
+            put('asRecs', recs.length ? recs.map(r => `<button type="button" class="row-item clickable w-full text-left p-3 flex justify-between items-start gap-2" data-id="${esc(r.id)}" onclick="openInServiceApp('${esc(cid)}', this.dataset.id)"><div class="min-w-0"><b class="t-accent">${esc(fmtRecNo(r.rec_no))}</b> <span class="t-strong">${esc(r.text || '')}</span><div class="t-faint">${esc(r.station_name || 'Site-wide')} · raised ${esc(fmtDay(String(r.raised_at || '').slice(0, 10)))}</div></div><span class="chip ${r.status === 'pending' ? 'chip-amber' : 'chip-red'} shrink-0">${r.status === 'pending' ? 'Pending' : 'Open'}</span></button>`).join('') : '<div class="row-item p-3 t-faint italic">Nothing outstanding. 🎉</div>');
+            const docs = adminData.docs.filter(d => String(d.client_id) === cid).sort((a, b) => String(a.expires_on || '9999').localeCompare(String(b.expires_on || '9999')) || String(a.title).localeCompare(String(b.title)));
+            put('asDocs', docs.length ? docs.map(d => `<button type="button" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-2" data-id="${esc(d.id)}" onclick="adminOpenDoc(this.dataset.id)"><div class="min-w-0"><b class="t-strong">📄 ${esc(d.title)}</b><div class="t-faint">${esc(d.folder || d.category || 'Document')}</div></div>${d.expires_on ? docExpiryChip(d) : ''}</button>`).join('') : '<div class="row-item p-3 t-faint italic">No documents yet.</div>');
+            const logins = adminClientAccess.filter(a => String(a.client_id) === cid);
+            put('asLogins', logins.length ? logins.map(a => { const u = adminClients.find(x => String(x.email).toLowerCase() === String(a.email).toLowerCase()) || {}; return `<div class="row-item p-3 flex justify-between gap-2"><div class="min-w-0"><b class="t-strong">${esc(u.full_name || a.email)}</b><div class="t-faint font-mono break-all">${esc(a.email)}${u.company ? ' · ' + esc(u.company) : ''}</div></div>${u.active === false ? '<span class="chip chip-grey">Turned off</span>' : '<span class="chip chip-green">Active</span>'}</div>`; }).join('') : '<div class="row-item p-3" style="color:#d97706;">No client can see this site yet.</div>');
+            const ev = adminData.events.filter(e => String(e.client_id) === cid).slice(0, 12);
+            put('asActivity', ev.length ? ev.map(e => `<div class="row-item p-2.5"><b class="t-strong">${esc(e.title || e.action || 'Change')}</b><div class="t-faint">${esc(fmtDay(String(e.at).slice(0, 10)))}${e.technician ? ' · ' + esc(e.technician) : ''}${e.detail ? ' · ' + esc(String(e.detail).slice(0, 140)) : ''}</div></div>`).join('') : '<div class="row-item p-3 t-faint italic">No changes in the last 30 days.</div>');
+        }
+        async function saveAdminSiteDetails(cid) {
+            const c = siteById(cid); if (!c) return;
+            const v = k => { const el = document.getElementById('asd_' + k); return el ? el.value.trim() : ''; };
+            if (!v('Name')) { alert('The site needs a name.'); return; }
+            if (v('Email') && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v('Email'))) { alert("That email address doesn't look right."); return; }
+            const fields = { Name: v('Name'), Address: v('Address') || null, Contact: v('Contact') || null, Email: v('Email') || null, assigned_to: v('assigned_to') || null,
+                contract_start: v('contract_start') || null, contract_end: v('contract_end') || null, contract_notes: v('contract_notes') || null, Notes: v('Notes') || null };
+            const changed = Object.keys(fields).filter(k => String(c[k] == null ? '' : c[k]).slice(0, k.startsWith('contract_') && k !== 'contract_notes' ? 10 : undefined) !== String(fields[k] == null ? '' : fields[k]));
+            if (!changed.length) { adminToast('Nothing has changed.'); return; }
+            const btn = document.getElementById('asSaveBtn'); if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+            try {
+                await enqueue({ kind: 'update_client', clientId: c.id, siteName: fields.Name, label: 'Site details updated', data: { fields } });
+                Object.assign(c, fields);
+                const LABELS = { Name: 'name', Address: 'address', Contact: 'contact', Email: 'email', assigned_to: 'technician', contract_start: 'contract start', contract_end: 'contract end', contract_notes: 'contract notes', Notes: 'site notes' };
+                await queueSiteChange({ client_id: c.id, action: 'site_edit', title: 'Site details changed in Admin: ' + changed.map(k => LABELS[k] || k).join(', ') });
+                adminToast('Saved.');
+                renderAdminSitePage(cid);
+            } catch (e) { alert('Could not save: ' + (e.message || e)); if (btn) { btn.disabled = false; btn.textContent = 'Save details'; } }
+        }
+        async function deleteAdminSite(cid) {
+            const c = siteById(cid); if (!c) return;
+            const typed = prompt(`This deletes "${c.Name}" and everything on it, for good.\n\nType the site's name exactly to confirm:`);
+            if (typed == null) return;
+            if (typed.trim() !== String(c.Name || '').trim()) { alert("The name didn't match, so nothing was deleted."); return; }
+            if (!isOnline) { alert('Deleting a site needs an internet connection.'); return; }
+            const { data, error } = await _supabase.rpc('admin_delete_site', { p_client_id: String(c.id), p_confirm_name: typed.trim() });
+            if (error) { alert('Could not delete the site: ' + error.message); return; }
+            clientsData = clientsData.filter(x => String(x.id) !== String(cid));
+            adminData.recs = adminData.recs.filter(r => String(r.client_id) !== String(cid));
+            adminData.docs = adminData.docs.filter(d => String(d.client_id) !== String(cid));
+            adminClientAccess = adminClientAccess.filter(a => String(a.client_id) !== String(cid));
+            try { await cacheSet('clients', clientsData); } catch (e) {}
+            adminToast(`"${(data && data.name) || c.Name}" was deleted.`);
+            adminSitePage = null;
+            renderAdminSites();
+        }
 
         // ---------- Site contacts (each site's people and their roles) ----------
         const CT_ROLES = ['Site manager', 'Facilities manager', 'Health & safety', 'Quality / food safety', 'Operations', 'Maintenance', 'Reception', 'Accounts', 'After hours'];
@@ -3470,7 +3702,7 @@ const PR = (() => {
 
         // ---------- this file's own page check ----------
         (function () {
-            const need = ["adminPage", "adminTabs", "adminTiles", "adminAttention", "adminWorkload", "adminDocsList", "adminDocSite", "adminActivityList", "adminExports", "adminSitesNoClient", "staffProfileModal", "userFilterChips", "adminServicesList", "adminSvcSearch", "adminDocFolder", "adminClientsList", "clientNewSites", "optionsAdminNote", "dayLogCal", "adminActWho", "spSettings", "newPrepSds", "newPrepSdsExpiry", "newSpeciesCat", "sdsEditModal", "pestEditModal", "newPrepUnit", "adminPanel", "adminNewEmail", "adminNewRole", "adminProfilesList", "adminAllowedList"];
+            const need = ["adminPage", "adminTabs", "adminSites", "adminTiles", "adminAttention", "adminWorkload", "adminDocsList", "adminDocSite", "adminActivityList", "adminExports", "adminSitesNoClient", "staffProfileModal", "userFilterChips", "adminServicesList", "adminSvcSearch", "adminDocFolder", "adminClientsList", "clientNewSites", "optionsAdminNote", "dayLogCal", "adminActWho", "spSettings", "newPrepSds", "newPrepSdsExpiry", "newSpeciesCat", "sdsEditModal", "pestEditModal", "newPrepUnit", "adminPanel", "adminNewEmail", "adminNewRole", "adminProfilesList", "adminAllowedList"];
             const missing = need.filter(id => !document.getElementById(id));
             if (missing.length) console.error('admin.html is incomplete. Missing:', missing);
             document.querySelectorAll('.addon-version').forEach(el => { el.textContent = window.ADDON_INFO.version; });

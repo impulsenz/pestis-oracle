@@ -263,8 +263,10 @@ function canWrite(tn, op, row, me) {
   if (tn === 'site_documents' && clientMeetingDoc(op, row, me)) return true;
   if (GUARDED.has(tn) && !me.approved) return false;
   switch (tn) {
+    // (a site itself is deleted only by an admin, with everything on it: RPC.admin_delete_site)
+    case 'clients': return op === 'delete' ? me.admin : me.approved;
     case 'service_logs': case 'recommendations': case 'recommendation_updates': case 'stations': case 'site_maps': case 'visits':
-    case 'site_events': case 'clients': return me.approved;
+    case 'site_events': return me.approved;
     case 'site_documents': case 'site_document_folders': case 'site_limits': return me.admin;
     case 'pest_sightings': return op !== 'delete' && me.approved;
     case 'recommendation_views': case 'recommendation_view_log': return false;   // only through pestis_mark_rec_viewed
@@ -783,6 +785,42 @@ const RPC = {
   },
   get_my_prefs: me => (sys.one('user_prefs', [['user_id', 'eq', me.uid]]) || {}).prefs || {},
   save_my_pref(me, a) { savePref(me.uid, a.p_key, a.p_value, 250000); return null; },
+  // delete a site and everything on it (admins only): its records in every site table, contacts, client access,
+  // history, and the files those records point at (photos, documents, floor plans, signatures)
+  admin_delete_site(me, a) {
+    if (!me.admin) fail('Only admins can delete a site');
+    const cid = String(a.p_client_id || '').trim();
+    const site = cid && sys.one('clients', [['id', 'eq', Number(cid)]]);
+    if (!site) fail('That site was not found');
+    if (String(a.p_confirm_name || '').trim() !== String(site.Name || '').trim()) fail('Type the site name exactly to confirm');
+    const files = [];   // [bucket, path] of every file the site's records point at
+    const add = (bucket, p) => { if (p && typeof p === 'string' && !/^https?:/i.test(p)) files.push([bucket, p]); };
+    const photosOf = v => { let list = v; if (typeof list === 'string') { try { list = JSON.parse(list); } catch { list = []; } } return Array.isArray(list) ? list.map(x => typeof x === 'string' ? x : x && (x.path || x.p)).filter(Boolean) : []; };
+    const counts = {};
+    transaction(() => {
+      add('station-photos', site.image_path);
+      sys.all('site_documents', [['client_id', 'eq', cid]]).forEach(d => add('site-documents', d.file_path));
+      sys.all('site_maps', [['client_id', 'eq', cid]]).forEach(m => add('station-photos', m.image_path));
+      sys.all('stations', [['client_id', 'eq', cid]]).forEach(s => add('station-photos', s.photo_path));
+      sys.all('visits', [['client_id', 'eq', cid]]).forEach(v => add('station-photos', v.signature_path));
+      sys.all('recommendations', [['client_id', 'eq', cid]]).forEach(r => photosOf(r.photos).forEach(p => add('station-photos', p)));
+      sys.all('recommendation_updates', [['client_id', 'eq', cid]]).forEach(r => photosOf(r.photos).forEach(p => add('station-photos', p)));
+      sys.all('pest_sightings', [['client_id', 'eq', cid]]).forEach(s => photosOf(s.photos).concat(photosOf(s.action_photos)).forEach(p => add('station-photos', p)));
+      for (const r of db.prepare("SELECT payload FROM service_logs WHERE client_id = ?").all(Number(cid))) {
+        try { const p = JSON.parse(r.payload); photosOf(p.photos).forEach(x => add('station-photos', x)); add('station-photos', p.photo); } catch {}
+      }
+      for (const tn of [...SITE_TABLES, 'site_events', 'site_contacts', 'client_access']) {
+        if (!T[tn]) continue;
+        counts[tn] = sys.delete(tn, [['client_id', 'eq', tn === 'service_logs' ? Number(cid) : cid]]).length;
+      }
+      sys.delete('clients', [['id', 'eq', Number(cid)]]);
+    });
+    accessVersion++;
+    let removed = 0;
+    for (const [bucket, p] of files) { try { fs.unlinkSync(diskPath(bucket, p)); removed++; } catch {} }
+    console.log(`Site #${cid} "${site.Name}" deleted by ${me.email}: ${JSON.stringify(counts)}, ${removed} files`);
+    return { name: site.Name, counts, files: removed };
+  },
   admin_get_user_prefs(me, a) {
     if (!me.admin) fail('Only admins can do this');
     return (sys.one('user_prefs', [['user_id', 'eq', a.p_user]]) || {}).prefs || {};

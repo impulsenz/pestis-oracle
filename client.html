@@ -4822,6 +4822,11 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r91', date: '2026-10-30', v: { adm: '2026.10.30-a34' },
+            adm: ['New Sites tab: every site as a card (search, filter by technician, sort by next service or most to sort out), and "+ New site"',
+                  'Each site has its own page: change its details (name, address, contact, technician, contract, staff notes), its services, and see its visits, stations (and when each was last checked), contacts, outstanding recommendations, documents, client logins, critical limits and recent changes - with buttons to change each',
+                  'Delete a site (on its page): deletes the site and everything on it, after you type its name to confirm. Only admins can delete a site',
+                  'Overview › Needs attention now lists documents expiring soon as well as expired ones - tap one to open it'] },
         { rev: 'r90', date: '2026-10-30', v: { svc: '2026.10.30-r90', adm: '2026.10.30-a33', cli: '2026.10.30-p48' },
             svc: ['Pests: Mouse is now Mice, House fly is now Fly and Midge is now Midges (past records too). Cluster fly, Fruit fly and Lesser house fly are off the list',
                   'Preparations: the list is now Light Bulb, Maki Block, Contrac, Generation, Key Aqua Delta, Zetapy, Forgot, VK2, Anteater Ant Gel, Advion Cockroach Gel, Glue Board, MAC Slay Residual Insecticide, Dust to Dust, WaspJet Pro and STORGARD'],
