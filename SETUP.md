@@ -147,6 +147,17 @@ sudo systemctl start pestis
 
 Where things are: database `/var/lib/pestis/pestis.db`; photos and documents `/var/lib/pestis/files`; the apps and server `/opt/pestis/app`; settings `/etc/pestis.env`.
 
+**A pretend site to try things on.** This adds a site called "TEST - Harbour Foods (pretend site)" with 14 stations, two critical limits, about 18 months of made-up visits and station checks (with some breaches), recommendations and a pest sighting. It is ordinary data, so all three apps show it like any other site. Nothing else is touched, and `remove` deletes only the test site and everything on it.
+
+| Task | Command (on the server, over SSH) |
+|---|---|
+| Add the test site | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add` |
+| ...and let a client login see it | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add --client someone@example.com` (the client login must already exist in Admin) |
+| Is there a test site? | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs status` |
+| Remove it again | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs remove` |
+
+To start the test site again from scratch, run `remove` and then `add`. It appears in the apps straight away; tap Refresh (or reopen the app) if it's already open.
+
 ---
 
 ## If something goes wrong
