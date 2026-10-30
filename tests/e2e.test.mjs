@@ -317,6 +317,17 @@ try {
   await lc.evaluate(() => { const s = Array.from(document.querySelectorAll('.pr-f')).find(f => /^Breached/.test(f.textContent.trim())).querySelector('select'); s.value = 'no'; s.dispatchEvent(new Event('change')); }); await sleep(500);
   const every = await cardsNow();
   ok(breachedOnly.length === 1 && breachedOnly[0] === 'Dock ILT' && every.length === 2 && every.includes('Quiet ILT'), 'critical limits: Breached Yes hides stations that did not breach, No shows them', { breachedOnly, every });
+  // the Reports tab, tapped while in a report, goes back to the list of reports (and so does coming back from another tab)
+  const repTab = () => lc.evaluate(() => { const b = Array.from(document.querySelectorAll('#siteTabs .nav-tab')).find(x => /^Reports/.test(x.textContent.trim())); b.click(); });
+  const onList = () => lc.evaluate(() => !!document.querySelector('.pr-pick') && !document.querySelector('.pr-back'));
+  await lc.evaluate("setTab('reports')"); await sleep(600);
+  ok(!(await onList()), 'reports: inside a report to start with');
+  await repTab(); await sleep(600);
+  ok(await onList(), 'reports: tapping Reports while in a report goes back to the list of reports');
+  await lc.evaluate(() => document.querySelector('.pr-card').click()); await sleep(500);
+  await lc.evaluate("setTab('overview')"); await sleep(600);
+  await repTab(); await sleep(800);
+  ok(await onList(), 'reports: tapping Reports from another tab opens the list of reports');
   // Visits: the visit that breached has a red "!", says which limit, and the tab shows a red "!" while it's unopened
   await lc.evaluate("setTab('visits')"); await sleep(600);
   const vis = await lc.evaluate(() => ({ row: (document.querySelector('.visit-breach') || {}).innerText || '', mark: !!document.querySelector('.visit-breach .breach-mark'), tab: !!document.querySelector('.nav-tab .count.alert') }));

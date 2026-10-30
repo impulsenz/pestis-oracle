@@ -3,6 +3,8 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r95', date: '2026-10-30', v: { cli: '2026.10.30-p50' },
+            cli: ['Reports: tapping the Reports tab while you are in a report takes you back to the list of reports'] },
         { rev: 'r94', date: '2026-10-30', v: { adm: '2026.10.30-a37' },
             adm: ['Users and Client portal: a Sign out of all devices button on each person shows how many devices they are signed in on, and signs them out of every one straight away (for a lost phone, or someone leaving). They can sign in again unless you also remove their access'] },
         { rev: 'r93', date: '2026-10-30', v: { svc: '2026.10.30-r93', adm: '2026.10.30-a36', cli: '2026.10.30-p49' },

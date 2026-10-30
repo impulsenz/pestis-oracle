@@ -688,7 +688,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (on the server); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.30-p49-oci';
+const PORTAL_VERSION = '2026.10.30-p50-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -1506,7 +1506,7 @@ function renderSiteHeader() {
     const unreadVisits = unopenedVisits().length;
     // a red "!" on Visits while a visit report with a critical limit breach hasn't been opened
     const breachVisits = unopenedVisits().filter(v => visitBreaches(v).length).length;
-    $('siteTabs').innerHTML = TABS.map(([k, l]) => `<button type="button" class="nav-tab ${state.tab === k ? 'active' : ''}" onclick="${k === 'plans' ? "planId = null; planFocus = null; if (state.tab === 'plans') renderPlans(); else " : ''}setTab('${k}')">${l}${k === 'recs' && openRecs ? `<span class="count">${openRecs}</span>` : ''}${k === 'visits' && breachVisits ? `<span class="count alert" title="A visit report with a critical limit breach - not opened yet">!</span>` : ''}${k === 'visits' && unreadVisits ? `<span class="count" title="Visit reports you haven't opened yet">${unreadVisits}</span>` : ''}${k === 'sightings' && toReview ? `<span class="count" title="Actioned by your technician, waiting for your review">${toReview}</span>` : ''}</button>`).join('');
+    $('siteTabs').innerHTML = TABS.map(([k, l]) => `<button type="button" class="nav-tab ${state.tab === k ? 'active' : ''}" onclick="${k === 'plans' ? "planId = null; planFocus = null; if (state.tab === 'plans') renderPlans(); else " : k === 'reports' ? "state.reportsHome = true; if (state.tab === 'reports') renderReports(); else " : ''}setTab('${k}')">${l}${k === 'recs' && openRecs ? `<span class="count">${openRecs}</span>` : ''}${k === 'visits' && breachVisits ? `<span class="count alert" title="A visit report with a critical limit breach - not opened yet">!</span>` : ''}${k === 'visits' && unreadVisits ? `<span class="count" title="Visit reports you haven't opened yet">${unreadVisits}</span>` : ''}${k === 'sightings' && toReview ? `<span class="count" title="Actioned by your technician, waiting for your review">${toReview}</span>` : ''}</button>`).join('');
 }
 // visit reports from the last 90 days this person hasn't opened (opening one counts it as read, here and in the bell)
 function unopenedVisits() {
@@ -2444,6 +2444,8 @@ function renderReports() {
     const data = PR.build({ siteName: siteName(state.site), logs: d.logs || [], stations: d.stations || [], maps: d.maps || [], visits: d.visits || [], recs: d.recs || [], limits: d.limits || [], species: state.speciesList || [], stationTypes: state.stationTypes || [] });
     // a preparation's name in the reports opens its safety data sheet (the same one as in Documents > SDS)
     PR.render(state.prBox, data, { colorOf: t => stationColor(t), onRec: id => openRec(id, 'none'), onMap: b => showOnPlan(b), sdsOf: name => { const o = (state.preps || []).find(x => x.label === name && x.sds_path); return o ? o.id : null; }, openSds: id => openPrepSds(id) });
+    // the Reports tab tapped (even while in a report): back to the list of reports
+    if (state.reportsHome) { state.reportsHome = false; if (!state.openReport) PR.show(state.prBox, null); }
     // asked to open a particular report (a critical limit notification)
     if (state.openReport) { const o = state.openReport; state.openReport = null; PR.show(state.prBox, o.report, o.patch); }
 }
@@ -4468,6 +4470,8 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r95', date: '2026-10-30', v: { cli: '2026.10.30-p50' },
+            cli: ['Reports: tapping the Reports tab while you are in a report takes you back to the list of reports'] },
         { rev: 'r94', date: '2026-10-30', v: { adm: '2026.10.30-a37' },
             adm: ['Users and Client portal: a Sign out of all devices button on each person shows how many devices they are signed in on, and signs them out of every one straight away (for a lost phone, or someone leaving). They can sign in again unless you also remove their access'] },
         { rev: 'r93', date: '2026-10-30', v: { svc: '2026.10.30-r93', adm: '2026.10.30-a36', cli: '2026.10.30-p49' },
