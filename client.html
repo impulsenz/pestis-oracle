@@ -143,7 +143,7 @@
         .tbl td { padding: .55rem .7rem; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
         .tbl tr:last-child td { border-bottom: 0; }
         .tbl tr.clickable { cursor: pointer; } .tbl tr.clickable:hover td { background: var(--surface2); }
-        /* a visit's station checks coloured by activity: green none, amber low or medium, red caught or high */
+        /* a visit's station checks coloured: green low or none, amber caught or medium, red a critical limit breach or high */
         .tbl tr.lvl-green td { background: #dcfce7; } .tbl tr.lvl-amber td { background: #fef3c7; } .tbl tr.lvl-red td { background: #fee2e2; }
         html.dark .tbl tr.lvl-green td { background: rgba(34, 197, 94, .16); } html.dark .tbl tr.lvl-amber td { background: rgba(245, 158, 11, .18); } html.dark .tbl tr.lvl-red td { background: rgba(239, 68, 68, .2); }
         .tbl tr.lvl-green.clickable:hover td, .tbl tr.lvl-amber.clickable:hover td, .tbl tr.lvl-red.clickable:hover td { filter: brightness(.96); }
@@ -724,7 +724,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (on the server); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.31-p64-oci';
+const PORTAL_VERSION = '2026.10.31-p65-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -3217,7 +3217,7 @@ function showVisit(id) {
     if (state.tab === 'visits') renderVisits();
     const n = new Set(v.entries.map(e => e.barcode)).size;
     const fact = (k, val) => `<div class="inset p-2.5"><div class="eyebrow t-faint">${k}</div><div class="font-bold t-strong mt-0.5">${val}</div></div>`;
-    const breaches = visitBreaches(v);
+    const breaches = visitBreaches(v), breached = new Set(breaches.map(x => x.limit.barcode));
     $('modalBody').innerHTML = `
         ${breaches.length ? limitAlertHtml(breaches, `Critical limit breach (${monthLabel(v.completed)})`) : ''}
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
@@ -3226,11 +3226,11 @@ function showVisit(id) {
         ${v.services.length ? `<div class="flex flex-wrap gap-1.5">${v.services.map(s => `<span class="chip chip-green">${esc(s)}</span>`).join('')}</div>` : ''}
         <div><div class="eyebrow t-faint mb-1">Technician's notes</div><div class="inset p-3 whitespace-pre-line t-strong">${esc(v.notes || 'No notes provided')}</div></div>
         <div class="space-y-2"><div class="eyebrow t-faint">Station records (${v.entries.filter(e => !e.extra).length})</div>
-            ${v.entries.length ? `<div class="lvl-key text-[11px] t-muted"><span><i class="lvl-green"></i>No activity</span><span><i class="lvl-amber"></i>Low or medium activity</span><span><i class="lvl-red"></i>Pest caught or high activity</span></div>
+            ${v.entries.length ? `<div class="lvl-key text-[11px] t-muted"><span><i class="lvl-green"></i>Low or no activity</span><span><i class="lvl-amber"></i>Pest caught or medium activity</span><span><i class="lvl-red"></i>Critical limit breach or high activity</span></div>
             <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Station</th><th>Activity</th><th>Pests</th><th>Preparation</th></tr></thead><tbody>${v.entries.filter(e => !e.extra).map(e => `
-                <tr class="clickable lvl-${PVR.level(entryActs(e))}" onclick="showStation(${jsArg(e.barcode)})"><td>${stationCell(e.station || e)}</td><td>${activityChip(e.activity)}</td><td>${esc(entryPestsText(e))}</td>
+                <tr class="clickable lvl-${PVR.level(entryActs(e), breached.has(e.barcode))}" onclick="showStation(${jsArg(e.barcode)})"><td>${stationCell(e.station || e)}</td><td>${activityChip(e.activity)}</td><td>${esc(entryPestsText(e))}</td>
                 <td>${e.prep ? `${esc(e.prep)}<div class="t-faint text-[11px]">${fmtQty(e.qty, e.unit)}${e.batch ? ' · batch ' + esc(e.batch) : ''}</div>` : '-'}</td></tr>
-                ${e.notes ? `<tr class="lvl-${PVR.level(entryActs(e))}"><td colspan="4" class="t-muted text-[11px] !pt-0">Notes: ${esc(e.notes)}</td></tr>` : ''}`).join('')}</tbody></table></div>` : emptyNote('No station records on this visit.')}
+                ${e.notes ? `<tr class="lvl-${PVR.level(entryActs(e), breached.has(e.barcode))}"><td colspan="4" class="t-muted text-[11px] !pt-0">Notes: ${esc(e.notes)}</td></tr>` : ''}`).join('')}</tbody></table></div>` : emptyNote('No station records on this visit.')}
         </div>
         ${[['added', 'Stations installed on this visit', 'chip-green'], ['removed', 'Stations removed on this visit', 'chip-red']].map(([k, t, cls]) => v[k].length ? `<div class="space-y-2"><div class="eyebrow t-faint">${t} (${v[k].length})</div>
             <div class="flex flex-wrap gap-1.5">${v[k].map(s => `<span class="chip ${cls}">${esc(s.name || s.barcode)} · <span class="mono">${esc(s.barcode)}</span>${s.type ? ' · ' + esc(s.type) : ''}</span>`).join('')}</div></div>` : '').join('')}
@@ -3914,12 +3914,13 @@ async function downloadVisitPdf(id) {
     let signature = null;
     if (v.signaturePath) { try { const [u] = await signPaths([v.signaturePath]); if (u) signature = await imgDataUrl(u); } catch (e) {} }
     try {
+        const breached = new Set(visitBreaches(v).map(x => x.limit.barcode));
         await PVR.build({
             siteId: state.site.id, id: v.id, siteName: siteName(state.site), address: state.site.Address || '', completed: v.completed, type: v.type, tech: v.tech, start: v.start, end: v.end,
             stationsChecked: new Set(v.entries.map(e => e.barcode)).size, services: v.services, notes: v.notes,
             breaches: visitBreaches(v).map(x => `${x.limit.station} · ${limitPest(x.limit)}: ${x.total} recorded in ${monthLabel(x.month || v.completed)}, this station's limit ${x.limit.max} a month (${x.total - x.limit.max} over) - critical limit ${x.limit.zone}`),
             added: v.added, removed: v.removed,
-            entries: v.entries.filter(e => !e.extra).map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, acts: entryActs(e), pests: entryPestsText(e, ' x', ''),
+            entries: v.entries.filter(e => !e.extra).map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, acts: entryActs(e), breach: breached.has(e.barcode), pests: entryPestsText(e, ' x', ''),
                 prep: e.prep ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '', notes: e.notes })),
             recs: v.recs.map(r => ({ id: r.id, no: fmtRecNo(r.no), status: STATUS[r.status] ? STATUS[r.status].label : r.status, raised: r.raisedAt, station: r.station, barcode: r.barcode, text: r.text,
                 closed: r.status === 'complete' ? (r.completedAt || r.lastChange) : null, note: r.updates.length ? r.updates[r.updates.length - 1].note : '' })),
@@ -4855,6 +4856,12 @@ const LOGS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r113', date: '2026-10-31', v: { svc: '2026.10.31-r113', adm: '2026.10.31-a50', cli: '2026.10.31-p65' },
+            svc: ['Visit report colours: red for a critical limit breach or high activity, amber for a pest caught or medium activity, green for low or no activity',
+                  'Visit report: a long list of critical limit breaches carries on over the next pages (it could run off the page and leave the first page blank), and each coloured row has a clear line between it and the next'],
+            adm: ['Visit reports: the new colours (red breach or high, amber caught or medium, green low or none), and long breach lists carry on over the pages'],
+            cli: ['Visit report colours: red for a critical limit breach or high activity, amber for a pest caught or medium activity, green for low or no activity',
+                  'Visit report PDF: a long list of critical limit breaches carries on over the next pages (it could run off the page and leave the first page blank), and each coloured row has a clear line between it and the next'] },
         { rev: 'r112', date: '2026-10-31', v: { svc: '2026.10.31-r112', adm: '2026.10.31-a49', cli: '2026.10.31-p64' },
             svc: ['Documents: the expiry date is picked from a calendar (you can still type it in), with "No expiry" to clear it',
                   'Visit report: each station row is coloured - green no activity, amber low or medium activity, red a pest caught or high activity - with a key above the table',
@@ -5287,7 +5294,7 @@ const SEEN = (() => {
 /* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
 // Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
 //   { siteId, id (the visit's, if it has reached the server), siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
-//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, acts (every activity on the check), pests, prep, notes }],
+//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, acts (every activity on the check), breach (took the station over a critical limit), pests, prep, notes }],
 //     added / removed: [{ name, barcode, type }] (stations installed or taken out on the visit),
 //     recs: [{ id, no, status, raised, station, barcode, text, closed, note }],
 //   Stations, recommendations and the visit link to the Client Portal.
@@ -5303,14 +5310,16 @@ const PVR = (() => {
     const ENTRY_COLS = [['Station', 34], ['Barcode', 18], ['Type', 30], ['Activity', 16], ['Pests', 24], ['Preparation', 50], ['Notes', 50]];
     // where a station, recommendation or visit opens in the Client Portal (reports link back to it)
     const portalLink = (cid, kind, id) => cid == null || id == null ? null : `${location.origin}/client.html#/site/${encodeURIComponent(cid)}/${{ station: 'overview', rec: 'recs', visit: 'visits' }[kind]}/${kind}/${encodeURIComponent(id)}`;
-    // a station check's colour: red if a pest was caught or the activity was high, amber for low or medium (or any other
-    // sign of activity), green for no activity. acts = every activity recorded on the check (more pests have their own)
-    function level(acts) {
-        const a = (Array.isArray(acts) ? acts : [acts]).map(x => String(x || '').trim().toLowerCase()).filter(x => x && x !== 'none' && x !== 'no activity');
-        return a.some(x => x === 'caught' || x === 'high') ? 'red' : a.length ? 'amber' : 'green';
+    // a station check's colour: red if it took the station over a critical limit or the activity was high, amber if a pest
+    // was caught or the activity was medium (or any other sign of activity), green for low or no activity.
+    // acts = every activity recorded on the check (more pests have their own)
+    function level(acts, breach) {
+        if (breach) return 'red';
+        const a = (Array.isArray(acts) ? acts : [acts]).map(x => String(x || '').trim().toLowerCase()).filter(x => x && x !== 'none' && x !== 'no activity' && x !== 'low');
+        return a.includes('high') ? 'red' : a.length ? 'amber' : 'green';
     }
     const LEVEL_FILL = { red: [254, 202, 202], amber: [253, 230, 138], green: [187, 247, 208] };
-    const LEVEL_TEXT = { red: 'Red: pest caught or high activity', amber: 'Amber: low or medium activity', green: 'Green: no activity' };
+    const LEVEL_TEXT = { red: 'Red: critical limit breach or high activity', amber: 'Amber: pest caught or medium activity', green: 'Green: low or no activity' };
     const STATION_COLS = [['Station', 50], ['Barcode', 30], ['Type', 60]];
     const REC_COLS = [['No.', 16], ['Status', 18], ['Raised', 20], ['Station', 30], ['Barcode', 18], ['Recommendation', 70], ['Closed', 20], ['Latest note', 50]];
 
@@ -5513,7 +5522,7 @@ const PVR = (() => {
                 const h = Math.max(...cells.map(c => c.length)) * 3.4 + 2.6;
                 if (y + h > H - 12) { newPage(); head(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
                 const fill = fills && fills[ri];
-                if (fill) { doc.setFillColor(...fill); doc.rect(M, y, W - 2 * M, h, 'F'); doc.setDrawColor(255, 255, 255); doc.setLineWidth(.4); doc.line(M, y + h, W - M, y + h); }
+                if (fill) { doc.setFillColor(...fill); doc.rect(M, y, W - 2 * M, h - .6, 'F'); }
                 else if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
                 let x0 = M; cells.forEach((c, i) => {
                     const url = links && links[ri] && links[ri][i];
@@ -5527,14 +5536,20 @@ const PVR = (() => {
             y += 5;
         };
         const alert = lines => {
-            const wrapped = lines.map(l => doc.splitTextToSize(l, W - 2 * M - 8));
-            const n = wrapped.reduce((a, l) => a + l.length, 0);
-            room(10 + n * 5);
-            doc.setFillColor(254, 226, 226); doc.setDrawColor(239, 68, 68); doc.roundedRect(M, y, W - 2 * M, 8 + n * 5, 2, 2, 'FD');
-            doc.setTextColor(153, 27, 27); doc.setFontSize(9);
-            let ly = y + 6;
-            wrapped.forEach((l, i) => { doc.setFont('helvetica', i ? 'normal' : 'bold'); doc.text(l, M + 4, ly); ly += l.length * 5; });
-            y += 12 + n * 5;
+            doc.setFontSize(9);
+            const rows = [];
+            lines.forEach((l, i) => doc.splitTextToSize(String(l), W - 2 * M - 8).forEach(s => rows.push({ s, bold: !i })));
+            const title = rows.length ? rows[0].s : '';
+            while (rows.length) {
+                if (y + 18 > H - 12) newPage();
+                const part = rows.splice(0, Math.max(1, Math.floor((H - 12 - 8 - y) / 5)));
+                doc.setFillColor(254, 226, 226); doc.setDrawColor(239, 68, 68); doc.roundedRect(M, y, W - 2 * M, 8 + part.length * 5, 2, 2, 'FD');
+                doc.setTextColor(153, 27, 27);
+                let ly = y + 6;
+                part.forEach(r => { doc.setFont('helvetica', r.bold ? 'bold' : 'normal'); doc.text(r.s, M + 4, ly); ly += 5; });
+                y += 12 + part.length * 5;
+                if (rows.length) { newPage(); rows.unshift({ s: title + ' (continued)', bold: true }); }
+            }
         };
 
         header();
@@ -5552,7 +5567,7 @@ const PVR = (() => {
             y += 4;
         }
         table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']),
-            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })), (v.entries || []).map(e => LEVEL_FILL[level(e.acts || [e.activity])]));
+            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })), (v.entries || []).map(e => LEVEL_FILL[level(e.acts || [e.activity], e.breach)]));
         if ((v.added || []).length) { heading(`Stations installed on this visit (${v.added.length})`); table(STATION_COLS, v.added.map(s => [s.name || s.barcode, s.barcode, s.type || '']), v.added.map(s => ({ 0: stLink(s.barcode), 1: stLink(s.barcode) }))); }
         if ((v.removed || []).length) { heading(`Stations removed on this visit (${v.removed.length})`); table(STATION_COLS, v.removed.map(s => [s.name || s.barcode, s.barcode, s.type || ''])); }
         if ((v.recs || []).length) {

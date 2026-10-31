@@ -3,6 +3,12 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r113', date: '2026-10-31', v: { svc: '2026.10.31-r113', adm: '2026.10.31-a50', cli: '2026.10.31-p65' },
+            svc: ['Visit report colours: red for a critical limit breach or high activity, amber for a pest caught or medium activity, green for low or no activity',
+                  'Visit report: a long list of critical limit breaches carries on over the next pages (it could run off the page and leave the first page blank), and each coloured row has a clear line between it and the next'],
+            adm: ['Visit reports: the new colours (red breach or high, amber caught or medium, green low or none), and long breach lists carry on over the pages'],
+            cli: ['Visit report colours: red for a critical limit breach or high activity, amber for a pest caught or medium activity, green for low or no activity',
+                  'Visit report PDF: a long list of critical limit breaches carries on over the next pages (it could run off the page and leave the first page blank), and each coloured row has a clear line between it and the next'] },
         { rev: 'r112', date: '2026-10-31', v: { svc: '2026.10.31-r112', adm: '2026.10.31-a49', cli: '2026.10.31-p64' },
             svc: ['Documents: the expiry date is picked from a calendar (you can still type it in), with "No expiry" to clear it',
                   'Visit report: each station row is coloured - green no activity, amber low or medium activity, red a pest caught or high activity - with a key above the table',

@@ -79,14 +79,29 @@ try {
     await step(cp, 'visit report', () => cp.evaluate(() => openVisit(state.model.visits[state.model.visits.length - 1].id)));
     await step(cp, 'visit report colours', async () => {
       const got = await cp.evaluate(() => ({ cls: Array.from(document.querySelectorAll('#modalBody tr[class*="lvl-"]')).map(r => r.className.match(/lvl-\w+/)[0]), t: document.getElementById('modalBody').textContent }));
-      const lv = await cp.evaluate(() => [['None'], ['Low'], ['Medium'], ['High'], ['Caught'], ['None', 'Caught'], ['Low', 'High'], [], ['Taken']].map(a => PVR.level(a)).join());
-      if (lv !== 'green,amber,amber,red,red,red,red,green,amber') all.push(`[${cp.app}] the activity colours are wrong: ${lv}`);
-      ['lvl-green', 'lvl-red'].forEach(c => { if (!got.cls.includes(c)) all.push(`[${cp.app}] the visit report has no ${c} rows: ${got.cls.join(' ')}`); });
+      const lv = await cp.evaluate(() => [['None'], ['Low'], ['Medium'], ['High'], ['Caught'], ['None', 'Caught'], ['Low', 'High'], [], ['Taken']].map(a => PVR.level(a)).concat([PVR.level(['Low'], true), PVR.level(['Caught'], true)]).join());
+      if (lv !== 'green,green,amber,red,amber,amber,red,green,amber,red,red') all.push(`[${cp.app}] the activity colours are wrong: ${lv}`);
+      ['lvl-green', 'lvl-amber', 'lvl-red'].forEach(c => { if (!got.cls.includes(c)) all.push(`[${cp.app}] the visit report has no ${c} rows: ${got.cls.join(' ')}`); });
       if (!/Stations installed on this visit \(1\)[\s\S]*Station 11[\s\S]*Stations removed on this visit \(1\)[\s\S]*Old bait box/.test(got.t)) all.push(`[${cp.app}] the visit report doesn't list the stations installed and removed`);
       await cp.screenshot({ path: path.join(SHOTS, `portal-visit-${w}.png`) });
       if (w === 1280 && process.env.REAL_JSPDF) {
         const [dl] = await Promise.all([cp.waitForEvent('download'), cp.evaluate(() => downloadVisitPdf(state.model.visits[state.model.visits.length - 1].id))]);
         await dl.saveAs(path.join(SHOTS, 'visit-report.pdf'));
+        const [dl2] = await Promise.all([cp.waitForEvent('download'), cp.evaluate(() => PVR.build({ siteName: 'Long breach list', completed: Date.now(), type: 'Routine Service',
+          breaches: Array.from({ length: 90 }, (_, i) => `Station ${i + 1} · Fly: 40 recorded, this station's limit 25 a month (15 over) - critical limit Warehouse`),
+          entries: Array.from({ length: 30 }, (_, i) => ({ name: 'Station ' + i, barcode: 'B' + i, type: 'Flying Insect Monitoring', activity: ['None', 'Low', 'Medium', 'High', 'Caught'][i % 5], breach: i === 4, pests: '' })) }))]);
+        await dl2.saveAs(path.join(SHOTS, 'long-breaches.pdf'));
+      }
+      if (await cp.evaluate(() => !!(window.__pdf && window.jspdf && window.__pdf.pos))) {
+        // a long breach list carries on over the pages: every line is on the page (above the footer), and page 1 isn't left empty
+        const r = await cp.evaluate(async () => {
+          window.__pdf.pos = [];
+          await PVR.build({ siteName: 'Long', completed: Date.now(), breaches: Array.from({ length: 150 }, (_, i) => 'Breach line ' + (i + 1)), entries: [] });
+          return window.__pdf.pos;
+        });
+        const lines = r.filter(p => /^Breach line \d+$/.test(p.t));
+        if (lines.length !== 150 || lines.some(p => p.y > 198) || !lines.some(p => p.page === 1) || !r.some(p => p.page === 2 && /CRITICAL LIMIT BREACH \(continued\)/.test(p.t)))
+          all.push(`[${cp.app}] a long breach list doesn't carry onto the next page: ${lines.length} lines, lowest ${Math.max(...lines.map(p => p.y))}, on pages ${Array.from(new Set(lines.map(p => p.page))).join(',')}`);
       }
     });
     await step(cp, 'days open', async () => {
