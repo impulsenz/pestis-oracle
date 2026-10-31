@@ -137,6 +137,18 @@
 .pr-combo-list { max-height: 16rem; overflow-y: auto; display: flex; flex-direction: column; }
 .pr-combo-opt { text-align: left; font-size: .8rem; font-weight: 600; color: var(--text); background: none; border: 0; border-radius: .45rem; padding: .4rem .55rem; cursor: pointer; }
 .pr-combo-opt:hover, .pr-combo-opt:focus-visible { background: var(--surface2); color: rgb(var(--b500, 249 115 22)); outline: none; }
+/* stations coloured by their activity: red activity, green none, grey not checked (in the report's time) */
+.pr-combo-opt.pr-lvl-act { background: rgba(220, 38, 38, .1); box-shadow: inset 4px 0 0 #dc2626; margin-bottom: 2px; }
+.pr-combo-opt.pr-lvl-none { background: rgba(22, 163, 74, .1); box-shadow: inset 4px 0 0 #16a34a; margin-bottom: 2px; }
+.pr-combo-opt.pr-lvl-off { box-shadow: inset 4px 0 0 #94a3b8; color: var(--muted); margin-bottom: 2px; }
+.pr-combo-opt.pr-lvl-act:hover, .pr-combo-opt.pr-lvl-act:focus-visible { background: rgba(220, 38, 38, .18); }
+.pr-combo-opt.pr-lvl-none:hover, .pr-combo-opt.pr-lvl-none:focus-visible { background: rgba(22, 163, 74, .18); }
+.pr-combo-btn.pr-lvl-act { box-shadow: inset 4px 0 0 #dc2626; } .pr-combo-btn.pr-lvl-none { box-shadow: inset 4px 0 0 #16a34a; } .pr-combo-btn.pr-lvl-off { box-shadow: inset 4px 0 0 #94a3b8; }
+.pr-combo-key { display: flex; flex-wrap: wrap; align-items: center; gap: .2rem .7rem; font-size: 11px; font-weight: 700; color: var(--muted); padding: .2rem .4rem .45rem; border-bottom: 1px solid var(--border); margin-bottom: .3rem; }
+.pr-combo-key span { display: inline-flex; align-items: center; gap: .3rem; }
+.pr-combo-key i { width: .65rem; height: .65rem; border-radius: .2rem; display: inline-block; }
+.pr-combo-key i.pr-lvl-act { background: #dc2626; } .pr-combo-key i.pr-lvl-none { background: #16a34a; } .pr-combo-key i.pr-lvl-off { background: #94a3b8; }
+.pr-combo-key em { font-style: normal; font-weight: 600; opacity: .8; }
 .pr-combo-none { font-size: .78rem; color: var(--faint); padding: .5rem; }
 .pr-combo-multi { min-width: max(100%, 16rem); }
 .pr-combo-bar { display: flex; gap: .3rem; margin-bottom: .3rem; }

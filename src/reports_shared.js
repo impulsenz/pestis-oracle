@@ -316,8 +316,13 @@ const PR = (() => {
             if (f === 'prep') parts.push(tick('prep', 'Preparation', uniq(d.entries.map(x => x.prep)), 'All preparations', 'preparations'));
             if (f === 'tech') parts.push(tick('tech', 'Technician', uniq(d.visits.map(x => x.tech).concat(d.entries.map(x => x.tech))), 'Everyone', 'technicians'));
             // the stations of the chosen types (One station: pick one)
-            if (f === 'station') { const ts = arr(s.type), lbl = ts.length === 1 ? `Station (${ts[0]})` : 'Station', list = stationsOfType(d, s).filter(x => typeIn(x.type)).map(x => [x.barcode, x.name + (x.type && ts.length !== 1 ? ' · ' + x.type : '')]);
-                parts.push(R.id === 'station' ? combo({ k: 'station', label: lbl, list, cur: arr(s.station)[0] || '', cb: 'PR.set' }) : tick('station', lbl, list, ts.length === 1 ? 'All ' + ts[0] : 'All stations', 'stations')); }
+            if (f === 'station') {
+                const ts = arr(s.type), lbl = ts.length === 1 ? `Station (${ts[0]})` : 'Station', lvl = stationActivity(d, s, R);
+                const list = stationsOfType(d, s).filter(x => typeIn(x.type)).map(x => [x.barcode, x.name + (x.type && ts.length !== 1 ? ' · ' + x.type : ''), lvl.get(x.barcode) || 'off']);
+                const lvlNote = R.f.includes('period') ? 'in the time chosen' : 'in the last 12 months';
+                parts.push(R.id === 'station' ? combo({ k: 'station', label: lbl, list, cur: arr(s.station)[0] || '', cb: 'PR.set', lvlNote })
+                    : combo({ k: 'station', label: lbl, list, cur: arr(s.station), all: ts.length === 1 ? 'All ' + ts[0] : 'All stations', cb: 'PR.set', multi: true, noun: 'stations', lvlNote }));
+            }
             if (f === 'batch') parts.push(`<label class="pr-f"><span>Batch number</span><input type="search" value="${e(s.batch)}" placeholder="Any" onchange="PR.set(this, 'batch', this.value.trim())"></label>`);
             // critical limits: the months to look at (this month to start with; From and To for several months), and breached stations only or all
             if (f === 'limMonths') { const ms = months(Date.now() - 3 * 365 * DAY, Date.now()).reverse().map(k => [k, monthLong(k)]); parts.push(sel('limFrom', 'From', ms), sel('limTo', 'To', ms)); }
@@ -754,17 +759,30 @@ const PR = (() => {
     }
     // A drop-down you can type in: tap it, type part of a name, pick. cb(el, key, value) is called with the choice.
     // With o.multi, it's a list of tick boxes (o.cur is the ticked values; none ticked = o.all) and cb gets the ticked values when it closes.
+    // each station's activity in the report's time (reports without one: the last 12 months), for the station filter:
+    // 'act' (a pest caught or any activity), 'none' (checked, nothing found); a station not checked in that time isn't in it
+    function stationActivity(d, s, R) {
+        const [a, b] = R.f.includes('period') ? range(s) : [Date.now() - 365 * DAY, Date.now()];
+        const out = new Map();
+        d.entries.forEach(x => {
+            if (x.at < a || x.at > b) return;
+            if (x.species || x.activity === 'Caught' || level(x.activity) > 0) out.set(x.barcode, 'act');
+            else if (!out.has(x.barcode)) out.set(x.barcode, 'none');
+        });
+        return out;
+    }
+    const LVL_CLS = { act: 'pr-lvl-act', none: 'pr-lvl-none', off: 'pr-lvl-off' };
     function combo(o) {
         if (o.multi) {
             const cur = arr(o.cur).map(String), names = o.list.filter(x => cur.includes(String(x[0]))).map(x => x[1]);
             const txt = !names.length ? (o.all || 'All') : names.length === 1 ? names[0] : `${names.length} ${o.noun || 'chosen'}`;
-            return `<label class="pr-f ${o.cls || ''}">${o.label ? `<span>${e(o.label)}</span>` : ''}<span class="pr-combo" data-k="${e(o.k)}" data-cb="${e(o.cb)}" data-multi="1" data-all="${e(o.all || 'All')}" data-cur="${e(JSON.stringify(cur))}" data-items="${e(JSON.stringify(o.list))}">`
+            return `<label class="pr-f ${o.cls || ''}">${o.label ? `<span>${e(o.label)}</span>` : ''}<span class="pr-combo" data-k="${e(o.k)}" data-cb="${e(o.cb)}" data-multi="1" data-all="${e(o.all || 'All')}" data-cur="${e(JSON.stringify(cur))}" data-items="${e(JSON.stringify(o.list))}"${o.lvlNote ? ` data-lvl="${e(o.lvlNote)}"` : ''}>`
                 + `<button type="button" class="pr-combo-btn ${names.length ? 'pr-combo-on' : ''}" onclick="PR.comboOpen(this)" aria-haspopup="listbox" title="${e(names.join(', ') || txt)}">${e(txt)}</button></span></label>`;
         }
         const items = (o.all != null ? [['', o.all]] : []).concat(o.list);
         const cur = items.find(x => String(x[0]) === String(o.cur == null ? '' : o.cur)) || items[0] || ['', ''];
-        return `<label class="pr-f ${o.cls || ''}">${o.label ? `<span>${e(o.label)}</span>` : ''}<span class="pr-combo" data-k="${e(o.k)}" data-cb="${e(o.cb)}" data-items="${e(JSON.stringify(items))}">`
-            + `<button type="button" class="pr-combo-btn" onclick="PR.comboOpen(this)" aria-haspopup="listbox" title="${e(cur[1])}">${e(cur[1])}</button></span></label>`;
+        return `<label class="pr-f ${o.cls || ''}">${o.label ? `<span>${e(o.label)}</span>` : ''}<span class="pr-combo" data-k="${e(o.k)}" data-cb="${e(o.cb)}" data-items="${e(JSON.stringify(items))}"${o.lvlNote ? ` data-lvl="${e(o.lvlNote)}"` : ''}>`
+            + `<button type="button" class="pr-combo-btn ${cur[2] ? LVL_CLS[cur[2]] || '' : ''}" onclick="PR.comboOpen(this)" aria-haspopup="listbox" title="${e(cur[1])}">${e(cur[1])}</button></span></label>`;
     }
     // closing a tick-box list applies what was ticked
     function comboClose() { document.querySelectorAll('.pr-combo-pop').forEach(x => { const done = x._done; x.remove(); if (done) done(); }); }
@@ -787,9 +805,12 @@ const PR = (() => {
         const shown = () => { const t = q.value.trim().toLowerCase(); return items.filter(x => !t || String(x[1]).toLowerCase().includes(t)).slice(0, 400); };
         const draw = () => {
             const hit = shown();
-            box.innerHTML = (multi ? `<div class="pr-combo-sum">${ticked.size ? `${ticked.size} ticked` : e(wrap.dataset.all || 'All')}</div>` : '')
-                + (hit.map(x => multi ? `<button type="button" role="option" aria-selected="${ticked.has(String(x[0]))}" class="pr-combo-opt pr-combo-tick" data-v="${e(x[0])}"><span class="pr-combo-box">${ticked.has(String(x[0])) ? '✓' : ''}</span>${e(x[1])}</button>`
-                    : `<button type="button" role="option" class="pr-combo-opt" data-v="${e(x[0])}">${e(x[1])}</button>`).join('') || '<div class="pr-combo-none">No matches</div>');
+            // (stations: a key to the colours - red activity, green none, grey not checked)
+            const lv = x => x[2] && LVL_CLS[x[2]] ? ' ' + LVL_CLS[x[2]] : '';
+            box.innerHTML = (wrap.dataset.lvl ? `<div class="pr-combo-key"><span><i class="pr-lvl-act"></i>Activity</span><span><i class="pr-lvl-none"></i>No activity</span><span><i class="pr-lvl-off"></i>Not checked</span><em>${e(wrap.dataset.lvl)}</em></div>` : '')
+                + (multi ? `<div class="pr-combo-sum">${ticked.size ? `${ticked.size} ticked` : e(wrap.dataset.all || 'All')}</div>` : '')
+                + (hit.map(x => multi ? `<button type="button" role="option" aria-selected="${ticked.has(String(x[0]))}" class="pr-combo-opt pr-combo-tick${lv(x)}" data-v="${e(x[0])}"><span class="pr-combo-box">${ticked.has(String(x[0])) ? '✓' : ''}</span>${e(x[1])}</button>`
+                    : `<button type="button" role="option" class="pr-combo-opt${lv(x)}" data-v="${e(x[0])}">${e(x[1])}</button>`).join('') || '<div class="pr-combo-none">No matches</div>');
         };
         const pickV = v => { comboClose(); const fn = comboCb(wrap); if (typeof fn === 'function') fn(btn, wrap.dataset.k, v); };
         if (multi) pop._done = () => { const v = Array.from(ticked); if (JSON.stringify(v.slice().sort()) === start) return; const fn = comboCb(wrap); if (typeof fn === 'function') fn(btn, wrap.dataset.k, v); };

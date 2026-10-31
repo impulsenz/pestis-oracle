@@ -72,6 +72,16 @@ try {
     const reps = await cp.evaluate(() => PR.REPORTS.map(r => r.id));
     await cp.evaluate(() => setTab('reports'));
     for (const r of reps) await step(cp, 'report ' + r, () => cp.evaluate(r => PR.show(state.prBox, r), r));
+    await step(cp, 'station filter colours', async () => {
+      for (const rep of ['station', 'pests']) {
+        await cp.evaluate(r => PR.show(state.prBox, r), rep); await sleep(400);
+        await cp.evaluate(() => { const f = Array.from(document.querySelectorAll('.pr-f')).find(x => /^Station(?! type)/i.test((x.querySelector("span") || x).textContent.trim())); f.querySelector('.pr-combo-btn').click(); }); await sleep(300);
+        const got = await cp.evaluate(() => ({ key: !!document.querySelector('.pr-combo-pop .pr-combo-key'), act: document.querySelectorAll('.pr-combo-pop .pr-lvl-act').length, none: document.querySelectorAll('.pr-combo-pop .pr-lvl-none').length, opts: document.querySelectorAll('.pr-combo-pop .pr-combo-opt').length }));
+        if (!got.key || !got.act || !got.none) all.push(`[${cp.app}] the ${rep} report's station list isn't coloured by activity: ${JSON.stringify(got)}`);
+        await cp.screenshot({ path: path.join(SHOTS, `portal-station-colours-${rep}-${w}.png`) });
+        await cp.evaluate(() => PR.comboClose ? PR.comboClose() : document.querySelectorAll('.pr-combo-pop').forEach(x => x.remove()));
+      }
+    });
     await step(cp, 'smooth line graphs', async () => {
       await cp.evaluate(() => PR.show(state.prBox, 'trend')); await sleep(500);
       const got = await cp.evaluate(() => ({ curves: Array.from(document.querySelectorAll('.pr-svg path.pr-line')).filter(p => /C/.test(p.getAttribute('d'))).length, polylines: document.querySelectorAll('.pr-svg polyline').length }));
