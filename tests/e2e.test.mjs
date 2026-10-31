@@ -560,7 +560,7 @@ try {
   // the critical limits box stays readable with lots of breaches: a chip per insect, the first few lines, then Show all
   await api(b2)('site_limits', { op: 'insert', values: [{ id: 'limH', client_id: hid, name: 'Production', rules: [{ species: 'Blowfly', max: 5 }, { species: 'House Fly', max: 10 }] }] });
   await api(t2)('stations', { op: 'insert', values: Array.from({ length: 8 }, (_, i) => ({ id: 'hm' + i, client_id: hid, barcode: 'ILT-M' + i, name: 'Line ' + (i + 1) + ' ILT', type: 'Flying Insect Monitoring', limit_id: 'limH' })) });
-  await api(t2)('service_logs', { op: 'insert', values: Array.from({ length: 8 }, (_, i) => hlg('ILT-M' + i, 'Line ' + (i + 1) + ' ILT', 'Flying Insect Monitoring', 1, { activityLevel: 'Caught', speciesCaught: 'Blowfly', pestCount: 6 + i, morePests: i < 3 ? [{ species: 'House Fly', count: 12 }] : [] })) });
+  await api(t2)('service_logs', { op: 'insert', values: Array.from({ length: 8 }, (_, i) => hlg('ILT-M' + i, 'Line ' + (i + 1) + ' ILT', 'Flying Insect Monitoring', 0, { activityLevel: 'Caught', speciesCaught: 'Blowfly', pestCount: 6 + i, morePests: i < 3 ? [{ species: 'House Fly', count: 12 }] : [] })) });
   await hp.evaluate('loadSite && loadSite(state.site.id)').catch(() => {}); await hp.reload(); await sleep(3500);
   await hp.evaluate("openLimitReport('ILT-M0')"); await sleep(800);
   await hp.evaluate("PR.show(state.prBox, 'limits', { station: [] })"); await sleep(600);
