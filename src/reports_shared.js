@@ -145,6 +145,49 @@ const PR = (() => {
         return out;
     }
     let chartN = 0;   // (each chart's fades have their own names)
+    // each chart drawn, so a point's pop-up can say what's behind it when it's needed (the latest charts only)
+    const CHARTS = new Map();
+    // a point's pop-up: the month, the line and its value, then the records behind it (series.recs(i), if the line has them):
+    // station checks (the pests, how many checks and stations, and the latest few with the date, time, station and technician),
+    // recommendations or visits (s.kind)
+    function tipFor(id) {
+        const [cid, si, i] = String(id).split(':'), c = CHARTS.get(cid), s = c && c.series[si];
+        if (!s) return '';
+        const v = s.vals[i], label = c.opts.lbl ? c.opts.lbl(c.keys[i]) : c.keys[i];
+        const many = (n, one, more) => `${n} ${n === 1 ? one : (more || one + 's')}`;
+        let h = `<div class="pr-tip-sub">${e(label)}</div><div class="pr-tip-name"><i style="background:${s.color}"></i>${e(s.name)}</div>`
+            + `<div class="pr-tip-v">${e(c.opts.yLbl ? c.opts.yLbl(v) : v)}${c.opts.unit && !c.opts.yLbl ? ` <span>${e(c.opts.unit)}</span>` : ''}</div>`;
+        const recs = s.recs ? (s.recs(Number(i)) || []).slice().sort((p, q) => (q.at || q.raisedAt || q.completedAt || 0) - (p.at || p.raisedAt || p.completedAt || 0)) : [];
+        if (!recs.length) return h + (s.recs ? '<div class="pr-tip-more">Nothing recorded</div>' : '');
+        const rows = (list, f) => list.slice(0, 4).map(x => `<div class="pr-tip-row">${f(x)}</div>`).join('') + (list.length > 4 ? `<div class="pr-tip-more">and ${list.length - 4} more</div>` : '');
+        if (s.kind === 'recs') return h + rows(recs, r => `<b>${e(r.no != null ? 'R-' + String(r.no).padStart(4, '0') : 'Recommendation')}</b> · ${e(fmtD(s.done ? r.completedAt : r.raisedAt))}${r.station ? ' · ' + e(r.station) : ''}<br>${e(String(r.text || '').slice(0, 80))}`);
+        if (s.kind === 'visits') return h + rows(recs, x => `<b>${e(fmtDT(x.at))}</b> · ${e(x.type || 'Visit')}${x.tech ? ' · ' + e(x.tech) : ''}`);
+        const sp = new Map(); recs.forEach(x => { if (x.species) sp.set(x.species, (sp.get(x.species) || 0) + (x.count || 0)); });
+        h += `<div class="pr-tip-sub">${many(recs.length, 'check')} at ${many(new Set(recs.map(x => x.barcode)).size, 'station')}</div>`;
+        if (sp.size) h += `<div class="pr-tip-pests">${Array.from(sp.entries()).sort((p, q) => q[1] - p[1]).slice(0, 5).map(([n, k]) => `${e(n)} ×${k}`).join(', ')}</div>`;
+        return h + rows(recs, x => `<b>${e(fmtDT(x.at))}</b> · ${e(x.station || x.barcode)}<br>${e(x.species ? x.species + (x.count > 1 ? ' ×' + x.count : '') : (x.activity && x.activity !== 'None' ? x.activity + ' activity' : 'No activity'))}${x.tech ? ' · ' + e(x.tech) : ''}`);
+    }
+    let tipEl = null;
+    function showTip(pt) {
+        if (!tipEl) { tipEl = document.createElement('div'); tipEl.className = 'pr-tip'; tipEl.setAttribute('role', 'tooltip'); document.body.appendChild(tipEl); }
+        tipEl.innerHTML = tipFor(pt.getAttribute('data-pt'));
+        tipEl.style.setProperty('--tip-c', pt.getAttribute('data-c') || '#f97316');
+        tipEl.classList.add('on');
+        const r = (pt.querySelector('.pr-dot') || pt).getBoundingClientRect(), w = tipEl.offsetWidth, h = tipEl.offsetHeight, vw = document.documentElement.clientWidth;
+        const left = Math.max(8, Math.min(vw - w - 8, r.left + r.width / 2 - w / 2));
+        let top = r.top - h - 12; const below = top < 8; if (below) top = r.bottom + 12;
+        tipEl.classList.toggle('below', below);
+        tipEl.style.left = (left + window.scrollX) + 'px'; tipEl.style.top = (top + window.scrollY) + 'px';
+    }
+    const hideTip = () => { if (tipEl) tipEl.classList.remove('on'); };
+    if (typeof document !== 'undefined') {
+        // hover with a mouse; tap on a phone (tap anywhere else to close it)
+        const ptOf = ev => ev.target && ev.target.closest ? ev.target.closest('.pr-svg [data-pt]') : null;
+        document.addEventListener('mouseover', ev => { const p = ptOf(ev); if (p) showTip(p); });
+        document.addEventListener('mouseout', ev => { if (ptOf(ev)) hideTip(); });
+        document.addEventListener('click', ev => { const p = ptOf(ev); if (p) showTip(p); else hideTip(); });
+        window.addEventListener('scroll', hideTip, true);
+    }
     function lineChart(series, keys, opts) {
         opts = opts || {};
         const W = 760, H = 260, pl = opts.yLbl ? 64 : 40, pr = 12, pt = 14, pb = 34;
@@ -156,15 +199,17 @@ const PR = (() => {
         const runs = vals => { const out = []; let cur = []; vals.forEach((v, i) => { if (v == null) { if (cur.length) out.push(cur); cur = []; } else cur.push(i); }); if (cur.length) out.push(cur); return out; };
         const every = Math.ceil(n / 12);
         const gid = 'prfade' + (++chartN), dot = n > 40 ? 2.2 : n > 24 ? 2.8 : 3.6;
+        CHARTS.set(gid, { series, keys, opts });
+        if (CHARTS.size > 40) CHARTS.delete(CHARTS.keys().next().value);
         return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(opts.label || 'Chart')}">
             ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="pr-grid"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" class="pr-ax">${e(yl(t))}</text>`).join('')}
             ${keys.map((k, i) => (i % every === 0 && (i === n - 1 || n - 1 - i >= every * 0.75)) || i === n - 1 ? `<text x="${x(i)}" y="${H - 12}" text-anchor="${n > 1 && i === n - 1 ? 'end' : i === 0 && n > 1 ? 'start' : 'middle'}" class="pr-ax">${e(opts.lbl ? opts.lbl(k) : k)}</text>` : '').join('')}
             ${opts.limit != null ? `<line x1="${pl}" x2="${W - pr}" y1="${y(opts.limit)}" y2="${y(opts.limit)}" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 5"/><text x="${W - pr}" y="${y(opts.limit) - 5}" text-anchor="end" class="pr-ax" fill="#dc2626">Limit ${opts.limit}</text>` : ''}
-            <defs>${series.map((s, si) => `<linearGradient id="${gid}-${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity="${series.length > 3 ? .12 : .3}"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient>`).join('')}</defs>
+            <defs>${series.map((s, si) => `<linearGradient id="${gid}-${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity="${series.length > 3 ? .24 : .6}"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient>`).join('')}</defs>
             ${series.map((s, si) => runs(s.vals).map(r => `<path fill="url(#${gid}-${si})" stroke="none" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}L${x(r[r.length - 1])},${y(0)}L${x(r[0])},${y(0)}Z"/>`).join('')).join('')}
             <line x1="${pl}" x2="${W - pr}" y1="${y(0)}" y2="${y(0)}" class="pr-base"/>
-            ${series.map(s => runs(s.vals).map(r => `<path fill="none" stroke="${s.color}" stroke-width="${s.thin ? 2 : 3}" ${s.dash ? 'stroke-dasharray="6 5"' : ''} stroke-linejoin="round" stroke-linecap="round" class="pr-line" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}"/>`).join('')
-                + s.vals.map((v, i) => { if (v == null) return ''; const over = opts.limit != null && v > opts.limit; return `<circle cx="${x(i)}" cy="${y(v)}" r="${over ? 5 : dot}" class="pr-dot${over ? ' pr-dot-over' : ''}" stroke="${over ? '#dc2626' : s.color}"><title>${e(s.name)} · ${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${e(yl(v))}</title></circle>`; }).join('')).join('')}
+            ${series.map((s, si) => runs(s.vals).map(r => `<path fill="none" stroke="${s.color}" stroke-width="${s.thin ? 2 : 3}" ${s.dash ? 'stroke-dasharray="6 5"' : ''} stroke-linejoin="round" stroke-linecap="round" class="pr-line" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}"/>`).join('')
+                + s.vals.map((v, i) => { if (v == null) return ''; const over = opts.limit != null && v > opts.limit; return `<g class="pr-pt" data-pt="${gid}:${si}:${i}" data-c="${s.color}" tabindex="0" aria-label="${e(s.name)} · ${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${e(yl(v))}"><circle cx="${x(i)}" cy="${y(v)}" r="${over ? 5 : dot}" class="pr-dot${over ? ' pr-dot-over' : ''}" stroke="${over ? '#dc2626' : s.color}"/><circle cx="${x(i)}" cy="${y(v)}" r="13" class="pr-hit"/></g>`; }).join('')).join('')}
         </svg>${series.length > 1 ? `<div class="pr-legend">${series.map(s => `<span><i style="background:${s.color}"></i>${e(s.name)}</span>`).join('')}</div>` : ''}`;
     }
     function barChart(rows, opts) {
@@ -277,10 +322,11 @@ const PR = (() => {
     }
     const yearColor = (i, n) => i === n - 1 ? '#ea580c' : ['#2563eb', '#16a34a', '#9333ea', '#0891b2', '#ca8a04', '#db2777', '#64748b', '#94a3b8'][(n - 2 - i) % 8];
     // one line per year, January to December (months not reached yet are left off)
-    function yoySeries(years, valOf) {
+    // recsOf(year, month): the records behind each point (for its pop-up)
+    function yoySeries(years, valOf, recsOf) {
         const now = new Date();
         return years.map((yr, i) => ({ name: String(yr), color: yearColor(i, years.length), thin: i < years.length - 1,
-            vals: MONTHS12.map(m => yr === now.getFullYear() && m > now.getMonth() ? null : valOf(yr, m)) }));
+            vals: MONTHS12.map(m => yr === now.getFullYear() && m > now.getMonth() ? null : valOf(yr, m)), recs: recsOf ? m => recsOf(yr, m) : null }));
     }
     const inYM = (x, yr, m) => { const t = new Date(x.at); return t.getFullYear() === yr && t.getMonth() === m; };
 
@@ -289,11 +335,11 @@ const PR = (() => {
             if (s.view === 'yoy') {
                 const list = d.entries.filter(x => x.species && has(s.type, x.type) && has(s.station, x.barcode) && has(s.pest, x.species));
                 const years = yearsOf(s, d, list);
-                const series = yoySeries(years, (yr, m) => list.filter(x => inYM(x, yr, m)).reduce((n, x) => n + x.count, 0));
+                const series = yoySeries(years, (yr, m) => list.filter(x => inYM(x, yr, m)).reduce((n, x) => n + x.count, 0), (yr, m) => list.filter(x => inYM(x, yr, m)));
                 const head = [{ t: 'Month' }].concat(years.map(yr => ({ t: String(yr), num: true })));
                 return {
                     html: kpis(years.slice().reverse().slice(0, 3).map(yr => ({ v: list.filter(x => new Date(x.at).getFullYear() === yr).reduce((n, x) => n + x.count, 0), l: `${chosen(s.pest, 'captures')} in ${yr}${yr === new Date().getFullYear() ? ' so far' : ''}` })))
-                        + `<div class="pr-chart"><div class="pr-cap">${e(chosen(s.pest, 'All pests'))}: captures each month, one line per year</div>${lineChart(series, MONTHS12, { lbl: monShort, label: 'Captures per month, year on year' })}</div>`
+                        + `<div class="pr-chart"><div class="pr-cap">${e(chosen(s.pest, 'All pests'))}: captures each month, one line per year</div>${lineChart(series, MONTHS12, { lbl: monShort, label: 'Captures per month, year on year', unit: 'caught' })}</div>`
                         + table(head, MONTHS12.map(m => ({ cells: [e(monShort(m))].concat(series.map(x => x.vals[m] == null ? '' : x.vals[m])) }))),
                     csv: [head.map(h => h.t)].concat(MONTHS12.map(m => [monShort(m)].concat(series.map(x => x.vals[m] == null ? '' : x.vals[m]))))
                 };
@@ -303,8 +349,10 @@ const PR = (() => {
             const tot = new Map(); list.forEach(x => tot.set(x.species, (tot.get(x.species) || 0) + x.count));
             const top = Array.from(tot.entries()).sort((p, q) => q[1] - p[1]);
             const named = top.slice(0, 6).map(p => p[0]), rest = top.slice(6).map(p => p[0]);
-            const series = named.map((sp, i) => ({ name: sp, color: PALETTE[i], vals: ks.map(k => list.filter(x => x.species === sp && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)) }));
-            if (rest.length) series.push({ name: `Other (${rest.length})`, color: PALETTE[8], vals: ks.map(k => list.filter(x => rest.includes(x.species) && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)) });
+            const series = named.map((sp, i) => ({ name: sp, color: PALETTE[i], vals: ks.map(k => list.filter(x => x.species === sp && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)),
+                recs: j => list.filter(x => x.species === sp && monthKey(x.at) === ks[j]) }));
+            if (rest.length) series.push({ name: `Other (${rest.length})`, color: PALETTE[8], vals: ks.map(k => list.filter(x => rest.includes(x.species) && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)),
+                recs: j => list.filter(x => rest.includes(x.species) && monthKey(x.at) === ks[j]) });
             const totals = ks.map(k => list.filter(x => monthKey(x.at) === k).reduce((n, x) => n + x.count, 0));
             const half = Math.floor(ks.length / 2), first = totals.slice(0, half).reduce((p, q) => p + q, 0), second = totals.slice(half).reduce((p, q) => p + q, 0);
             const dir = !first && !second ? 'No captures' : second > first * 1.15 ? 'Going up' : second < first * 0.85 ? 'Going down' : 'Steady';
@@ -312,7 +360,7 @@ const PR = (() => {
             const rows = ks.map((k, i) => ({ cells: [e(monthLong(k))].concat(series.map(x => x.vals[i] || ''), [`<b>${totals[i]}</b>`]) })).reverse();
             return {
                 html: kpis([{ v: list.reduce((n, x) => n + x.count, 0), l: 'captures' }, { v: tot.size, l: 'pests' }, { v: dir, l: 'trend (second half vs first)', c: dir === 'Going up' ? '#dc2626' : dir === 'Going down' ? '#16a34a' : '' }])
-                    + `<div class="pr-chart">${lineChart(series.length ? series : [{ name: 'Pests caught', color: PALETTE[0], vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: series.length ? 'Captures per month' : 'Captures per month (no pests were caught in this period)' })}</div>` + table(head, rows),
+                    + `<div class="pr-chart">${lineChart(series.length ? series : [{ name: 'Pests caught', color: PALETTE[0], vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: series.length ? 'Captures per month' : 'Captures per month (no pests were caught in this period)', unit: 'caught' })}</div>` + table(head, rows),
                 csv: [head.map(h => h.t)].concat(ks.map((k, i) => [monthLong(k)].concat(series.map(x => x.vals[i]), [totals[i]])))
             };
         },
@@ -365,21 +413,24 @@ const PR = (() => {
             const caught = list.filter(x => x.species && has(s.pest, x.species));
             let chart, cap;
             if (s.view === 'yoy') {
-                const series = yoySeries(years, (yr, m) => { const inM = list.filter(x => inYM(x, yr, m)); return act ? (levelOf(inM) || 0) : caught.filter(x => inYM(x, yr, m)).reduce((n, x) => n + x.count, 0); });
+                const series = yoySeries(years, (yr, m) => { const inM = list.filter(x => inYM(x, yr, m)); return act ? (levelOf(inM) || 0) : caught.filter(x => inYM(x, yr, m)).reduce((n, x) => n + x.count, 0); },
+                    (yr, m) => (act ? list : caught).filter(x => inYM(x, yr, m)));
                 cap = act ? 'Activity each month (the highest found), one line per year' : `${chosen(s.pest, 'All pests')}: caught each month, one line per year`;
-                chart = lineChart(series, MONTHS12, Object.assign({ lbl: monShort, label: cap }, act ? ACT_CHART : {}));
+                chart = lineChart(series, MONTHS12, Object.assign({ lbl: monShort, label: cap, unit: 'caught' }, act ? ACT_CHART : {}));
             } else {
                 const ks = months(from, Date.now());
                 if (act) {
                     cap = 'Activity each month (the highest found)';
-                    chart = lineChart([{ name: 'Activity', color: color(opts, stn.type), vals: ks.map(k => levelOf(list.filter(x => monthKey(x.at) === k)) || 0) }], ks, Object.assign({ lbl: monthLbl, label: cap }, ACT_CHART));
+                    chart = lineChart([{ name: 'Activity', color: color(opts, stn.type), vals: ks.map(k => levelOf(list.filter(x => monthKey(x.at) === k)) || 0), recs: j => list.filter(x => monthKey(x.at) === ks[j]) }], ks, Object.assign({ lbl: monthLbl, label: cap }, ACT_CHART));
                 } else {
                     const tot = new Map(); caught.forEach(x => tot.set(x.species, (tot.get(x.species) || 0) + x.count));
                     const sp = Array.from(tot.entries()).sort((p, q) => q[1] - p[1]).map(p => p[0]);
-                    const series = sp.slice(0, 8).map((name, i) => ({ name, color: PALETTE[i], vals: ks.map(k => caught.filter(x => x.species === name && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)) }));
-                    if (sp.length > 8) series.push({ name: `Other (${sp.length - 8})`, color: PALETTE[8], vals: ks.map(k => caught.filter(x => sp.slice(8).includes(x.species) && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)) });
+                    const series = sp.slice(0, 8).map((name, i) => ({ name, color: PALETTE[i], vals: ks.map(k => caught.filter(x => x.species === name && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)),
+                        recs: j => caught.filter(x => x.species === name && monthKey(x.at) === ks[j]) }));
+                    if (sp.length > 8) series.push({ name: `Other (${sp.length - 8})`, color: PALETTE[8], vals: ks.map(k => caught.filter(x => sp.slice(8).includes(x.species) && monthKey(x.at) === k).reduce((n, x) => n + x.count, 0)),
+                        recs: j => caught.filter(x => sp.slice(8).includes(x.species) && monthKey(x.at) === ks[j]) });
                     cap = series.length ? 'Caught each month, one line per pest' : 'Caught each month (nothing caught at this station in this time)';
-                    chart = lineChart(series.length ? series : [{ name: chosen(s.pest, 'Pests caught'), color: color(opts, stn.type), vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: cap });
+                    chart = lineChart(series.length ? series : [{ name: chosen(s.pest, 'Pests caught'), color: color(opts, stn.type), vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: cap, unit: 'caught' });
                 }
             }
             const head = [{ t: 'Date' }, { t: 'Activity' }, { t: 'Pest' }, { t: 'Number', num: true }, { t: 'Preparation' }, { t: 'Batch' }, { t: 'Technician' }, { t: 'Notes' }];
@@ -555,7 +606,7 @@ const PR = (() => {
             const list = checks.filter(isBreach);
             const ks = months(a || (list[0] ? list[0].at : Date.now()), b);
             const tps = uniq2(sts.map(x => x.type));
-            const series = tps.map((t, i) => ({ name: t, color: color(opts, t) || PALETTE[i], vals: ks.map(k => list.filter(x => x.type === t && monthKey(x.at) === k).length) }));
+            const series = tps.map((t, i) => ({ name: t, color: color(opts, t) || PALETTE[i], vals: ks.map(k => list.filter(x => x.type === t && monthKey(x.at) === k).length), recs: j => list.filter(x => x.type === t && monthKey(x.at) === ks[j]) }));
             const by = new Map();
             list.forEach(x => { const o = by.get(x.barcode) || { st: x.stationObj, n: 0, caught: 0, last: 0 }; o.n++; o.caught += x.count; o.last = Math.max(o.last, x.at); by.set(x.barcode, o); });
             const busiest = Array.from(by.values()).sort((p, q) => q.n - p.n || q.last - p.last);
@@ -568,7 +619,7 @@ const PR = (() => {
                 html: kpis([{ v: list.length, l: 'breaches', c: list.length ? '#dc2626' : '#16a34a' }, { v: `${by.size} of ${sts.length}`, l: 'internal rodent stations with activity', c: by.size ? '#dc2626' : '' },
                         { v: new Set(list.map(x => monthKey(x.at))).size, l: 'months with a breach' }, { v: last ? fmtD(last.at) : 'None', l: 'latest breach' }])
                     + (recent.length ? '' : `<div class="pr-alert pr-alert-ok"><b>✓ No rodent activity at the third line in the last 30 days.</b></div>`)
-                    + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Breaches each month${tps.length > 1 ? ', by station type' : ''}</div>${lineChart(series.length ? series : [{ name: 'Breaches', color: '#dc2626', vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: 'Third line breaches per month' })}</div>`
+                    + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Breaches each month${tps.length > 1 ? ', by station type' : ''}</div>${lineChart(series.length ? series : [{ name: 'Breaches', color: '#dc2626', vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: 'Third line breaches per month', unit: 'breaches' })}</div>`
                     + `<div class="pr-chart"><div class="pr-cap">Stations with the most breaches</div>${barChart(busiest.slice(0, 12).map(o => ({ l: o.st.name, v: o.n, c: color(opts, o.st.type) })))}</div></div>`
                     + table(head, rows.map(x => ({ _cls: 'pr-late', cells: [e(fmtDT(x.at)), stLink(opts, x.stationObj), e(x.type), e(x.map || '-'), e(found(x)), e(x.tech), e(x.notes)] })), { empty: 'No rodent activity at the third line for this choice. 🎉' }),
                 csv: [head.map(h => h.t)].concat(rows.map(x => [fmtDT(x.at), x.station, x.type, x.map, found(x), x.tech, x.notes]))
@@ -585,7 +636,7 @@ const PR = (() => {
             const days = r => calDays(r.raisedAt, r.completedAt || Date.now());
             return {
                 html: kpis([{ v: list.length, l: 'raised' }, { v: list.filter(r => r.status !== 'complete').length, l: 'still open or pending', c: '#ea580c' }, { v: done.length, l: 'completed', c: '#16a34a' }, { v: avg == null ? '-' : avg + ' days', l: 'average time to complete' }])
-                    + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Raised and completed each month</div>${lineChart([{ name: 'Raised', color: '#ea580c', vals: ks.map(k => list.filter(r => monthKey(r.raisedAt) === k).length) }, { name: 'Completed', color: '#16a34a', vals: ks.map(k => done.filter(r => monthKey(r.completedAt) === k).length) }], ks, { lbl: monthLbl, label: 'Recommendations raised and completed per month' })}</div><div class="pr-chart"><div class="pr-cap">By type</div>${barChart(Array.from(byCat.entries()).sort((p, q) => q[1] - p[1]).map(([c, n], i) => ({ l: c, v: n, c: PALETTE[i % 8] })))}</div></div>`
+                    + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Raised and completed each month</div>${lineChart([{ name: 'Raised', color: '#ea580c', vals: ks.map(k => list.filter(r => monthKey(r.raisedAt) === k).length), kind: 'recs', recs: q => list.filter(r => monthKey(r.raisedAt) === ks[q]) }, { name: 'Completed', color: '#16a34a', vals: ks.map(k => done.filter(r => monthKey(r.completedAt) === k).length) , kind: 'recs', done: true, recs: q => done.filter(r => monthKey(r.completedAt) === ks[q]) }], ks, { lbl: monthLbl, label: 'Recommendations raised and completed per month' })}</div><div class="pr-chart"><div class="pr-cap">By type</div>${barChart(Array.from(byCat.entries()).sort((p, q) => q[1] - p[1]).map(([c, n], i) => ({ l: c, v: n, c: PALETTE[i % 8] })))}</div></div>`
                     + table(head, list.slice().sort((p, q) => q.raisedAt - p.raisedAt).map(r => ({ cells: [opts.onRec && r.id ? `<button type="button" class="pr-link pr-mono" data-id="${e(r.id)}" onclick="PR.rec(this, this.dataset.id)" title="Open this recommendation">${e(no(r))}</button>` : `<span class="pr-mono">${e(no(r))}</span>`, e(fmtD(r.raisedAt)), e(r.station), e(r.category), e(r.text), `<span class="pr-chip ${r.status === 'complete' ? 'green' : r.status === 'pending' ? 'amber' : 'red'}">${e(r.status === 'complete' ? 'Complete' : r.status === 'pending' ? 'Pending' : 'Open')}</span>`, days(r)] }))),
                 csv: [head.map(h => h.t)].concat(list.map(r => [no(r), fmtD(r.raisedAt), r.station, r.category, r.text, r.status, days(r)]))
             };
@@ -601,7 +652,7 @@ const PR = (() => {
             const head = [{ t: 'Date' }, { t: 'Visit' }, { t: 'Technician' }, { t: 'Time on site', num: true }, { t: 'Stations checked', num: true }];
             return {
                 html: kpis([{ v: list.length, l: 'visits' }, { v: hm(avg), l: 'average time on site' }, { v: byTech.size, l: 'technicians' }])
-                    + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Visits each month</div>${lineChart([{ name: 'Visits', color: '#7c3aed', vals: ks.map(k => list.filter(v => monthKey(v.at) === k).length) }], ks, { lbl: monthLbl, label: 'Visits per month' })}</div><div class="pr-chart"><div class="pr-cap">By technician</div>${barChart(Array.from(byTech.entries()).sort((p, q) => q[1] - p[1]).map(([t, n], i) => ({ l: t, v: n, c: PALETTE[i % 8] })))}</div></div>`
+                    + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Visits each month</div>${lineChart([{ name: 'Visits', color: '#7c3aed', vals: ks.map(k => list.filter(v => monthKey(v.at) === k).length), kind: 'visits', recs: q => list.filter(v => monthKey(v.at) === ks[q]) }], ks, { lbl: monthLbl, label: 'Visits per month', unit: 'visits' })}</div><div class="pr-chart"><div class="pr-cap">By technician</div>${barChart(Array.from(byTech.entries()).sort((p, q) => q[1] - p[1]).map(([t, n], i) => ({ l: t, v: n, c: PALETTE[i % 8] })))}</div></div>`
                     + table(head, list.slice().reverse().map(v => ({ cells: [e(fmtDT(v.at)), e(v.type), e(v.tech || '-'), e(hm(mins(v))), v.n] }))),
                 csv: [head.map(h => h.t)].concat(list.map(v => [fmtDT(v.at), v.type, v.tech, mins(v) == null ? '' : mins(v), v.n]))
             };

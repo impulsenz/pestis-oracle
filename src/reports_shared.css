@@ -30,7 +30,22 @@
 .pr-svg .pr-base { stroke: var(--muted); stroke-width: 1.2; opacity: .45; }
 .pr-svg .pr-line { filter: drop-shadow(0 3px 4px rgba(15, 23, 42, .16)); }
 .pr-svg .pr-dot { fill: var(--surface, #fff); stroke-width: 2.2; transition: r .15s ease; }
-.pr-svg .pr-dot:hover { r: 6px; }
+.pr-svg .pr-pt { cursor: pointer; outline: none; }
+.pr-svg .pr-hit { fill: transparent; stroke: none; }
+.pr-svg .pr-pt:hover .pr-dot, .pr-svg .pr-pt:focus .pr-dot { r: 6.5px; stroke-width: 3; }
+/* the pop-up over a graph's point */
+.pr-tip { position: absolute; z-index: 1000; pointer-events: none; max-width: min(320px, calc(100vw - 16px)); background: rgba(15, 23, 42, .97); color: #e2e8f0; border-radius: .75rem; padding: .6rem .75rem .65rem; font-size: 12px; line-height: 1.4;
+    box-shadow: 0 14px 34px -10px rgba(0, 0, 0, .55); border-top: 3px solid var(--tip-c, #f97316); opacity: 0; transform: translateY(4px); transition: opacity .12s ease, transform .12s ease; }
+.pr-tip.on { opacity: 1; transform: none; }
+.pr-tip b { color: #fff; }
+.pr-tip .pr-tip-sub { color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.pr-tip .pr-tip-name { display: flex; align-items: center; gap: .4rem; font-weight: 800; color: #fff; margin-top: .15rem; }
+.pr-tip .pr-tip-name i { width: .6rem; height: .6rem; border-radius: 999px; flex: none; }
+.pr-tip .pr-tip-v { font-size: 20px; font-weight: 900; color: #fff; line-height: 1.2; margin: .1rem 0 .3rem; }
+.pr-tip .pr-tip-v span { font-size: 12px; font-weight: 700; color: #cbd5e1; }
+.pr-tip .pr-tip-pests { color: #fde68a; font-weight: 700; margin: .1rem 0 .25rem; }
+.pr-tip .pr-tip-row { border-top: 1px solid rgba(148, 163, 184, .22); padding-top: .3rem; margin-top: .3rem; font-size: 11.5px; }
+.pr-tip .pr-tip-more { color: #94a3b8; font-size: 11px; font-style: italic; margin-top: .3rem; }
 .pr-svg .pr-dot-over { fill: #dc2626; stroke: #fff; }
 .pr-svg .pr-ax { font-size: 11px; fill: var(--muted); font-family: inherit; }
 .pr-legend { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .72rem; color: var(--text); margin-top: .35rem; }

@@ -76,6 +76,15 @@ try {
       await cp.evaluate(() => PR.show(state.prBox, 'trend')); await sleep(500);
       const got = await cp.evaluate(() => ({ curves: Array.from(document.querySelectorAll('.pr-svg path.pr-line')).filter(p => /C/.test(p.getAttribute('d'))).length, polylines: document.querySelectorAll('.pr-svg polyline').length }));
       if (!got.curves || got.polylines) all.push(`[${cp.app}] the line graphs aren't smooth: ${JSON.stringify(got)}`);
+      // hovering a point (one with records) shows its pop-up: the total, the pests and the latest checks with date and station
+      const pt = await cp.evaluate(() => { const g = Array.from(document.querySelectorAll('.pr-svg .pr-pt')).reverse().find(x => !/: 0$/.test(x.getAttribute('aria-label'))); if (!g) return null; g.setAttribute('data-test-pt', '1'); g.scrollIntoView({ block: 'center' }); return g.getAttribute('aria-label'); });
+      if (pt) {
+        await cp.hover('[data-test-pt="1"] .pr-hit', { force: true }); await sleep(400);
+        const tip = await cp.evaluate(() => { const t = document.querySelector('.pr-tip.on'); return t ? t.textContent : ''; });
+        if (!/caught/.test(tip) || !/check/.test(tip) || !/Station \d/.test(tip) || !/\d{4}/.test(tip)) all.push(`[${cp.app}] hovering a graph point doesn't show its details: "${tip.slice(0, 200)}" (${pt})`);
+        await cp.screenshot({ path: path.join(SHOTS, `portal-tip-${w}.png`) });
+        await cp.mouse.move(1, 1);
+      } else all.push(`[${cp.app}] no graph points to hover`);
       await cp.screenshot({ path: path.join(SHOTS, `portal-trend-${w}.png`) });
       await cp.evaluate(() => PR.show(state.prBox, 'third')); await sleep(400);
       if (await cp.evaluate(() => document.querySelectorAll('#tabBody .pr-alert:not(.pr-alert-ok)').length)) all.push(`[${cp.app}] the third line report still has the red card on top`);
