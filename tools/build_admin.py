@@ -3,7 +3,7 @@ import re, json, sys, tempfile
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
 SP = ROOT + 'src/'
-ADMIN_VERSION = '2026.10.31-a46-oci'   # bump the a-number when Admin changes
+ADMIN_VERSION = '2026.10.31-a47-oci'   # bump the a-number when Admin changes
 idx = open(ROOT + 'index.html').read()
 src = open(SP + 'admin_src.html').read()          # the add-on version of admin.html (template + addonScript)
 
@@ -385,7 +385,7 @@ SYSTEM = r'''
         }
         async function signOut() {
             try { await withTimeout(_supabase.auth.signOut({ scope: 'local' }), 5000, 'Sign out'); } catch (e) {}
-            try { indexedDB.deleteDatabase('pestis-site-copies'); } catch (e) {}   // the copies of sites' station checks kept on this computer
+            try { indexedDB.deleteDatabase('pestis-site-copies'); indexedDB.deleteDatabase('pestis-thumbs'); } catch (e) {}   // the copies of sites' station checks, and the small photos, kept on this computer
             location.href = location.origin + location.pathname;
         }
         async function useDifferentAccount() { try { await withTimeout(_supabase.auth.signOut({ scope: 'local' }), 5000, 'Sign out'); } catch (e) {} location.href = location.origin + location.pathname; }

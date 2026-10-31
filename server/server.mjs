@@ -757,7 +757,6 @@ const RPC = {
       technician: isClient ? myName(me) : (me.staffName || me.email), at: new Date().toISOString(), by_client: isClient }));
     return { id, status: st };
   },
-  pestis_my_name: me => myName(me),
   pestis_mark_rec_viewed(me, a) {
     const r = sys.one('recommendations', [['id', 'eq', a.p_rec_id]]);
     const isClient = me.client && !me.approved;
@@ -906,9 +905,6 @@ const RPC = {
     transaction(() => sys.update('profiles', [['id', 'eq', me.uid]], p => ({ ui_prefs: Object.assign({}, p.ui_prefs || {}, { [a.p_key]: a.p_value ?? null }) })));
     return null;
   },
-  pestis_is_approved: me => me.approved,
-  pestis_is_admin: me => me.admin,
-  pestis_is_client: me => me.client,
 };
 function savePref(uid, key, value, max) {
   prefKey(key);

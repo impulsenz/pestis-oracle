@@ -2280,7 +2280,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.31-r109-oci';
+        const APP_VERSION = '2026.10.31-r110-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -2784,7 +2784,7 @@
             try { await withTimeout(_supabase.auth.signOut(), 5000, 'Sign out'); } catch (e) {}
             clearStoredSession();
             clearIdentity();
-            try { indexedDB.deleteDatabase('pestis-site-copies'); } catch (e) {}   // the copies Admin and the Client Portal keep of sites' station checks
+            try { indexedDB.deleteDatabase('pestis-site-copies'); indexedDB.deleteDatabase('pestis-thumbs'); } catch (e) {}   // the copies Admin and the Client Portal keep of sites' station checks, and the small photos kept in this browser
             location.href = window.location.origin + window.location.pathname;
         }
 
@@ -8109,7 +8109,6 @@
             } catch (e) {}
         })();
         // at sign-in: this person's settings (from this device, then the newer of device and account)
-        let acctLastUser = null;
         async function loadAccountPrefs() {
             if (!currentUser) return;
             let local = loadJSON(acctCacheKey(), null);
@@ -12660,7 +12659,6 @@
         }
 
         // Flying insect stations: a glue board is the usual preparation
-        const GLUE_BATCH_KEY = 'pestis-last-glue-batch';
         const isFlyingType = t => stationColor(t).key === 'flying';
         const gluePrep = () => optionLabels('prep').find(l => /glue/i.test(l)) || null;
         function applyGlueBoard() {
@@ -14681,8 +14679,6 @@
             }
         }
 
-        function openSettingsModal() { openProfileModal('settings'); }   // settings live in the profile pop-up
-        function closeSettingsModal() { closeProfileModal(); }
 
 
 
@@ -14891,6 +14887,10 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r110', date: '2026-10-31', v: { svc: '2026.10.31-r110', adm: '2026.10.31-a47', cli: '2026.10.31-p62' },
+            svc: ['Signing out also removes the small copies of photos kept on this device', 'Behind the scenes: more unused code tidied away'],
+            adm: ['Signing out also removes the small copies of photos kept on this computer', 'Behind the scenes: unused code tidied away'],
+            cli: ['Signing out also removes the small copies of photos kept on this device'] },
         { rev: 'r109', date: '2026-10-31', v: { svc: '2026.10.31-r109' },
             svc: ['Behind the scenes: old code that no longer ran has been tidied away. Nothing changes in how the app works'] },
         { rev: 'r108', date: '2026-10-31', v: { svc: '2026.10.31-r108' },

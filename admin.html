@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.31-a46-oci
+    Version 2026.10.31-a47-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -1685,7 +1685,7 @@
         }
         async function signOut() {
             try { await withTimeout(_supabase.auth.signOut({ scope: 'local' }), 5000, 'Sign out'); } catch (e) {}
-            try { indexedDB.deleteDatabase('pestis-site-copies'); } catch (e) {}   // the copies of sites' station checks kept on this computer
+            try { indexedDB.deleteDatabase('pestis-site-copies'); indexedDB.deleteDatabase('pestis-thumbs'); } catch (e) {}   // the copies of sites' station checks, and the small photos, kept on this computer
             location.href = location.origin + location.pathname;
         }
         async function useDifferentAccount() { try { await withTimeout(_supabase.auth.signOut({ scope: 'local' }), 5000, 'Sign out'); } catch (e) {} location.href = location.origin + location.pathname; }
@@ -3914,6 +3914,10 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r110', date: '2026-10-31', v: { svc: '2026.10.31-r110', adm: '2026.10.31-a47', cli: '2026.10.31-p62' },
+            svc: ['Signing out also removes the small copies of photos kept on this device', 'Behind the scenes: more unused code tidied away'],
+            adm: ['Signing out also removes the small copies of photos kept on this computer', 'Behind the scenes: unused code tidied away'],
+            cli: ['Signing out also removes the small copies of photos kept on this device'] },
         { rev: 'r109', date: '2026-10-31', v: { svc: '2026.10.31-r109' },
             svc: ['Behind the scenes: old code that no longer ran has been tidied away. Nothing changes in how the app works'] },
         { rev: 'r108', date: '2026-10-31', v: { svc: '2026.10.31-r108' },
@@ -4338,7 +4342,6 @@ const PR = (() => {
     // a preparation's name that opens its safety data sheet (when there is one)
     const prepLink = (opts, name, bold) => { const id = name && opts.sdsOf ? opts.sdsOf(name) : null; const t = bold ? `<b>${e(name)}</b>` : e(name); return id ? `<button type="button" class="pr-link" data-id="${e(id)}" onclick="PR.sds(this, this.dataset.id)" title="Open the safety data sheet">${t} <span class="pr-sds">SDS ↗</span></button>` : t; };
     const monthKey = t => { const d = new Date(t); return d.getFullYear() * 12 + d.getMonth(); };
-    const monthStart = k => new Date(Math.floor(k / 12), k % 12, 1).getTime();
     // month names, worked out once each (a big report asks for them thousands of times)
     const memo = f => { const m = new Map(); return k => { let v = m.get(k); if (v === undefined) m.set(k, v = f(k)); return v; }; };
     const monthLbl = memo(k => new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString(LOC, { month: 'short', year: '2-digit' }));
@@ -4507,7 +4510,6 @@ const PR = (() => {
     }
     function opt(v, l, cur) { return `<option value="${e(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${e(l)}</option>`; }
     function filtersHtml(R, d, s) {
-        const cmb = (k, label, list, all) => combo({ k, label, list: list.map(x => Array.isArray(x) ? x : [x, x]), cur: s[k], all, cb: 'PR.set' });
         const tick = (k, label, list, all, noun) => combo({ k, label, list: list.map(x => Array.isArray(x) ? x : [x, x]), cur: arr(s[k]), all, cb: 'PR.set', multi: true, noun });
         const sel = (k, label, list, all) => `<label class="pr-f"><span>${e(label)}</span><select onchange="PR.set(this, '${k}', this.value)">${all ? opt('', all, s[k]) : ''}${list.map(x => Array.isArray(x) ? opt(x[0], x[1], s[k]) : opt(x, x, s[k])).join('')}</select></label>`;
         const uniq = a => Array.from(new Set(a.filter(Boolean))).sort((x, y) => String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }));
@@ -5118,7 +5120,7 @@ const LOGS = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a46-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a47-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');
@@ -5294,21 +5296,6 @@ const LOGS = (() => {
                 loadAdminPanel();
             });
         }
-        async function setUserRole(i, role) {
-            const u = adminProfiles[i];
-            if (!u || u.id === currentUser.id) return;
-            if (!confirm(`Make ${u.full_name || u.email} ${role === 'admin' ? 'an admin? Admins can manage staff, client logins, lists, settings and documents.' : 'a technician? They will lose admin access.'}`)) { loadAdminPanel(); return; }
-            const { error } = await _supabase.from('profiles').update({ role }).eq('id', u.id);
-            if (error) alert('Could not change the role: ' + error.message);
-            loadAdminPanel();
-        }
-        async function toggleApproval(i) {
-            const u = adminProfiles[i];
-            if (!u || u.id === currentUser.id) return;
-            const { error } = await _supabase.from('profiles').update({ approved: !u.approved }).eq('id', u.id);
-            if (error) { alert('Could not update: ' + error.message); return; }
-            loadAdminPanel();
-        }
 
         async function addAllowedEmail() {
             const email = document.getElementById('adminNewEmail').value.trim().toLowerCase();
@@ -5333,14 +5320,6 @@ const LOGS = (() => {
             loadAdminPanel();
         }
 
-        async function removeAllowedEmail(i) {
-            const a = adminAllowed[i];
-            if (!a) return;
-            if (!confirm('Remove ' + a.email + ' from the pre-approved list?\n(Revoke their access separately in the users list above.)')) return;
-            const { error } = await _supabase.from('allowed_emails').delete().eq('email', a.email);
-            if (error) { alert('Could not remove: ' + error.message); return; }
-            loadAdminPanel();
-        }
 
 
 
@@ -5422,7 +5401,6 @@ const LOGS = (() => {
             if (ui.open) { const q2 = document.querySelector(`#${MS[key].box} .ms-q`), l2 = document.querySelector(`#${MS[key].box} .ms-list`); if (l2) l2.scrollTop = keep; if (q && q2 && document.activeElement !== q2 && q === document.activeElement) q2.focus(); }
         }
         function msAllShown(key, on) { const sel = MS[key].sel(); msShown(key).forEach(i => on ? sel.add(i.id) : sel.delete(i.id)); msRender(key); }
-        function toggleClientPick(mode, id, on) { const sel = clientPicks[mode]; if (on) sel.add(id); else sel.delete(id); }
         function renderClientAdmin() {
             const box = document.getElementById('adminClientsList');
             if (!box || !clientAdminReady) return;
@@ -5695,7 +5673,6 @@ const LOGS = (() => {
             document.getElementById('adminAttention').innerHTML = errs.join('') + (rows.join('') || '<div class="row-item p-4 t-faint italic text-center">Nothing needs attention. 🎉</div>');
             // technician workload
             const staff = adminProfiles.filter(u => u.approved);
-            const missedBy = id => n.missed.filter(x => x.c.assigned_to === id).length;
             const recsBy = id => adminData.recs.filter(r => { const c = siteById(r.client_id); return c && c.assigned_to === id; }).length;
             // each person's month: % of their sites with this month's services done; tap for the list
             const team = monthWork('*', 0);

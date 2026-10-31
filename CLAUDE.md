@@ -53,11 +53,12 @@ The owner is not a programmer. Talk in plain words about what changed for the pe
 
 ## Tests
 
-`tests/run.sh` (or `tests/run.sh api`, `e2e`, `offline`). Each test starts a real server with a throw-away database, fake Google signing keys (`tests/harness.mjs`, `idToken(email)`) and a fake email server.
+`tests/run.sh` (or `tests/run.sh api`, `e2e`, `offline`, `pages`). Each test starts a real server with a throw-away database, fake Google signing keys (`tests/harness.mjs`, `idToken(email)`) and a fake email server.
 
 - `api.test.mjs`: the real `pestis-db.js` against the server: access rules, automatic behaviour, functions, files, live updates, emailed links.
 - `e2e.test.mjs`: the three real apps in Chromium (Playwright): the Service App records a station check and completes a visit, Admin opens, the Client Portal signs in by emailed link, and the Google sign-in round trip. CDN scripts (Tailwind, html5-qrcode, jsPDF) are served from `tests/stubs`, so no internet is needed.
 - `offline.test.mjs`: the offline copy.
+- `pages.test.mjs`: every tab, report and Admin page of the three apps (phone and computer width), a station saved and a visit taken to the sign step; any page error fails it. When a tab, report or Admin page is added, add it here.
 
 In the browser tests, sign someone in by putting their session (from `POST /api/auth/google`) in `localStorage` under `sb-127-auth-token` before the page loads. App functions can be called with `page.evaluate` (e.g. `handleScannedBarcode('X')`, `saveStationServiceRecord()`, `flushQueue()`).
 

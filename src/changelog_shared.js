@@ -3,6 +3,10 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r110', date: '2026-10-31', v: { svc: '2026.10.31-r110', adm: '2026.10.31-a47', cli: '2026.10.31-p62' },
+            svc: ['Signing out also removes the small copies of photos kept on this device', 'Behind the scenes: more unused code tidied away'],
+            adm: ['Signing out also removes the small copies of photos kept on this computer', 'Behind the scenes: unused code tidied away'],
+            cli: ['Signing out also removes the small copies of photos kept on this device'] },
         { rev: 'r109', date: '2026-10-31', v: { svc: '2026.10.31-r109' },
             svc: ['Behind the scenes: old code that no longer ran has been tidied away. Nothing changes in how the app works'] },
         { rev: 'r108', date: '2026-10-31', v: { svc: '2026.10.31-r108' },

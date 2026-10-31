@@ -19,7 +19,6 @@ const PR = (() => {
     // a preparation's name that opens its safety data sheet (when there is one)
     const prepLink = (opts, name, bold) => { const id = name && opts.sdsOf ? opts.sdsOf(name) : null; const t = bold ? `<b>${e(name)}</b>` : e(name); return id ? `<button type="button" class="pr-link" data-id="${e(id)}" onclick="PR.sds(this, this.dataset.id)" title="Open the safety data sheet">${t} <span class="pr-sds">SDS ↗</span></button>` : t; };
     const monthKey = t => { const d = new Date(t); return d.getFullYear() * 12 + d.getMonth(); };
-    const monthStart = k => new Date(Math.floor(k / 12), k % 12, 1).getTime();
     // month names, worked out once each (a big report asks for them thousands of times)
     const memo = f => { const m = new Map(); return k => { let v = m.get(k); if (v === undefined) m.set(k, v = f(k)); return v; }; };
     const monthLbl = memo(k => new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString(LOC, { month: 'short', year: '2-digit' }));
@@ -188,7 +187,6 @@ const PR = (() => {
     }
     function opt(v, l, cur) { return `<option value="${e(v)}" ${String(cur) === String(v) ? 'selected' : ''}>${e(l)}</option>`; }
     function filtersHtml(R, d, s) {
-        const cmb = (k, label, list, all) => combo({ k, label, list: list.map(x => Array.isArray(x) ? x : [x, x]), cur: s[k], all, cb: 'PR.set' });
         const tick = (k, label, list, all, noun) => combo({ k, label, list: list.map(x => Array.isArray(x) ? x : [x, x]), cur: arr(s[k]), all, cb: 'PR.set', multi: true, noun });
         const sel = (k, label, list, all) => `<label class="pr-f"><span>${e(label)}</span><select onchange="PR.set(this, '${k}', this.value)">${all ? opt('', all, s[k]) : ''}${list.map(x => Array.isArray(x) ? opt(x[0], x[1], s[k]) : opt(x, x, s[k])).join('')}</select></label>`;
         const uniq = a => Array.from(new Set(a.filter(Boolean))).sort((x, y) => String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }));
