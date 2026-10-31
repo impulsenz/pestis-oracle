@@ -716,6 +716,7 @@ const fail = (msg, code = 'P0001') => { throw new PgError(code, msg); };
 const prefKey = k => { if (!/^[A-Za-z0-9_]{1,40}$/.test(String(k || ''))) fail('Bad setting name'); return k; };
 const clientPhoto = (cid, p) => String(p).split('/')[0] === String(cid) && /^CLIENT_/.test(String(p).split('/')[1] || '') && String(p).split('/').length === 2;
 
+let storageMemo = null;   // admin_storage's last answer (a minute)
 const RPC = {
   portal_whoami(me) {
     const cu = db.prepare('SELECT * FROM client_users WHERE email = ?').get(me.email);
@@ -831,6 +832,49 @@ const RPC = {
     seen[list] = Array.from(set).slice(-3000);
     savePref(me.uid, 'seen', seen, 2000000);
     return null;
+  },
+  // how much room the data takes (admins only): the database file and the stored files, in total and for each site, with
+  // each site's number of records in every table and its first and last station check. A site's share of the database is
+  // its records' size scaled to the file (so the indexes are shared out too). Worked out at most once a minute.
+  admin_storage(me) {
+    if (!me.admin) fail('Only admins can do this');
+    if (storageMemo && Date.now() - storageMemo.at < 60000) return storageMemo.out;
+    const pragma = n => Number(Object.values(db.prepare(`PRAGMA ${n}`).get() || {})[0]) || 0;
+    const pageSize = pragma('page_size'), dbBytes = pageSize * pragma('page_count'), freeBytes = pageSize * pragma('freelist_count');
+    const sites = {}, site = cid => sites[cid] || (sites[cid] = { rows: {}, recordBytes: 0, files: 0, fileBytes: 0, first: null, last: null });
+    let siteRecordBytes = 0, allRecordBytes = 0;
+    for (const tn of Object.keys(T)) {
+      const cols = db.prepare(`PRAGMA table_info("${tn}")`).all().map(c => c.name);
+      if (!cols.length) continue;
+      const len = cols.map(c => `COALESCE(LENGTH(CAST("${c}" AS BLOB)), 0)`).join(' + ');
+      if (cols.includes('client_id') && (SITE_TABLES.has(tn) || ['site_events', 'site_contacts', 'client_access'].includes(tn))) {
+        for (const r of db.prepare(`SELECT CAST(client_id AS TEXT) AS cid, COUNT(*) AS n, SUM(${len}) AS b FROM "${tn}" GROUP BY CAST(client_id AS TEXT)`).all()) {
+          const s = site(r.cid); s.rows[tn] = r.n; s.recordBytes += r.b || 0; siteRecordBytes += r.b || 0; allRecordBytes += r.b || 0;
+        }
+      } else allRecordBytes += Number((db.prepare(`SELECT SUM(${len}) AS b FROM "${tn}"`).get() || {}).b) || 0;
+    }
+    for (const r of db.prepare('SELECT CAST(client_id AS TEXT) AS cid, MIN(created_at) AS a, MAX(created_at) AS b FROM service_logs GROUP BY CAST(client_id AS TEXT)').all()) Object.assign(site(r.cid), { first: r.a, last: r.b });
+    // files: a site's are under its number (photos, documents, signatures, floor plans) or site-covers/<number>
+    let fileBytes = 0, fileCount = 0, sharedBytes = 0, sharedFiles = 0;
+    const walk = (dir, rel) => {
+      let list = [];
+      try { list = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const e of list) {
+        const p = path.join(dir, e.name), r = rel.concat(e.name);
+        if (e.isDirectory()) { walk(p, r); continue; }
+        let size = 0; try { size = fs.statSync(p).size; } catch { continue; }
+        fileBytes += size; fileCount++;
+        const cid = /^\d+$/.test(r[0]) ? r[0] : r[0] === 'site-covers' && /^\d+$/.test(r[1] || '') ? r[1] : null;
+        if (cid && r.length > 1) { const s = site(cid); s.files++; s.fileBytes += size; } else { sharedBytes += size; sharedFiles++; }
+      }
+    };
+    for (const bucket of Object.keys(BUCKETS)) walk(path.join(FILES_DIR, bucket), []);
+    const usedDb = Math.max(0, dbBytes - freeBytes), scale = allRecordBytes ? usedDb / allRecordBytes : 0;
+    Object.values(sites).forEach(s => { s.dbBytes = Math.round(s.recordBytes * scale); delete s.recordBytes; });
+    const out = { at: new Date().toISOString(), dbBytes, freeBytes, fileBytes, files: fileCount, sharedDbBytes: Math.round((allRecordBytes - siteRecordBytes) * scale),
+      sharedFileBytes: sharedBytes, sharedFiles, sites };
+    storageMemo = { at: Date.now(), out };
+    return out;
   },
   // delete a site and everything on it (admins only): its records in every site table, contacts, client access,
   // history, and the files those records point at (photos, documents, floor plans, signatures)

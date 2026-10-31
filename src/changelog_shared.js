@@ -3,6 +3,16 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r111', date: '2026-10-31', v: { svc: '2026.10.31-r111', adm: '2026.10.31-a48', cli: '2026.10.31-p63' },
+            svc: ['Notifications: floor plans due for their yearly check come up a month before, and again once the check is overdue (instead of under Needs action)',
+                  'Notifications: a site document gives another notification when it expires within a month, and again once it has expired',
+                  'Notifications: each one you tap is marked as seen (and "Mark all as seen"); the bell counts only new ones. What you have seen is saved to your account, shared with Admin, so it stays seen on any phone or computer'],
+            adm: ['Sites: the data stored in total (database and files) above the site cards, and each card shows its site’s share and number of records. Sort by "Most data" to see the biggest sites',
+                  'A site’s page: "Data stored" shows its size, how many of each kind of record it has (station checks, stations, visits, photos and more) and the dates of its first and last station check',
+                  'Needs attention: floor plans due for their yearly check (a month before, and once overdue), and documents expiring within a month',
+                  'Needs attention: new items are marked New until you tap them (or "Mark all as seen") - saved to your account, the same as in the Service App'],
+            cli: ['Notifications: a floor plan due for its yearly check comes up a month before, and again if the check is overdue - tap it to open that floor plan',
+                  'Notifications: a document gives another notification when it expires within a month, and again once it has expired'] },
         { rev: 'r110', date: '2026-10-31', v: { svc: '2026.10.31-r110', adm: '2026.10.31-a47', cli: '2026.10.31-p62' },
             svc: ['Signing out also removes the small copies of photos kept on this device', 'Behind the scenes: more unused code tidied away'],
             adm: ['Signing out also removes the small copies of photos kept on this computer', 'Behind the scenes: unused code tidied away'],

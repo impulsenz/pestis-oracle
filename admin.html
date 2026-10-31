@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.31-a47-oci
+    Version 2026.10.31-a48-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -1001,6 +1001,7 @@
         @media (max-width: 640px) { .as-cover { flex-basis: 100%; } }
         /* the site page's cards packed into columns (no gaps beside a short card); one column on narrow screens */
         .as-grid { column-gap: 1.25rem; }
+        .site-data { position: absolute; top: .55rem; right: .55rem; z-index: 2; font-size: .6rem; font-weight: 800; color: #fff; padding: .2rem .5rem; border-radius: .45rem; background: rgba(15, 23, 42, .62); backdrop-filter: blur(4px); box-shadow: 0 4px 12px -4px rgba(0, 0, 0, .6); pointer-events: none; }
         .as-pin { position: absolute; transform: translate(-50%, -100%) scale(var(--pz-inv, 1)); transform-origin: 50% 100%; }
         .as-bar { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; }
         .as-bar .pv-pick { min-width: 10rem; max-width: 16rem; }
@@ -1136,7 +1137,7 @@
                 <!-- boxes that can be dragged into a new order and resized (kept on this device) -->
                 <div id="adminBoard">
                     <div data-box="attention"><div class="card p-5 space-y-3">
-                        <span class="eyebrow" style="color:#dc2626;">Needs attention</span>
+                        <div class="flex flex-wrap items-center justify-between gap-2"><span class="eyebrow" style="color:#dc2626;">Needs attention <span id="adminAttentionNew" class="t-accent"></span></span><button type="button" id="adminSeenAll" class="link-btn !text-[11px] hidden" onclick="markNotifSeen(adminNotifKeys)">Mark all as seen</button></div>
                         <div id="adminAttention" class="space-y-2 text-xs"></div>
                     </div></div>
                     <div data-box="workload"><div class="card p-5 space-y-3">
@@ -1500,7 +1501,7 @@
         function logAppError(where, e) { console.warn(where, e); }
         function updateSyncBadge() {}
         function renderSiteCards() {}
-        function renderNotifications() {}
+        function renderNotifications() { if (typeof adminTab !== 'undefined' && adminTab === 'overview') try { renderAdminOverview(); } catch (e) {} }   // (after a notification is marked seen)
         function populateOptionSelects() {}
         async function cacheSet() {}
         async function removeQueueItem() {}
@@ -1704,9 +1705,9 @@
             }
             currentProfile = profile;
             appStarted = true;
-            // What's new read on another computer counts here too (kept with the person's account)
+            // What's new read, and notifications seen, on another computer (or in the Service App) count here too (kept with the person's account)
             SEEN.use(_supabase, currentUser.email);
-            SEEN.lists().then(l => { WN.merge(l.whatsnew); WN.badges('adm'); }).catch(() => {});
+            SEEN.lists().then(l => { WN.merge(l.whatsnew); WN.badges('adm'); mergeStaffSeen(l.staff_bell); renderNotifications(); }).catch(() => {});
             try { BOARD.attach(document.getElementById('adminBoard'), 'pestis-admin-overview-board', { attention: 2 / 3, workload: 1 / 3 }); } catch (e) {}
             const name = profile.full_name || currentUser.email;
             document.getElementById('adminMeInitial').textContent = name.trim().charAt(0).toUpperCase();
@@ -2130,6 +2131,60 @@
             if (document.getElementById('adminDocSite').value === cid) fillFolderSelect('adminDocFolder', names, pick);
         }
 
+        // documents and floor plans: a notification when one expires within a month (documents also from the team's warning
+        // time) and another once it has expired - each is a notification of its own, so having seen one doesn't hide the next
+        function expiryStage(days, warn) { return days < 0 ? 'expired' : days <= 30 ? 'month' : days <= (warn || 30) ? 'soon' : ''; }
+
+        const daysUntil = day => Math.round((Date.parse(String(day).slice(0, 10) + 'T00:00:00') - Date.parse(toDayStr(new Date()) + 'T00:00:00')) / 86400000);
+
+        // floor plans are checked once a year (editing one or marking it checked resets it): the ones due within a month, or overdue
+        function plansNeedingCheck(list) {
+            return (list || []).map(m => {
+                const t = Date.parse(m.updated_at || m.created_at);
+                if (isNaN(t)) return null;
+                const due = toDayStr(new Date(t + MAP_REVIEW_DAYS * 86400000));
+                return { m, due, days: daysUntil(due) };
+            }).filter(x => x && x.days <= 30).sort((a, b) => a.days - b.days);
+        }
+
+        // each notification's own key: once this person has tapped it (or marked all as seen) it no longer counts on the bell
+        const notifKey = {
+            open: (c, v) => `open:${c.id}:${v.at}`,
+            missed: (c, sv) => `missed:${c.id}:${sv.id || sv.type}:${sv.nextDue}`,
+            due: (c, sv) => `due:${c.id}:${sv.id || sv.type}:${sv.nextDue}`,
+            doc: d => `doc:${d.id}:${d.expires_on}:${expiryStage(daysUntil(d.expires_on), teamSetting('doc_expiry_warn_days'))}`,
+            plan: x => `plan:${x.m.id}:${x.due}:${expiryStage(x.days)}`,
+            sight: x => `sight:${x.id}`
+        };
+
+        // what this person has seen: kept on this device and with their account (SEEN 'staff_bell', the same list in the
+        // Service App and Admin), so it stays seen on any phone or computer and after clearing the browser
+        const STAFF_SEEN_KEY = () => 'pestis-staff-bell-seen:' + ((currentUser && currentUser.email) || '');
+
+        let staffSeenSet = null, staffSeenFor = '';
+
+        function staffSeen() {
+            if (!staffSeenSet || staffSeenFor !== STAFF_SEEN_KEY()) { staffSeenFor = STAFF_SEEN_KEY(); staffSeenSet = new Set(loadJSON(staffSeenFor, []) || []); }
+            return staffSeenSet;
+        }
+
+        function markNotifSeen(keys) {
+            const s = staffSeen(), add = (Array.isArray(keys) ? keys : [keys]).filter(k => k && !s.has(k));
+            if (!add.length) return;
+            add.forEach(k => s.add(k));
+            saveJSON(STAFF_SEEN_KEY(), Array.from(s).slice(-3000));
+            if (typeof SEEN !== 'undefined') SEEN.add('staff_bell', add);
+            try { renderNotifications(); } catch (e) {}
+        }
+
+        // at sign-in: the account's list and this device's catch each other up
+        function mergeStaffSeen(fromAccount) {
+            const s = staffSeen(), local = Array.from(s);
+            (fromAccount || []).forEach(k => s.add(k));
+            saveJSON(STAFF_SEEN_KEY(), Array.from(s).slice(-3000));
+            if (typeof SEEN !== 'undefined') SEEN.add('staff_bell', local, true);
+        }
+
         let clientUpdates = [];
 
         // ---------- shared with the Admin page (admin.html): site documents and site lookups ----------
@@ -2455,6 +2510,10 @@
                 time: fmtWith(d, { hour: 'numeric', minute: '2-digit' })
             };
         }
+
+        // Dashboard card listing the plans
+        // floor plans are checked once a year: editing a plan (or marking it checked) resets the date
+        const MAP_REVIEW_DAYS = 365;
 
         // the sound played when a barcode is scanned: [frequency Hz, length s, gap after s] for each tone
         const SCAN_SOUNDS = {
@@ -3914,6 +3973,16 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r111', date: '2026-10-31', v: { svc: '2026.10.31-r111', adm: '2026.10.31-a48', cli: '2026.10.31-p63' },
+            svc: ['Notifications: floor plans due for their yearly check come up a month before, and again once the check is overdue (instead of under Needs action)',
+                  'Notifications: a site document gives another notification when it expires within a month, and again once it has expired',
+                  'Notifications: each one you tap is marked as seen (and "Mark all as seen"); the bell counts only new ones. What you have seen is saved to your account, shared with Admin, so it stays seen on any phone or computer'],
+            adm: ['Sites: the data stored in total (database and files) above the site cards, and each card shows its site’s share and number of records. Sort by "Most data" to see the biggest sites',
+                  'A site’s page: "Data stored" shows its size, how many of each kind of record it has (station checks, stations, visits, photos and more) and the dates of its first and last station check',
+                  'Needs attention: floor plans due for their yearly check (a month before, and once overdue), and documents expiring within a month',
+                  'Needs attention: new items are marked New until you tap them (or "Mark all as seen") - saved to your account, the same as in the Service App'],
+            cli: ['Notifications: a floor plan due for its yearly check comes up a month before, and again if the check is overdue - tap it to open that floor plan',
+                  'Notifications: a document gives another notification when it expires within a month, and again once it has expired'] },
         { rev: 'r110', date: '2026-10-31', v: { svc: '2026.10.31-r110', adm: '2026.10.31-a47', cli: '2026.10.31-p62' },
             svc: ['Signing out also removes the small copies of photos kept on this device', 'Behind the scenes: more unused code tidied away'],
             adm: ['Signing out also removes the small copies of photos kept on this computer', 'Behind the scenes: unused code tidied away'],
@@ -5120,7 +5189,7 @@ const LOGS = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a47-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a48-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');
@@ -5616,16 +5685,18 @@ const LOGS = (() => {
             if (!isOnline) { setAdminTab(adminTab); return; }
             const since = new Date(Date.now() - 30 * 86400000).toISOString();
             const grab = async (key, q) => { try { const r = await q; if (r.error) throw r.error; adminData.errors[key] = ''; return r.data || []; } catch (e) { adminData.errors[key] = portalMissing(e) && key === 'docs' ? PORTAL_SQL_NOTE : (e.message || String(e)); return []; } };
-            const [recs, docs, events, profs, allowed, cus, cas] = await Promise.all([
+            loadAdminStorage(true);
+            const [recs, docs, events, profs, allowed, cus, cas, maps] = await Promise.all([
                 grab('recs', _supabase.from('recommendations').select('id, rec_no, client_id, station_name, station_barcode, text, status, raised_at, raised_by').neq('status', 'complete')),
                 grab('docs', _supabase.from('site_documents').select('*')),
                 grab('events', _supabase.from('site_events').select('*').gte('at', since).order('at', { ascending: false }).limit(500)),
                 grab('profiles', _supabase.from('profiles').select('*')),
                 grab('allowed', _supabase.from('allowed_emails').select('*')),
                 grab('clientUsers', _supabase.from('client_users').select('*')),
-                grab('clientAccess', _supabase.from('client_access').select('*'))
+                grab('clientAccess', _supabase.from('client_access').select('*')),
+                grab('maps', _supabase.from('site_maps').select('id, client_id, name, updated_at, created_at'))
             ]);
-            Object.assign(adminData, { recs, docs, events, loadedAt: Date.now() });
+            Object.assign(adminData, { recs, docs, events, maps, loadedAt: Date.now() });
             adminProfiles = profs;
             teamMembers = profs.filter(p => p.approved).map(p => ({ id: p.id, name: txt(p.full_name || p.email || 'Team member'), email: p.email }));
             adminAllowed = allowed; adminClients = cus; adminClientAccess = cas; clientAdminReady = !adminData.errors.clientUsers;
@@ -5636,6 +5707,7 @@ const LOGS = (() => {
         function goToSite(cid) { openInServiceApp(cid); }
 
         // ---------- Overview ----------
+        let adminNotifKeys = [];
         function renderAdminOverview() {
             const n = buildNotifications();
             const pending = adminProfiles.filter(u => !u.approved && !clientEmailSet().has(String(u.email || '').toLowerCase()));
@@ -5655,15 +5727,27 @@ const LOGS = (() => {
                 tile(n.contracts.length, 'Contracts to renew', n.contracts.length ? '#7c3aed' : '#10b981', 'exports'),
                 tile(pending.length, 'Staff awaiting approval', pending.length ? '#dc2626' : '#10b981', 'team')
             ].join('');
-            const item = (icon, title, sub, onclick, chip) => `<button type="button" onclick="${onclick}" class="row-item clickable w-full text-left p-3 flex items-center justify-between gap-3"><div class="min-w-0 flex items-start gap-2"><span>${icon}</span><div class="min-w-0"><div class="font-bold t-strong">${title}</div><div class="t-muted">${sub}</div></div></div>${chip || ''}</button>`;
+            // notifications (key): marked New until this person taps one - seen here or in the Service App, on any computer
+            const seen = staffSeen(), keys = [];
+            const item = (icon, title, sub, onclick, chip, key) => {
+                const isNew = key && !seen.has(key);
+                if (key) keys.push(key);
+                return `<button type="button" ${key ? `data-nk="${esc(key)}" ` : ''}onclick="${key ? 'markNotifSeen(this.dataset.nk); ' : ''}${onclick}" class="row-item clickable w-full text-left p-3 flex items-center justify-between gap-3"${isNew ? ' style="border-color:#0891b2;"' : ''}><div class="min-w-0 flex items-start gap-2"><span>${icon}</span><div class="min-w-0"><div class="font-bold t-strong">${isNew ? '<span class="chip chip-blue !py-0 mr-1">New</span>' : ''}${title}</div><div class="t-muted">${sub}</div></div></div>${chip || ''}</button>`;
+            };
             const rows = [];
             pending.forEach(u => rows.push(item('👤', `${esc(u.full_name || u.email)} is waiting for approval`, esc(u.email), "setAdminTab('team')", '<span class="chip chip-amber">Staff</span>')));
-            n.longVisits.forEach(x => rows.push(item('⏱', `${esc(x.c.Name)}: visit open ${esc(visitAgeText(x.v))}`, `Started by ${esc(teamName(x.v.by) || 'unknown')}`, `goToSite('${esc(String(x.c.id))}')`, '<span class="chip chip-red">Visit</span>')));
-            n.missed.slice(0, 15).forEach(x => rows.push(item('📅', `${esc(x.c.Name)}: ${esc(x.sv.type)} missed`, `Was due ${esc(dueMonth(x.sv.nextDue))}${x.c.assigned_to ? ' · ' + esc(teamName(x.c.assigned_to)) : ' · no technician assigned'}`, `goToSite('${esc(String(x.c.id))}')`, `<span class="chip chip-red">${-x.days}d overdue</span>`)));
+            n.longVisits.forEach(x => rows.push(item('⏱', `${esc(x.c.Name)}: visit open ${esc(visitAgeText(x.v))}`, `Started by ${esc(teamName(x.v.by) || 'unknown')}`, `goToSite('${esc(String(x.c.id))}')`, '<span class="chip chip-red">Visit</span>', notifKey.open(x.c, x.v))));
+            n.missed.slice(0, 15).forEach(x => rows.push(item('📅', `${esc(x.c.Name)}: ${esc(x.sv.type)} missed`, `Was due ${esc(dueMonth(x.sv.nextDue))}${x.c.assigned_to ? ' · ' + esc(teamName(x.c.assigned_to)) : ' · no technician assigned'}`, `goToSite('${esc(String(x.c.id))}')`, `<span class="chip chip-red">${-x.days}d overdue</span>`, notifKey.missed(x.c, x.sv))));
             // documents to renew: expired and expiring soon (tap to open the document)
             docs.slice().sort((a, b) => String(a.expires_on).localeCompare(String(b.expires_on))).forEach(d => {
-                const gone = d.expires_on < toDayStr(new Date());
-                rows.push(item('📄', `${esc(siteById(d.client_id) ? siteById(d.client_id).Name : 'Site')}: "${esc(d.title)}" ${gone ? 'has expired' : 'expires soon'}`, `${esc(d.category || 'Document')} · ${gone ? 'expired' : 'expires'} ${esc(fmtDay(d.expires_on))} - tap to open it`, `adminOpenDoc('${esc(String(d.id))}')`, `<span class="chip ${gone ? 'chip-red' : 'chip-amber'}">Document</span>`));
+                const days = daysUntil(d.expires_on), gone = days < 0;
+                rows.push(item('📄', `${esc(siteById(d.client_id) ? siteById(d.client_id).Name : 'Site')}: "${esc(d.title)}" ${gone ? 'has expired' : days <= 30 ? 'expires within a month' : 'expires soon'}`, `${esc(d.category || 'Document')} · ${gone ? 'expired' : 'expires'} ${esc(fmtDay(d.expires_on))} - tap to open it`, `adminOpenDoc('${esc(String(d.id))}')`, `<span class="chip ${gone ? 'chip-red' : 'chip-amber'}">${gone ? 'Expired' : days + 'd left'}</span>`, notifKey.doc(d)));
+            });
+            // floor plans due for their yearly check (a month before, and once overdue)
+            plansNeedingCheck(adminData.maps).forEach(x => {
+                const c = siteById(x.m.client_id);
+                if (!c) return;
+                rows.push(item('🗺', `${esc(c.Name)}: floor plan "${esc(x.m.name || 'Floor plan')}" ${x.days < 0 ? 'is overdue for its yearly check' : 'is due for its yearly check'}`, `Due ${esc(fmtDay(x.due))} - edit the plan, or mark it as checked, in the Service App`, `goToSite('${esc(String(c.id))}')`, `<span class="chip ${x.days < 0 ? 'chip-red' : 'chip-amber'}">${x.days < 0 ? 'Expired' : x.days + 'd left'}</span>`, notifKey.plan(x)));
             });
             n.contracts.filter(x => x.ci.days < 0).forEach(x => rows.push(item('📝', `${esc(x.c.Name)}: contract ended`, esc(x.ci.text), `goToSite('${esc(String(x.c.id))}')`, '<span class="chip chip-purple">Contract</span>')));
             if (noTech.length) rows.push(item('🧭', `${noTech.length} site${noTech.length === 1 ? ' has' : 's have'} no technician assigned`, esc(noTech.slice(0, 4).map(c => c.Name).join(', ') + (noTech.length > 4 ? '...' : '')), "setAdminTab('exports')", '<span class="chip chip-blue">Sites</span>'));
@@ -5671,6 +5755,10 @@ const LOGS = (() => {
             if (clientAdminReady && noClient.length) rows.push(item('👥', `${noClient.length} site${noClient.length === 1 ? ' has' : 's have'} no client assigned`, esc(noClient.slice(0, 4).map(c => c.Name).join(', ') + (noClient.length > 4 ? '...' : '')), "setAdminTab('clients')", '<span class="chip chip-blue">Clients</span>'));
             const errs = Object.entries(adminData.errors).filter(([, e]) => e).map(([k, e]) => `<div class="row-item p-3" style="color:#ef4444;">${esc(k)}: ${esc(e)}</div>`);
             document.getElementById('adminAttention').innerHTML = errs.join('') + (rows.join('') || '<div class="row-item p-4 t-faint italic text-center">Nothing needs attention. 🎉</div>');
+            adminNotifKeys = keys;
+            const fresh = keys.filter(k => !seen.has(k)).length;
+            document.getElementById('adminAttentionNew').textContent = fresh ? `· ${fresh} new` : '';
+            document.getElementById('adminSeenAll').classList.toggle('hidden', !fresh);
             // technician workload
             const staff = adminProfiles.filter(u => u.approved);
             const recsBy = id => adminData.recs.filter(r => { const c = siteById(r.client_id); return c && c.assigned_to === id; }).length;
@@ -5876,6 +5964,60 @@ const LOGS = (() => {
         }
         let adminSitePage = null;   // the site open on its own page (its id), or null for the cards
         const adminSitesF = { q: '', tech: '', sort: 'name' };
+        // ---------- data stored: the database and the files, in total and for each site (worked out by the server, at most once a minute) ----------
+        let adminStorage = null, adminStorageAt = 0;
+        async function loadAdminStorage(force) {
+            if (!force && adminStorageAt && Date.now() - adminStorageAt < 60000) return;
+            adminStorageAt = Date.now();
+            try { const { data, error } = await _supabase.rpc('admin_storage'); if (error) throw error; adminStorage = data; }
+            catch (e) { adminStorage = { error: e.message || String(e) }; }
+            if (adminTab !== 'sites') return;
+            if (adminSitePage) fillAdminSiteData(adminSitePage); else renderAdminSites();
+        }
+        function siteStorage(cid) { return adminStorage && adminStorage.sites ? adminStorage.sites[String(cid)] || { rows: {}, dbBytes: 0, files: 0, fileBytes: 0 } : null; }
+        const siteRecordCount = s => Object.values((s && s.rows) || {}).reduce((a, n) => a + n, 0);
+        const siteBytes = s => s ? (s.dbBytes || 0) + (s.fileBytes || 0) : 0;
+        const shortCount = n => n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : n >= 1e4 ? Math.round(n / 1000) + 'k' : n.toLocaleString(LOCALE);
+        const STORAGE_TABLES = [['service_logs', 'Station checks'], ['stations', 'Stations'], ['visits', 'Visits'], ['recommendations', 'Recommendations'], ['recommendation_updates', 'Recommendation updates'],
+            ['recommendation_views', 'Recommendation views'], ['recommendation_view_log', 'Recommendation view history'], ['pest_sightings', 'Pest sightings'], ['site_documents', 'Documents'],
+            ['site_document_folders', 'Document folders'], ['site_maps', 'Floor plans'], ['site_buildings', 'Buildings'], ['site_limits', 'Critical limits'], ['site_contacts', 'Contacts'],
+            ['client_access', 'Client logins'], ['site_events', 'History entries']];
+        // the whole server's total, above the site cards
+        function adminStorageSummary() {
+            const s = adminStorage;
+            if (!s) return '<div class="row-item p-3 text-xs t-faint italic">Working out the data stored...</div>';
+            if (s.error) return `<div class="row-item p-3 text-xs" style="color:#dc2626;">Could not work out the data stored: ${esc(s.error)}</div>`;
+            const sites = Object.keys(s.sites || {}).filter(id => siteById(id)), records = sites.reduce((a, id) => a + siteRecordCount(s.sites[id]), 0);
+            const tile = (v, k, sub) => `<div class="inset p-3"><div class="text-lg font-black t-strong">${v}</div><div class="eyebrow t-faint mt-0.5">${k}</div>${sub ? `<div class="text-[11px] t-muted mt-0.5">${sub}</div>` : ''}</div>`;
+            return `<div class="space-y-2"><div class="flex flex-wrap items-center justify-between gap-2"><span class="eyebrow" style="color:#0891b2;">Data stored</span>
+                    <button type="button" class="link-btn !text-[11px]" onclick="loadAdminStorage(true)" title="Work it out again">Refresh</button></div>
+                <div id="adminStorage" class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    ${tile(fmtBytes(s.dbBytes + s.fileBytes), 'Total', 'database and files')}
+                    ${tile(fmtBytes(s.dbBytes), 'Database', s.freeBytes ? `${fmtBytes(s.freeBytes)} of it free space` : 'records')}
+                    ${tile(fmtBytes(s.fileBytes), 'Files', `${s.files.toLocaleString(LOCALE)} photos, documents and plans`)}
+                    ${tile(records.toLocaleString(LOCALE), 'Site records', `across ${sites.length} site${sites.length === 1 ? '' : 's'}`)}
+                </div><p class="text-[11px] t-faint">Each site card shows that site's share. Shared data (the team, lists, settings, staff photos and the library) is ${fmtBytes((s.sharedDbBytes || 0) + (s.sharedFileBytes || 0))}. Sort by "Most data" to see the biggest sites first.</p></div>`;
+        }
+        // one site's page: its data stored and how many of each kind of record it has
+        function fillAdminSiteData(cid) {
+            const el = document.getElementById('asData');
+            if (!el || adminSitePage !== String(cid)) return;
+            if (!adminStorage) { el.innerHTML = '<div class="t-faint italic">Working it out...</div>'; return; }
+            if (adminStorage.error) { el.innerHTML = `<div class="row-item p-3" style="color:#dc2626;">Could not work out the data stored: ${esc(adminStorage.error)}</div>`; return; }
+            const s = siteStorage(cid), total = adminStorage.dbBytes + adminStorage.fileBytes, pct = total ? Math.round(siteBytes(s) / total * 1000) / 10 : 0;
+            const rows = STORAGE_TABLES.filter(([t]) => s.rows[t]).map(([t, l]) => [l, s.rows[t]])
+                .concat(Object.keys(s.rows).filter(t => !STORAGE_TABLES.some(x => x[0] === t)).map(t => [t.replace(/_/g, ' '), s.rows[t]]));
+            const day = v => v ? fmtDay(String(v).slice(0, 10)) : '-';
+            el.innerHTML = `<div class="grid grid-cols-2 gap-2">
+                    <div class="inset p-3"><div class="text-lg font-black t-strong">${fmtBytes(siteBytes(s))}</div><div class="eyebrow t-faint mt-0.5">Total</div><div class="text-[11px] t-muted">${pct}% of everything stored</div></div>
+                    <div class="inset p-3"><div class="text-lg font-black t-strong">${siteRecordCount(s).toLocaleString(LOCALE)}</div><div class="eyebrow t-faint mt-0.5">Records</div><div class="text-[11px] t-muted">every entry on this site</div></div>
+                    <div class="inset p-3"><div class="text-lg font-black t-strong">${fmtBytes(s.dbBytes)}</div><div class="eyebrow t-faint mt-0.5">In the database</div><div class="text-[11px] t-muted">about (its share)</div></div>
+                    <div class="inset p-3"><div class="text-lg font-black t-strong">${fmtBytes(s.fileBytes)}</div><div class="eyebrow t-faint mt-0.5">Files</div><div class="text-[11px] t-muted">${s.files.toLocaleString(LOCALE)} photos, documents and plans</div></div>
+                </div>
+                <div class="row-item p-3 flex flex-wrap justify-between gap-2"><span class="t-muted">Station checks from</span><b class="t-strong">${day(s.first)} to ${day(s.last)}</b></div>
+                ${rows.length ? `<table class="w-full text-left"><tbody>${rows.map(([l, n]) => `<tr class="border-t" style="border-color:var(--border);"><td class="py-1.5 pr-2 t-muted">${esc(l)}</td><td class="py-1.5 text-right font-bold t-strong">${n.toLocaleString(LOCALE)}</td></tr>`).join('')}</tbody></table>` : '<div class="t-faint italic">Nothing stored for this site yet.</div>'}
+                <p class="text-[11px] t-faint">Worked out ${esc(fmtDateTimeLong(adminStorage.at).time)} · <button type="button" class="link-btn !text-[11px]" onclick="loadAdminStorage(true)">Refresh</button></p>`;
+        }
         let adminCoversAsked = false;
         function adminSiteStats(c) {
             const cid = String(c.id);
@@ -5902,7 +6044,8 @@ const LOGS = (() => {
                 && (!adminSitesF.tech || (adminSitesF.tech === '-' ? !c.assigned_to : c.assigned_to === adminSitesF.tech)));
             const st = new Map(list.map(c => [c, adminSiteStats(c)]));
             const byName = (a, b) => String(a.Name || '').localeCompare(String(b.Name || ''), undefined, { sensitivity: 'base', numeric: true });
-            list.sort(adminSitesF.sort === 'due' ? (a, b) => ((st.get(a).due ? st.get(a).due.d.days : 1e9) - (st.get(b).due ? st.get(b).due.d.days : 1e9)) || byName(a, b)
+            if (!adminStorageAt || Date.now() - adminStorageAt > 60000) loadAdminStorage();
+            list.sort(adminSitesF.sort === 'data' ? (a, b) => (siteBytes(siteStorage(b.id)) - siteBytes(siteStorage(a.id))) || byName(a, b) : adminSitesF.sort === 'due' ? (a, b) => ((st.get(a).due ? st.get(a).due.d.days : 1e9) - (st.get(b).due ? st.get(b).due.d.days : 1e9)) || byName(a, b)
                 : adminSitesF.sort === 'attention' ? (a, b) => ((st.get(b).recs + st.get(b).docs) - (st.get(a).recs + st.get(a).docs)) || byName(a, b) : byName);
             const staff = adminProfiles.filter(u => u.approved).sort((a, b) => String(a.full_name || a.email).localeCompare(String(b.full_name || b.email)));
             const card = c => {
@@ -5915,10 +6058,11 @@ const LOGS = (() => {
                     s.contract && s.contract.days <= RENEWAL_WARN_DAYS ? `<span class="site-due" style="background:${s.contract.days < 0 ? '#991b1b' : '#7c3aed'};">${esc(s.contract.short)}</span>` : ''
                 ].join('');
                 const tech = c.assigned_to ? teamName(c.assigned_to) : '';
+                const used = siteStorage(c.id), dataPill = used ? `<span class="site-data" title="Data stored for this site: ${esc(fmtBytes(used.dbBytes))} in the database, ${esc(fmtBytes(used.fileBytes))} in ${used.files} files">💾 ${esc(fmtBytes(siteBytes(used)))} · ${esc(shortCount(siteRecordCount(used)))} records</span>` : '';
                 return `<button type="button" class="site-card" data-id="${esc(String(c.id))}" onclick="openAdminSite(this.dataset.id)" title="${esc([name, txt(c.Address), tech ? 'Technician: ' + tech : ''].filter(Boolean).join(' - '))}" style="background:${CARD_GRADIENTS[hashString(name) % CARD_GRADIENTS.length]}">
                     ${cover ? `<img src="${esc(cover)}" alt="" loading="lazy" class="site-cover" onerror="this.remove()">` : `<span class="site-initials">${esc(initials)}</span>`}
                     ${s.visit ? `<span class="site-progress" style="background:${s.visit.stale ? '#dc2626' : '#2563eb'};">${s.visit.stale ? '⚠ Open ' + esc(visitAgeText(s.visit)) : '<span class="dot"></span>Visit in progress'}</span>` : ''}
-                    ${chips ? `<span class="site-chips">${chips}</span>` : ''}
+                    ${chips ? `<span class="site-chips">${chips}</span>` : ''}${dataPill}
                     <span class="site-overlay${chips ? ' has-chips' : ''}"><span class="site-name">${esc(name)}</span>
                         <span class="text-[10px] font-semibold" style="color:rgba(255,255,255,.8);text-shadow:0 1px 3px rgba(0,0,0,.6);">${esc(tech ? 'Technician: ' + tech : 'No technician')}${s.logins ? ' · ' + s.logins + ' client login' + (s.logins === 1 ? '' : 's') : ''}</span></span>
                 </button>`;
@@ -5931,8 +6075,9 @@ const LOGS = (() => {
                 <div class="flex flex-wrap items-end gap-2">
                     <div class="flex-1 min-w-[12rem]"><label class="lbl" for="asQ">Search</label><input id="asQ" type="search" class="field !py-2 !text-sm" placeholder="Name, address or contact" value="${esc(adminSitesF.q)}" oninput="adminSitesF.q = this.value; renderAdminSites(); const i = document.getElementById('asQ'); i.focus(); i.setSelectionRange(i.value.length, i.value.length);"></div>
                     <div><label class="lbl" for="asTech">Technician</label><select id="asTech" class="field !w-auto !py-2 !text-sm" onchange="adminSitesF.tech = this.value; renderAdminSites()"><option value="">Everyone</option><option value="-" ${adminSitesF.tech === '-' ? 'selected' : ''}>No technician</option>${staff.map(u => `<option value="${esc(u.id)}" ${adminSitesF.tech === u.id ? 'selected' : ''}>${esc(u.full_name || u.email)}</option>`).join('')}</select></div>
-                    <div><label class="lbl" for="asSort">Sort</label><select id="asSort" class="field !w-auto !py-2 !text-sm" onchange="adminSitesF.sort = this.value; renderAdminSites()">${[['name', 'Name'], ['due', 'Next service due'], ['attention', 'Most to sort out']].map(([v, l]) => `<option value="${v}" ${adminSitesF.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+                    <div><label class="lbl" for="asSort">Sort</label><select id="asSort" class="field !w-auto !py-2 !text-sm" onchange="adminSitesF.sort = this.value; renderAdminSites()">${[['name', 'Name'], ['due', 'Next service due'], ['attention', 'Most to sort out'], ['data', 'Most data']].map(([v, l]) => `<option value="${v}" ${adminSitesF.sort === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
                 </div>
+                ${adminStorageSummary()}
                 <p class="text-[11px] t-faint">${list.length} of ${clientsData.length} site${clientsData.length === 1 ? '' : 's'}</p>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">${list.map(card).join('') || '<div class="row-item p-4 t-faint italic text-center">No sites match.</div>'}</div>
             </div>`;
@@ -5997,12 +6142,14 @@ const LOGS = (() => {
                     ${sec('asLogins', 'Client portal logins', '#db2777', loading, btn('Manage client logins', "setAdminTab('clients')"))}
                     ${sec('asLimits', 'Critical limits', '#dc2626', loading, btn('Set critical limits', `adminSiteTab('limits', ${cidQ})`))}
                     ${sec('asActivity', 'Recent changes (30 days)', '#64748b', loading)}
+                    ${sec('asData', 'Data stored', '#0891b2', loading)}
                 </div>
                 <div class="card p-5 space-y-3"><span class="eyebrow" style="color:#0891b2;">Floor plans</span><div id="asPlans" class="space-y-3 text-xs">${loading}</div></div>
                 <div class="card p-5 space-y-2" style="border-color:rgba(220,38,38,.45);"><span class="eyebrow" style="color:#dc2626;">Delete this site</span>
                     <p class="text-xs t-muted">Deletes the site and everything on it for good: stations, every visit and station check, recommendations, documents, floor plans, photos, contacts, critical limits and client access. It can't be undone - download what you need first (Reports, or Documents › Download all).</p>
                     <div><button type="button" class="btn btn-outline-danger" onclick="deleteAdminSite(${cidQ})">Delete this site...</button></div></div>`;
             loadAdminSitePage(String(c.id));
+            fillAdminSiteData(String(c.id)); loadAdminStorage();
         }
         async function loadAdminSitePage(cid) {
             const here = () => adminSitePage === cid && adminTab === 'sites';

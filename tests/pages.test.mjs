@@ -9,6 +9,9 @@ const STUBS = { 'cdn.tailwindcss.com': 'tailwind-real.js', 'html5-qrcode': 'qr-s
 const session = async (email, extra) => (await (await fetch(BASE + '/api/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: idToken(email, extra) }) })).json()).session;
 const api = s => async (table, body) => (await fetch(BASE + '/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.access_token }, body: JSON.stringify(Object.assign({ table }, body)) })).json();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const dayIn = n => { const d = new Date(Date.now() + n * 86400000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const ago = n => new Date(Date.now() - n * 86400000).toISOString();
+const SHOTS = tmpDir('shots');
 const browser = await chromium.launch();
 const all = [];
 async function page(sess, w = 1280) {
@@ -42,15 +45,23 @@ try {
   await api(tech)('visits', { op: 'insert', values: visits });
   await api(tech)('recommendations', { op: 'insert', values: [{ id: 'rec-1', client_id: '1', station_barcode: 'B1', station_name: 'Station 1', text: 'Seal the gap', raised_by: 'Tina Tech' }] });
   await api(tech)('pest_sightings', { op: 'insert', values: [{ id: 'ps1', client_id: '1', pest: 'Rat', location: 'Dock', urgency: 'Routine', reported_by: 'Jane', seen_at: new Date().toISOString() }] });
-  await api(boss)('site_documents', { op: 'insert', values: [{ id: 'd1', client_id: '1', title: 'Pest plan', category: 'Pest management plan', folder: 'Pest management plan', file_path: '1/x.pdf', expires_on: '2026-11-15' }] });
+  await api(boss)('site_documents', { op: 'insert', values: [{ id: 'd1', client_id: '1', title: 'Pest plan', category: 'Pest management plan', folder: 'Pest management plan', file_path: '1/x.pdf', expires_on: dayIn(15) }] });
   await api(tech)('site_buildings', { op: 'insert', values: [{ id: 'bA', client_id: '1', name: 'Main' }] });
   await api(tech)('site_maps', { op: 'insert', values: [{ id: 'm1', client_id: '1', name: 'Ground', building_id: 'bA' }] });
+  // floor plans due for their yearly check: one within a month, one overdue
+  await api(tech)('site_maps', { op: 'insert', values: [{ id: 'm2', client_id: '1', name: 'Old plan', building_id: 'bA', created_at: ago(500), updated_at: ago(350) }, { id: 'm3', client_id: '1', name: 'Ancient plan', created_at: ago(500), updated_at: ago(400) }] });
 
   // ---------- Client Portal (staff) ----------
   for (const w of [1280, 390]) {
     const cp = await page(boss, w); cp.app = 'portal' + w;
     await step(cp, 'open', async () => { await cp.goto(`${BASE}/client.html#/site/1/overview`); await cp.waitForFunction(() => typeof state !== 'undefined' && state.model, null, { timeout: 30000 }); });
     for (const t of ['overview', 'recs', 'sightings', 'reports', 'visits', 'documents', 'plans', 'techs']) await step(cp, 'tab ' + t, () => cp.evaluate(t => setTab(t), t));
+    await step(cp, 'expiry notifications', async () => {
+      const keys = await cp.evaluate(async () => { await loadAllDocs(); return bellItems(true).map(i => i.key); });
+      if (!keys.some(k => /^plan:m2:.*:m$/.test(k)) || !keys.some(k => /^plan:m3:.*:x$/.test(k)) || !keys.includes(`doc:d1:${dayIn(15)}:m`) || keys.some(k => k.startsWith('plan:m1:')))
+        all.push(`[${cp.app}] the floor plan / document expiry notifications are wrong: ${keys.join(' ')}`);
+      if (w === 390) { await cp.evaluate(() => toggleBell()); await sleep(400); await cp.screenshot({ path: path.join(SHOTS, 'portal-bell-390.png') }); await cp.evaluate(() => toggleBell()); }
+    });
     const reps = await cp.evaluate(() => PR.REPORTS.map(r => r.id));
     await cp.evaluate(() => setTab('reports'));
     for (const r of reps) await step(cp, 'report ' + r, () => cp.evaluate(r => PR.show(state.prBox, r), r));
@@ -68,6 +79,32 @@ try {
   await step(ad, 'site page', async () => { await ad.evaluate(() => { openAdmin('sites'); openAdminSite('1'); }); await sleep(2500); });
   await step(ad, 'reports for site', async () => { await ad.evaluate(() => { openAdmin('reports'); const s = document.getElementById('repSite'); s.value = '1'; loadAdminReports(); }); await sleep(2000); });
   await step(ad, 'whats new', () => ad.evaluate(() => openWhatsNew()));
+  await step(ad, 'needs attention', async () => {
+    await ad.evaluate(() => { try { closeInfoModal(); } catch (e) {} openAdmin("overview"); });
+    const t = await ad.evaluate(() => document.getElementById('adminAttention').textContent);
+    if (!/floor plan "Old plan" is due for its yearly check/.test(t) || !/"Ancient plan" is overdue/.test(t) || !/expires within a month/.test(t) || !/New/.test(t)) all.push(`[admin] Needs attention misses the floor plans or the document: ${t.slice(0, 400)}`);
+    await ad.screenshot({ path: path.join(SHOTS, 'admin-attention-1280.png') });
+    await ad.evaluate(() => document.getElementById('adminSeenAll').click()); await sleep(1000);
+    const after = await ad.evaluate(async () => ({ n: document.getElementById('adminAttentionNew').textContent, t: document.getElementById('adminAttention').textContent, seen: ((await _supabase.rpc('get_my_prefs')).data.seen || {}).staff_bell || [] }));
+    if (after.n || /New/.test(after.t) || !after.seen.some(k => k.startsWith('plan:m2:'))) all.push(`[admin] Mark all as seen didn't stick: ${JSON.stringify(after).slice(0, 300)}`);
+  });
+  await step(ad, 'data stored', async () => {
+    await ad.evaluate(() => { openAdmin('sites'); closeAdminSite(); });
+    await ad.waitForSelector('#adminStorage', { timeout: 15000 });
+    await ad.waitForSelector(".site-card[data-id='1'] .site-data", { timeout: 15000 });
+    const pill = await ad.textContent(".site-card[data-id='1'] .site-data");
+    if (!/records/.test(pill)) all.push(`[admin] the site card's data stored: ${pill}`);
+    await ad.evaluate(() => openAdminSite('1'));
+    await ad.waitForFunction(() => /Station checks/.test(document.getElementById('asData').textContent) && /168/.test(document.getElementById('asData').textContent), null, { timeout: 15000 });
+  });
+  for (const w of [390, 1280]) await step(ad, 'data stored ' + w, async () => {
+    await ad.setViewportSize({ width: w, height: 900 });
+    await ad.evaluate(() => closeAdminSite()); await sleep(600);
+    await ad.screenshot({ path: path.join(SHOTS, `admin-sites-${w}.png`) });
+    await ad.evaluate(() => openAdminSite('1')); await sleep(1500);
+    await ad.evaluate(() => document.getElementById('asData').scrollIntoView()); await sleep(300);
+    await ad.screenshot({ path: path.join(SHOTS, `admin-site-data-${w}.png`) });
+  });
   // ---------- Service App ----------
   for (const w of [1280, 390]) {
     const sp = await page(tech, w); sp.app = 'service' + w;
@@ -87,6 +124,23 @@ try {
     const review = await sp.evaluate(() => (document.getElementById('signOffReview').textContent || ''));
     if (!/Stations scanned \(1 of 12\)/.test(review)) all.push(`[${sp.app}] the sign step doesn't count the saved station: ${review.slice(0, 200)}`);
     await step(sp, 'close modal', () => sp.evaluate(() => closeCompleteVisitModal()));
+    await step(sp, 'expiry notifications', async () => {
+      await sp.evaluate(async () => { document.querySelectorAll(".overlay:not(#notifModal)").forEach(o => o.classList.add("hidden")); await loadBellExtras(); await openNotifModal(); });
+      const got = await sp.evaluate(() => ({ t: document.getElementById('notifList').textContent, k: Array.from(document.querySelectorAll('#notifList [data-nk]')).map(b => b.dataset.nk).filter(Boolean), n: buildNotifications().total }));
+      const plan = got.k.find(k => k.startsWith('plan:m2:'));
+      if (!/Floor plans due for their yearly check \(2\)/.test(got.t) || !/expires within a month/.test(got.t) || !plan || !got.k.some(k => /^plan:m3:.*:expired$/.test(k))) all.push(`[${sp.app}] the expiry notifications are missing: ${got.t.slice(0, 300)} ${got.k.join(' ')}`);
+      await sp.screenshot({ path: path.join(SHOTS, `service-notifs-${w}.png`) });
+      if (w === 1280) {
+        if (!/New/.test(got.t)) all.push(`[${sp.app}] new notifications aren't marked New`);
+        await sp.evaluate(k => document.querySelector(`#notifList [data-nk="${k}"]`).click(), plan); await sleep(1500);
+        const after = await sp.evaluate(async k => ({ here: staffSeen().has(k), n: buildNotifications().total, acct: (((await _supabase.rpc('get_my_prefs')).data.seen || {}).staff_bell || []).includes(k) }), plan);
+        if (!after.here || !after.acct || after.n !== got.n - 1) all.push(`[${sp.app}] tapping a notification didn't mark it seen: ${JSON.stringify(after)} (was ${got.n})`);
+        await sp.evaluate(() => { try { closeMapModal(); } catch (e) {} });
+      } else if (await sp.evaluate(() => document.querySelectorAll('#notifList [data-nk^="plan:m2:"] .chip-blue').length)) {
+        all.push(`[${sp.app}] a notification seen on another browser shows as New again`);   // (a new browser: tapped on the other one)
+      }
+      await sp.evaluate(() => closeNotifModal());
+    });
     await sp.context().close();
   }
   // ---------- Client Portal as a client ----------

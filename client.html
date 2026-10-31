@@ -717,7 +717,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (on the server); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.31-p62-oci';
+const PORTAL_VERSION = '2026.10.31-p63-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -887,7 +887,7 @@ async function signOut() {
     showLogin('You have signed out.');
 }
 const PREFS_KEY = () => 'pestis-portal-settings:' + ((state.me && state.me.email) || '');
-const BELL_TYPES = [['visit', 'New service reports'], ['rec', 'New recommendations'], ...(LIMITS_ON ? [['lim', 'Critical limits exceeded']] : []), ['sight', 'Pest sightings to review'], ['doc', 'Documents expiring']];
+const BELL_TYPES = [['visit', 'New service reports'], ['rec', 'New recommendations'], ...(LIMITS_ON ? [['lim', 'Critical limits exceeded']] : []), ['sight', 'Pest sightings to review'], ['doc', 'Documents expiring'], ['plan', 'Floor plans due for their yearly check']];
 function portalPrefs() { let p = {}; try { p = JSON.parse(localStorage.getItem(PREFS_KEY()) || '{}') || {}; } catch (e) {} return Object.assign({ startTab: 'overview', period: '12m', bell: {}, theme: 'orange', textSize: 'normal', motion: 'on' }, p); }
 // every change is kept on this device and saved to the person's account, so it follows them and never affects anyone else
 function savePrefs(change) {
@@ -970,12 +970,31 @@ document.addEventListener('click', e => {
     if (!e.target.closest('#bellPanel') && !e.target.closest('#bellBtn')) $('bellPanel').classList.add('hidden');
 });
 
-// ---------- Notifications (bell): documents expiring on any of your sites, and for the open site
-//            critical limits exceeded and new recommendations you haven't opened yet ----------
-let allSiteDocs = [];
+// ---------- Notifications (bell): documents expiring and floor plans due for their yearly check on any of your sites,
+//            and for the open site critical limits exceeded and new recommendations you haven't opened yet ----------
+let allSiteDocs = [], allSitePlans = [];
 async function loadAllDocs() {
-    try { const { data } = await sb.from('site_documents').select('id, client_id, title, category, expires_on'); const mine = new Set(state.sites.map(x => String(x.id))); allSiteDocs = (data || []).filter(d => mine.has(String(d.client_id))); } catch (e) { allSiteDocs = []; }   // only the sites this login was given
+    const mine = new Set(state.sites.map(x => String(x.id)));   // only the sites this login was given
+    try { const { data } = await sb.from('site_documents').select('id, client_id, title, category, expires_on'); allSiteDocs = (data || []).filter(d => mine.has(String(d.client_id))); } catch (e) { allSiteDocs = []; }
+    try { const { data } = await sb.from('site_maps').select('id, client_id, name, updated_at, created_at'); allSitePlans = (data || []).filter(p => mine.has(String(p.client_id))); } catch (e) { allSitePlans = []; }
     renderBell();
+}
+// floor plans are checked once a year by your technician: a notification a month before the check is due, and once it's overdue
+const PLAN_CHECK_DAYS = 365;
+function plansDueCheck() {
+    const today = dayStart(toDayStr(new Date()));
+    return allSitePlans.map(p => {
+        const t = Date.parse(p.updated_at || p.created_at);
+        if (isNaN(t)) return null;
+        const due = toDayStr(new Date(t + PLAN_CHECK_DAYS * 86400000));
+        return { p, due, days: Math.round((dayStart(due) - today) / 86400000) };
+    }).filter(x => x && x.days <= 30).sort((a, b) => a.days - b.days);
+}
+// a floor plan's notification: that plan on the Floor plans tab
+function goToPlan(cid, id) {
+    planId = id; planFocus = null;
+    if (state.site && String(state.site.id) === String(cid) && state.model) { if (state.tab === 'plans') renderPlans(); else setTab('plans'); }
+    else location.hash = `#/site/${encodeURIComponent(cid)}/plans`;
 }
 // what this person has marked as seen (kept on this device)
 const BELL_SEEN_KEY = () => 'pestis-portal-bell-seen:' + ((state.me && state.me.email) || '');
@@ -1018,7 +1037,13 @@ function bellItems(includeSeen) {
     allSiteDocs.filter(d => d.expires_on && dayStart(d.expires_on) - today <= DOC_WARN_DAYS * 86400000).sort((a, b) => String(a.expires_on).localeCompare(String(b.expires_on))).forEach(d => {
         const site = state.sites.find(x => String(x.id) === String(d.client_id));
         const days = Math.round((dayStart(d.expires_on) - today) / 86400000);
-        items.push({ key: `doc:${d.id}:${d.expires_on}:${days < 0 ? 'x' : 'w'}`, icon: '📄', red: days < 0, title: `${d.title} ${days < 0 ? 'has expired' : days === 0 ? 'expires today' : `expires in ${plural(days, 'day')}`}`, sub: `${site ? siteName(site) + ' · ' : ''}${d.category || 'Document'} · ${fmtDay(d.expires_on)}`, go: `goToDoc(${jsArg(String(d.client_id))}, ${jsArg(String(d.id))})` });
+        items.push({ key: `doc:${d.id}:${d.expires_on}:${days < 0 ? 'x' : days <= 30 ? 'm' : 'w'}`, icon: '📄', red: days < 0, title: `${d.title} ${days < 0 ? 'has expired' : days === 0 ? 'expires today' : days <= 30 ? `expires in ${plural(days, 'day')} - within a month` : `expires in ${plural(days, 'day')}`}`, sub: `${site ? siteName(site) + ' · ' : ''}${d.category || 'Document'} · ${fmtDay(d.expires_on)}`, go: `goToDoc(${jsArg(String(d.client_id))}, ${jsArg(String(d.id))})` });
+    });
+    plansDueCheck().forEach(x => {
+        const site = state.sites.find(s => String(s.id) === String(x.p.client_id));
+        items.push({ key: `plan:${x.p.id}:${x.due}:${x.days < 0 ? 'x' : 'm'}`, icon: '🗺', red: x.days < 0,
+            title: `Floor plan "${x.p.name || 'Floor plan'}" ${x.days < 0 ? 'is overdue for its yearly check' : x.days === 0 ? 'is due for its yearly check today' : `is due for its yearly check in ${plural(x.days, 'day')}`}`,
+            sub: `${site ? siteName(site) + ' · ' : ''}due ${fmtDay(x.due)} - your technician checks it's still right`, go: `goToPlan(${jsArg(String(x.p.client_id))}, ${jsArg(String(x.p.id))})` });
     });
     if (state.model) {
         // a station that took a critical limit over this month: one notification each, opening its critical limits report
@@ -4810,6 +4835,16 @@ const LOGS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r111', date: '2026-10-31', v: { svc: '2026.10.31-r111', adm: '2026.10.31-a48', cli: '2026.10.31-p63' },
+            svc: ['Notifications: floor plans due for their yearly check come up a month before, and again once the check is overdue (instead of under Needs action)',
+                  'Notifications: a site document gives another notification when it expires within a month, and again once it has expired',
+                  'Notifications: each one you tap is marked as seen (and "Mark all as seen"); the bell counts only new ones. What you have seen is saved to your account, shared with Admin, so it stays seen on any phone or computer'],
+            adm: ['Sites: the data stored in total (database and files) above the site cards, and each card shows its site’s share and number of records. Sort by "Most data" to see the biggest sites',
+                  'A site’s page: "Data stored" shows its size, how many of each kind of record it has (station checks, stations, visits, photos and more) and the dates of its first and last station check',
+                  'Needs attention: floor plans due for their yearly check (a month before, and once overdue), and documents expiring within a month',
+                  'Needs attention: new items are marked New until you tap them (or "Mark all as seen") - saved to your account, the same as in the Service App'],
+            cli: ['Notifications: a floor plan due for its yearly check comes up a month before, and again if the check is overdue - tap it to open that floor plan',
+                  'Notifications: a document gives another notification when it expires within a month, and again once it has expired'] },
         { rev: 'r110', date: '2026-10-31', v: { svc: '2026.10.31-r110', adm: '2026.10.31-a47', cli: '2026.10.31-p62' },
             svc: ['Signing out also removes the small copies of photos kept on this device', 'Behind the scenes: more unused code tidied away'],
             adm: ['Signing out also removes the small copies of photos kept on this computer', 'Behind the scenes: unused code tidied away'],

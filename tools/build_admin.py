@@ -3,7 +3,7 @@ import re, json, sys, tempfile
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
 SP = ROOT + 'src/'
-ADMIN_VERSION = '2026.10.31-a47-oci'   # bump the a-number when Admin changes
+ADMIN_VERSION = '2026.10.31-a48-oci'   # bump the a-number when Admin changes
 idx = open(ROOT + 'index.html').read()
 src = open(SP + 'admin_src.html').read()          # the add-on version of admin.html (template + addonScript)
 
@@ -38,7 +38,7 @@ unitText,userSettingFields,userSettingRead,userSettingWrite,visitAgeText,visitIn
 fillAdminDocFolders,sitePickUsers,contractInfo,openInfoModal,closeInfoModal,openPestGuide,renderPestGuideList,coverUrl,txt,hashString,CARD_GRADIENTS,adminData,clientUpdates,
 pestSubOf,pestSubs,PEST_SUB_ORDER,pestGallery,findPestGallery,commonsSearch,drawPestGallery,pgStep,pgOpenFull,pestGalleryHtml,pgState,LIST_TABLES,LIST_EXTRA_COLS,
 toDbClientFields,mergeClients,normalizeClientRow,learnClientColumns,saveSiteDocument,FREQUENCIES,FREQ_MAP,pestGuideOf,wikiPestInfo,PEST_LIBRARY,PEST_CATEGORY_TEXT,
-SCAN_SOUNDS,SCAN_VIBES,PHOTO_PRESETS,RENEWAL_WARN_DAYS,VISIT_STALE_HOURS,teamSettings,teamMembers,addFrequency,MONTH_SHORT,freqMonths,freqSelectValue,firstChosenDue,setServiceFrequency,toggleServiceMonth,monthPickerHtml,dueMonth,STANDARD_FOLDERS,copyPortalLink,newDocFolder,safely,adminProfiles,adminAllowed'''.replace('\n', '').split(',')
+SCAN_SOUNDS,SCAN_VIBES,PHOTO_PRESETS,RENEWAL_WARN_DAYS,VISIT_STALE_HOURS,teamSettings,teamMembers,addFrequency,MONTH_SHORT,freqMonths,freqSelectValue,firstChosenDue,setServiceFrequency,toggleServiceMonth,monthPickerHtml,dueMonth,STANDARD_FOLDERS,copyPortalLink,newDocFolder,safely,adminProfiles,adminAllowed,notifKey,expiryStage,daysUntil,plansNeedingCheck,staffSeen,markNotifSeen,mergeStaffSeen'''.replace('\n', '').split(',')
 SKIP = set('''_supabase,enqueue,queueItems,currentUser,currentProfile,isOnline,appOptions,clientsData,selectedClient,addon,isAdmin,isAdminUser,queueSiteChange,startSiteVisit,
 openRecModal,openServicesModal,loadOptions,populateOptionSelects,cacheSet,updateSyncBadge,removeQueueItem,applyTeamSettings,buildNotifications,logAppError,acctApply,
 acctCacheKey,renderSiteCards,renderNotifications,loadSiteDocs,closeAdmin,showSiteDashboard,mwOpenSite,sessionSet,sessionGet,flushQueue,siteDocs,siteDocFolders,
@@ -200,7 +200,7 @@ SYSTEM = r'''
         function logAppError(where, e) { console.warn(where, e); }
         function updateSyncBadge() {}
         function renderSiteCards() {}
-        function renderNotifications() {}
+        function renderNotifications() { if (typeof adminTab !== 'undefined' && adminTab === 'overview') try { renderAdminOverview(); } catch (e) {} }   // (after a notification is marked seen)
         function populateOptionSelects() {}
         async function cacheSet() {}
         async function removeQueueItem() {}
@@ -404,9 +404,9 @@ SYSTEM = r'''
             }
             currentProfile = profile;
             appStarted = true;
-            // What's new read on another computer counts here too (kept with the person's account)
+            // What's new read, and notifications seen, on another computer (or in the Service App) count here too (kept with the person's account)
             SEEN.use(_supabase, currentUser.email);
-            SEEN.lists().then(l => { WN.merge(l.whatsnew); WN.badges('adm'); }).catch(() => {});
+            SEEN.lists().then(l => { WN.merge(l.whatsnew); WN.badges('adm'); mergeStaffSeen(l.staff_bell); renderNotifications(); }).catch(() => {});
             try { BOARD.attach(document.getElementById('adminBoard'), 'pestis-admin-overview-board', { attention: 2 / 3, workload: 1 / 3 }); } catch (e) {}
             const name = profile.full_name || currentUser.email;
             document.getElementById('adminMeInitial').textContent = name.trim().charAt(0).toUpperCase();
@@ -448,8 +448,8 @@ assert 'function goToSite(cid) { openInServiceApp(cid); }' in code
 code = R(code, '''        function openAdminActivity(cid, rec) { goToSite(cid, rec ? () => { if (findRec(rec)) openRecModal(rec); } : null); }''',
                '''        function openAdminActivity(cid, rec) { openInServiceApp(cid, rec || null); }''')
 code = R(code, '''onclick="goToSite(this.dataset.cid, () => openServicesModal())">Manage services</button>''', '''onclick="openAdminServices(this.dataset.cid)">Manage services</button>''')
-code = R(code, '''            Object.assign(adminData, { recs, docs, events, loadedAt: Date.now() });
-            adminProfiles = profs;''', '''            Object.assign(adminData, { recs, docs, events, loadedAt: Date.now() });
+code = R(code, '''            Object.assign(adminData, { recs, docs, events, maps, loadedAt: Date.now() });
+            adminProfiles = profs;''', '''            Object.assign(adminData, { recs, docs, events, maps, loadedAt: Date.now() });
             adminProfiles = profs;
             teamMembers = profs.filter(p => p.approved).map(p => ({ id: p.id, name: txt(p.full_name || p.email || 'Team member'), email: p.email }));''')
 

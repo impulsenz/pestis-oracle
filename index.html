@@ -1922,7 +1922,7 @@
             <div class="flex justify-between items-start gap-3">
                 <div>
                     <h3 class="font-black text-lg t-accent">Notifications</h3>
-                    <p class="text-xs t-muted mt-1">These stay here until the job is done - they can't be dismissed.</p>
+                    <p class="text-xs t-muted mt-1">These stay here until the job is done. Once you've tapped one (or Mark all as seen) it no longer counts on the bell.</p>
                 </div>
                 <button type="button" onclick="closeNotifModal()" class="t-faint hover:opacity-70 text-xs font-semibold cursor-pointer shrink-0">✕ Close</button>
             </div>
@@ -2280,7 +2280,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.31-r110-oci';
+        const APP_VERSION = '2026.10.31-r111-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -3380,6 +3380,51 @@
             }
             if (document.getElementById('adminDocSite').value === cid) fillFolderSelect('adminDocFolder', names, pick);
         }
+        // documents and floor plans: a notification when one expires within a month (documents also from the team's warning
+        // time) and another once it has expired - each is a notification of its own, so having seen one doesn't hide the next
+        function expiryStage(days, warn) { return days < 0 ? 'expired' : days <= 30 ? 'month' : days <= (warn || 30) ? 'soon' : ''; }
+        const daysUntil = day => Math.round((Date.parse(String(day).slice(0, 10) + 'T00:00:00') - Date.parse(toDayStr(new Date()) + 'T00:00:00')) / 86400000);
+        // floor plans are checked once a year (editing one or marking it checked resets it): the ones due within a month, or overdue
+        function plansNeedingCheck(list) {
+            return (list || []).map(m => {
+                const t = Date.parse(m.updated_at || m.created_at);
+                if (isNaN(t)) return null;
+                const due = toDayStr(new Date(t + MAP_REVIEW_DAYS * 86400000));
+                return { m, due, days: daysUntil(due) };
+            }).filter(x => x && x.days <= 30).sort((a, b) => a.days - b.days);
+        }
+        // each notification's own key: once this person has tapped it (or marked all as seen) it no longer counts on the bell
+        const notifKey = {
+            open: (c, v) => `open:${c.id}:${v.at}`,
+            missed: (c, sv) => `missed:${c.id}:${sv.id || sv.type}:${sv.nextDue}`,
+            due: (c, sv) => `due:${c.id}:${sv.id || sv.type}:${sv.nextDue}`,
+            doc: d => `doc:${d.id}:${d.expires_on}:${expiryStage(daysUntil(d.expires_on), teamSetting('doc_expiry_warn_days'))}`,
+            plan: x => `plan:${x.m.id}:${x.due}:${expiryStage(x.days)}`,
+            sight: x => `sight:${x.id}`
+        };
+        // what this person has seen: kept on this device and with their account (SEEN 'staff_bell', the same list in the
+        // Service App and Admin), so it stays seen on any phone or computer and after clearing the browser
+        const STAFF_SEEN_KEY = () => 'pestis-staff-bell-seen:' + ((currentUser && currentUser.email) || '');
+        let staffSeenSet = null, staffSeenFor = '';
+        function staffSeen() {
+            if (!staffSeenSet || staffSeenFor !== STAFF_SEEN_KEY()) { staffSeenFor = STAFF_SEEN_KEY(); staffSeenSet = new Set(loadJSON(staffSeenFor, []) || []); }
+            return staffSeenSet;
+        }
+        function markNotifSeen(keys) {
+            const s = staffSeen(), add = (Array.isArray(keys) ? keys : [keys]).filter(k => k && !s.has(k));
+            if (!add.length) return;
+            add.forEach(k => s.add(k));
+            saveJSON(STAFF_SEEN_KEY(), Array.from(s).slice(-3000));
+            if (typeof SEEN !== 'undefined') SEEN.add('staff_bell', add);
+            try { renderNotifications(); } catch (e) {}
+        }
+        // at sign-in: the account's list and this device's catch each other up
+        function mergeStaffSeen(fromAccount) {
+            const s = staffSeen(), local = Array.from(s);
+            (fromAccount || []).forEach(k => s.add(k));
+            saveJSON(STAFF_SEEN_KEY(), Array.from(s).slice(-3000));
+            if (typeof SEEN !== 'undefined') SEEN.add('staff_bell', local, true);
+        }
         // a document from the notifications (any site): opened straight away
         async function openNotifDoc(id) {
             const d = (notifDocs || []).concat((typeof adminData !== 'undefined' && adminData.docs) || []).find(x => String(x.id) === String(id));
@@ -3441,7 +3486,6 @@
                 if (!String(c.Address || '').trim()) add('address', 'No address (the map and directions need one)', 'edit');
                 const ci = contractInfo(c);
                 if (ci && ci.days <= RENEWAL_WARN_DAYS) add('contract', ci.days < 0 ? `Contract ended - ${ci.text}` : `Contract ends soon - ${ci.text}`, 'edit');
-                (s.oldMaps || []).forEach(m => add('mapcheck', `Floor plan "${m.name}" hasn't been checked for over a year (last updated ${fmtDay(String(m.at).slice(0, 10))})`, 'plans'));
                 if (s.limits && s.insectNoZone) add('zone', `${s.insectNoZone} insect station${s.insectNoZone === 1 ? ' has' : 's have'} no critical limit chosen`, 'site');
             });
             return out;
@@ -3490,6 +3534,7 @@
         let notifBreaches = [];        // critical limits exceeded this month (logged when the technician saved the count)
         let notifUnplaced = [];        // [{ cid, n, total }] sites with floor plans but stations not placed on one
         let notifSightings = [];       // pest sightings the client reported that still need actioning
+        let notifPlans = [];           // every site's floor plans (for the yearly check)
         async function loadBellExtras() {
             const grab = async q => { try { const r = await q; if (r.error) throw r.error; return r.data || []; } catch (e) { return null; } };
             const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
@@ -3504,6 +3549,7 @@
             ]);
             if (docs) notifDocs = docs.filter(d => d.expires_on);
             if (breaches) notifBreaches = breaches;
+            if (maps) notifPlans = maps.filter(m => !m.deleted);
             if (maps) {
                 const withPlans = new Set(maps.map(m => String(m.client_id)));
                 const stations = [];
@@ -3526,9 +3572,7 @@
                     const setup = new Map();
                     const g = k => { k = String(k); if (!setup.has(k)) setup.set(k, { stations: 0, unplaced: 0, maps: 0, clients: 0, limits: 0, insectNoZone: 0 }); return setup.get(k); };
                     maps.filter(m => !m.deleted).forEach(m => {
-                        const o = g(m.client_id); o.maps++;
-                        const at = m.updated_at || m.created_at;
-                        if (at && Date.now() - Date.parse(at) > MAP_REVIEW_DAYS * 86400000) (o.oldMaps = o.oldMaps || []).push({ name: m.name || 'Floor plan', at });
+                        g(m.client_id).maps++;
                     });
                     stations.forEach(st => { const o = g(st.client_id); o.stations++; if (!st.map_id || st.pin_x == null) o.unplaced++; if (isInsectType(st.type) && !st.limit_id) o.insectNoZone++; });
                     (access || []).forEach(a => g(a.client_id).clients++);
@@ -5582,8 +5626,15 @@
             // sightings actioned on this device leave the list straight away
             const doneHere = new Set(queueItems.filter(i => i.kind === 'table_upsert' && i.data.table === 'pest_sightings' && i.data.row.status === 'actioned' && !i.cancelled).map(i => i.data.row.id));
             const sightings = notifSightings.filter(x => inScope(x.client_id) && !doneHere.has(x.id));
-            return { missed, dueSoon, contracts, longVisits, fresh, docsDue, breaches, unplaced, sightings,
-                total: missed.length + dueSoon.length + contracts.length + longVisits.length + fresh.length + docsDue.length + breaches.length + sightings.length };
+            const plansDue = plansNeedingCheck(notifPlans).filter(x => inScope(x.m.client_id));
+            const seen = staffSeen(), isNew = k => !seen.has(k);
+            const keys = [].concat(longVisits.map(x => notifKey.open(x.c, x.v)), missed.map(x => notifKey.missed(x.c, x.sv)), dueSoon.map(x => notifKey.due(x.c, x.sv)),
+                docsDue.map(notifKey.doc), plansDue.map(notifKey.plan), sightings.map(notifKey.sight));
+            const unseen = keys.filter(isNew);
+            return { missed, dueSoon, contracts, longVisits, fresh, docsDue, plansDue, breaches, unplaced, sightings, keys, isNew,
+                urgent: longVisits.some(x => isNew(notifKey.open(x.c, x.v))) || missed.some(x => isNew(notifKey.missed(x.c, x.sv))) || sightings.some(x => x.urgency === 'Urgent' && isNew(notifKey.sight(x)))
+                    || docsDue.some(d => daysUntil(d.expires_on) < 0 && isNew(notifKey.doc(d))) || plansDue.some(x => x.days < 0 && isNew(notifKey.plan(x))),
+                total: unseen.length + fresh.length };
         }
         function renderNotifications() {
             try { renderActions(); } catch (e) { /* Needs action is extra; never stop the bell */ }
@@ -5591,7 +5642,7 @@
             const badge = document.getElementById('notifCount');
             badge.textContent = n.total > 99 ? '99+' : n.total;
             badge.classList.toggle('hidden', n.total === 0);
-            badge.style.background = (n.missed.length || n.longVisits.length || n.breaches.length || n.sightings.some(x => x.urgency === 'Urgent') || n.contracts.some(x => x.ci.days < 0)) ? '#dc2626' : '#ea580c';
+            badge.style.background = n.urgent ? '#dc2626' : '#ea580c';
             // phones: Needs action has no button of its own - it's the Tasks tab of the bell, so the bell counts both
             const tasks = buildActionsCount();
             const phone = window.matchMedia && window.matchMedia('(max-width: 639px)').matches, shown = n.total + (phone ? tasks : 0);
@@ -5604,9 +5655,12 @@
             const list = document.getElementById('notifList');
             if (!list || document.getElementById('notifModal').classList.contains('hidden')) return;
             document.getElementById('notifScope').value = effectiveNotifScope();
-            const row = (c, text, chipCls, chipText) => `
-                <button type="button" data-id="${esc(c.id)}" onclick="closeNotifModal(); startSiteVisit(this.dataset.id)" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-3">
-                    <div class="min-w-0"><div class="font-bold t-strong truncate">${esc(c.Name || 'Unnamed site')}</div><div class="t-muted">${esc(text)}</div></div>
+            // what this person hasn't seen yet is marked New; tapping a notification marks it seen
+            const hl = k => n.isNew(k) ? ' style="border-color:#0891b2;"' : '';
+            const newChip = k => n.isNew(k) ? '<span class="chip chip-blue !py-0 mr-1">New</span>' : '';
+            const row = (c, text, chipCls, chipText, key) => `
+                <button type="button" data-id="${esc(c.id)}" data-nk="${esc(key || '')}" onclick="markNotifSeen(this.dataset.nk); closeNotifModal(); startSiteVisit(this.dataset.id)" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-3"${key ? hl(key) : ''}>
+                    <div class="min-w-0"><div class="font-bold t-strong truncate">${key ? newChip(key) : ''}${esc(c.Name || 'Unnamed site')}</div><div class="t-muted">${esc(text)}</div></div>
                     <span class="chip ${chipCls} shrink-0">${esc(chipText)}</span>
                 </button>`;
             const section = (title, color, items) => items.length ? `
@@ -5623,19 +5677,24 @@
                     <span class="chip ${st[0]} shrink-0">${esc(st[1])}</span></button>`;
             };
             const html = [
+                n.keys.some(n.isNew) ? `<div class="flex justify-end -mb-2"><button type="button" id="notifSeenAll" class="link-btn !text-[11px]" onclick="markNotifSeen(buildNotifications().keys)">Mark all as seen</button></div>` : '',
                 section('Pest sightings reported by the client', '#db2777', n.sightings.map(x => `
-                    <button type="button" data-cid="${esc(x.client_id)}" data-id="${esc(x.id)}" onclick="openSightingFrom(this.dataset.cid, this.dataset.id)" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-3" ${x.urgency === 'Urgent' ? 'style="border-color:#dc2626;"' : ''}>
-                        <div class="min-w-0"><div class="font-bold t-strong truncate">${esc((siteById(x.client_id) || {}).Name || 'Site')} · ${esc(fmtSightNo(x.sighting_no))}</div><div class="t-muted">${esc(x.pest)} at ${esc(x.location)} · ${esc(fmtDateTimeLong(x.seen_at).date)} · ${esc(x.reported_by || 'client')}</div></div>
+                    <button type="button" data-cid="${esc(x.client_id)}" data-id="${esc(x.id)}" data-nk="${esc(notifKey.sight(x))}" onclick="markNotifSeen(this.dataset.nk); openSightingFrom(this.dataset.cid, this.dataset.id)" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-3" ${x.urgency === 'Urgent' ? 'style="border-color:#dc2626;"' : hl(notifKey.sight(x))}>
+                        <div class="min-w-0"><div class="font-bold t-strong truncate">${newChip(notifKey.sight(x))}${esc((siteById(x.client_id) || {}).Name || 'Site')} · ${esc(fmtSightNo(x.sighting_no))}</div><div class="t-muted">${esc(x.pest)} at ${esc(x.location)} · ${esc(fmtDateTimeLong(x.seen_at).date)} · ${esc(x.reported_by || 'client')}</div></div>
                         <span class="chip ${x.urgency === 'Urgent' ? 'chip-red' : 'chip-amber'} shrink-0">${x.urgency === 'Urgent' ? 'Urgent' : 'To action'}</span></button>`)),
                 shownUpdates.length ? `<div class="space-y-2"><div class="eyebrow" style="color:#0891b2;">Client updates, last 30 days${n.fresh.length ? ` (${n.fresh.length} new)` : ''}</div>${shownUpdates.map(updRow).join('')}</div>` : '',
                 section('Critical limits exceeded this month', '#dc2626', n.breaches.map(b => row(siteById(b.client_id) || { id: b.client_id, Name: 'Site' }, `${b.title.replace(/^Critical limit exceeded: /, '')} · ${b.detail || ''} · ${fmtDateTimeLong(b.at).date}`, 'chip-red', 'Over limit'))),
-                section(`Visits open more than ${VISIT_STALE_HOURS} hours`, '#dc2626', n.longVisits.map(x => row(x.c, `Started ${fmtDateTimeLong(x.v.at).date} ${fmtDateTimeLong(x.v.at).time}${x.v.by ? ' by ' + teamName(x.v.by) : ''} - complete or cancel it`, 'chip-red', `Open ${visitAgeText(x.v)}`))),
-                section('Missed services', '#dc2626', n.missed.map(x => row(x.c, `${x.sv.type} · was due ${dueMonth(x.sv.nextDue)}`, 'chip-red', 'Overdue'))),
-                section(notifDueMode === 'week' ? 'Due in the next 7 days' : 'Due today', '#ea580c', n.dueSoon.map(x => row(x.c, `${x.sv.type} · due ${dueMonth(x.sv.nextDue)}`, 'chip-amber', dueInfo(x.sv).text))),
+                section(`Visits open more than ${VISIT_STALE_HOURS} hours`, '#dc2626', n.longVisits.map(x => row(x.c, `Started ${fmtDateTimeLong(x.v.at).date} ${fmtDateTimeLong(x.v.at).time}${x.v.by ? ' by ' + teamName(x.v.by) : ''} - complete or cancel it`, 'chip-red', `Open ${visitAgeText(x.v)}`, notifKey.open(x.c, x.v)))),
+                section('Missed services', '#dc2626', n.missed.map(x => row(x.c, `${x.sv.type} · was due ${dueMonth(x.sv.nextDue)}`, 'chip-red', 'Overdue', notifKey.missed(x.c, x.sv)))),
+                section(notifDueMode === 'week' ? 'Due in the next 7 days' : 'Due today', '#ea580c', n.dueSoon.map(x => row(x.c, `${x.sv.type} · due ${dueMonth(x.sv.nextDue)}`, 'chip-amber', dueInfo(x.sv).text, notifKey.due(x.c, x.sv)))),
                 section('Site documents to renew', '#d97706', n.docsDue.map(d => { const c = siteById(d.client_id) || { id: d.client_id, Name: 'Site' }; const days = Math.round((Date.parse(d.expires_on + 'T00:00:00') - Date.parse(toDayStr(new Date()) + 'T00:00:00')) / 86400000); return `
-                <button type="button" data-id="${esc(d.id)}" onclick="openNotifDoc(this.dataset.id)" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-3" title="Open this document">
-                    <div class="min-w-0"><div class="font-bold t-strong truncate">📄 ${esc(d.title)}</div><div class="t-muted">${esc(c.Name || 'Site')} · ${esc(d.category || 'Document')} · ${days < 0 ? 'expired' : 'expires'} ${esc(fmtDay(d.expires_on))}</div></div>
+                <button type="button" data-id="${esc(d.id)}" data-nk="${esc(notifKey.doc(d))}" onclick="markNotifSeen(this.dataset.nk); openNotifDoc(this.dataset.id)" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-3" title="Open this document"${hl(notifKey.doc(d))}>
+                    <div class="min-w-0"><div class="font-bold t-strong truncate">${newChip(notifKey.doc(d))}📄 ${esc(d.title)}</div><div class="t-muted">${esc(c.Name || 'Site')} · ${esc(d.category || 'Document')} · ${days < 0 ? 'expired' : days === 0 ? 'expires today' : days <= 30 ? 'expires within a month' : 'expires'} ${esc(fmtDay(d.expires_on))}</div></div>
                     <span class="chip ${days < 0 ? 'chip-red' : 'chip-amber'} shrink-0">${days < 0 ? 'Expired' : `${days}d left`}</span></button>`; })),
+                section('Floor plans due for their yearly check', '#0d9488', n.plansDue.map(x => { const c = siteById(x.m.client_id) || { id: x.m.client_id, Name: 'Site' }, k = notifKey.plan(x); return `
+                <button type="button" data-id="${esc(x.m.client_id)}" data-nk="${esc(k)}" onclick="markNotifSeen(this.dataset.nk); closeNotifModal(); startSiteVisit(this.dataset.id).then(() => openMapModal())" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-3" title="Open the floor plans - edit the plan, or mark it as checked"${hl(k)}>
+                    <div class="min-w-0"><div class="font-bold t-strong truncate">${newChip(k)}🗺 ${esc(x.m.name || 'Floor plan')}</div><div class="t-muted">${esc(c.Name || 'Site')} · ${x.days < 0 ? 'the yearly check was due' : 'the yearly check is due'} ${esc(fmtDay(x.due))} - check it's still right</div></div>
+                    <span class="chip ${x.days < 0 ? 'chip-red' : 'chip-amber'} shrink-0">${x.days < 0 ? 'Expired' : `${x.days}d left`}</span></button>`; })),
                 section('Stations not placed on a floor plan', '#0891b2', n.unplaced.map(o => `
                     <button type="button" data-id="${esc(o.cid)}" onclick="closeNotifModal(); startSiteVisit(this.dataset.id).then(() => openMapModal())" class="row-item clickable w-full text-left p-3 flex justify-between items-center gap-3">
                         <div class="min-w-0"><div class="font-bold t-strong truncate">${esc(siteById(o.cid).Name || 'Unnamed site')}</div><div class="t-muted">${o.n} of ${o.total} station${o.total === 1 ? '' : 's'} not placed on a floor plan yet</div></div>
@@ -5655,6 +5714,7 @@
             SEEN.use(_supabase, currentUser && currentUser.email);
             const lists = await SEEN.lists();
             if (typeof WN !== 'undefined') { WN.merge(lists.whatsnew); WN.badges(ADMIN_MODE ? 'adm' : 'svc'); }
+            mergeStaffSeen(lists.staff_bell); try { renderNotifications(); } catch (e) {}
             const times = (lists.client_updates_seen || []).concat(loadJSON(CLIENT_SEEN_KEY, null) ? [clientUpdatesSeen] : []).sort();
             const newest = times[times.length - 1];
             if (newest && newest > clientUpdatesSeen) { clientUpdatesSeen = newest; saveJSON(CLIENT_SEEN_KEY, newest); try { renderNotifications(); } catch (e) {} }
@@ -14887,6 +14947,16 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r111', date: '2026-10-31', v: { svc: '2026.10.31-r111', adm: '2026.10.31-a48', cli: '2026.10.31-p63' },
+            svc: ['Notifications: floor plans due for their yearly check come up a month before, and again once the check is overdue (instead of under Needs action)',
+                  'Notifications: a site document gives another notification when it expires within a month, and again once it has expired',
+                  'Notifications: each one you tap is marked as seen (and "Mark all as seen"); the bell counts only new ones. What you have seen is saved to your account, shared with Admin, so it stays seen on any phone or computer'],
+            adm: ['Sites: the data stored in total (database and files) above the site cards, and each card shows its site’s share and number of records. Sort by "Most data" to see the biggest sites',
+                  'A site’s page: "Data stored" shows its size, how many of each kind of record it has (station checks, stations, visits, photos and more) and the dates of its first and last station check',
+                  'Needs attention: floor plans due for their yearly check (a month before, and once overdue), and documents expiring within a month',
+                  'Needs attention: new items are marked New until you tap them (or "Mark all as seen") - saved to your account, the same as in the Service App'],
+            cli: ['Notifications: a floor plan due for its yearly check comes up a month before, and again if the check is overdue - tap it to open that floor plan',
+                  'Notifications: a document gives another notification when it expires within a month, and again once it has expired'] },
         { rev: 'r110', date: '2026-10-31', v: { svc: '2026.10.31-r110', adm: '2026.10.31-a47', cli: '2026.10.31-p62' },
             svc: ['Signing out also removes the small copies of photos kept on this device', 'Behind the scenes: more unused code tidied away'],
             adm: ['Signing out also removes the small copies of photos kept on this computer', 'Behind the scenes: unused code tidied away'],

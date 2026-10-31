@@ -516,6 +516,25 @@ try {
     ok((await adm.from('stations').select('id')).data.length === before - 1 && (await adm.from('clients').select('id').eq('id', 1)).data.length === 1, 'other sites are untouched');
   }
 
+  // ---------- data stored (admins only): the database and files in total and for each site, with each site's records ----------
+  {
+    const adm = await as('boss@example.com'), tch = await as('tech@example.com');
+    r = await adm.from('clients').insert([{ Name: 'Storage Site' }]).select('*');
+    const sid = String(r.data[0].id);
+    await adm.from('stations').insert([{ id: 'sto-1', client_id: sid, barcode: 'S1', name: 'One' }, { id: 'sto-2', client_id: sid, barcode: 'S2', name: 'Two' }]);
+    await adm.from('service_logs').insert([{ client_id: Number(sid), barcode_id: 'S1', created_at: '2025-01-02T00:00:00Z', payload: { note: 'x'.repeat(5000) } }, { client_id: Number(sid), barcode_id: 'S2', created_at: '2026-03-04T00:00:00Z', payload: {} }]);
+    await tch.storage.from('station-photos').upload(sid + '/big.jpg', new Blob(['P'.repeat(20000)]), { contentType: 'image/jpeg' });
+    r = await tch.rpc('admin_storage');
+    ok(r.error && /admins/.test(r.error.message), 'only admins see the data stored', r);
+    r = await adm.rpc('admin_storage');
+    const s = r.data && r.data.sites && r.data.sites[sid];
+    ok(!r.error && s && s.rows.stations === 2 && s.rows.service_logs === 2 && s.files === 1 && s.fileBytes === 20000 && s.dbBytes > 5000
+      && String(s.first).startsWith('2025-01-02') && String(s.last).startsWith('2026-03-04') && r.data.dbBytes > 0 && r.data.fileBytes >= 20000 && r.data.files >= 1,
+      "data stored: totals and each site's records, size, files and first and last station check", r.data && { s, db: r.data.dbBytes, files: r.data.files });
+    ok(Object.values(r.data.sites).reduce((a, x) => a + x.dbBytes, 0) + r.data.sharedDbBytes <= r.data.dbBytes - r.data.freeBytes + 10, "the sites' shares add up to no more than the database", r.data.sharedDbBytes);
+    await adm.rpc('admin_delete_site', { p_client_id: sid, p_confirm_name: 'Storage Site' });
+  }
+
   // ---------- a restart: old pest names in records are matched to the pest list ----------
   const techR = await as('tech@example.com');
   r = await techR.from('service_logs').insert([{ client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'House Mouse' } }, { client_id: 1, barcode_id: 'B1', payload: { speciesCaught: 'norway rat' } },
