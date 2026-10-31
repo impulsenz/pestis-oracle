@@ -24,7 +24,6 @@ browser ──HTTPS──► Caddy (certificates) ──► Pestis server (Node.
 | `tools/build.sh` | Rebuilds `admin.html` and the shared parts after a change |
 | `tests/` | Tests: the server and its rules, the three apps in a browser, and offline (`tests/run.sh`) |
 | `CLAUDE.md` | How changes are made, tested and released (read by Claude Code) |
-| `tools/make_server_copy.py` | The one-time conversion from the Supabase apps (not used any more) |
 
 ## What the server does
 

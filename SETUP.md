@@ -190,6 +190,6 @@ Heads-up: the apps download a site's whole history when it's opened (about 110 M
 ## How this copy differs from the original
 
 - **Database:** an SQLite file on your own server instead of Supabase. The server (`server/server.mjs`) does what Supabase did: who can see and change what, the automatic numbering (R-0001...), the main site contact, the Client Portal's functions, photo and document storage, and live updates between devices.
-- **The apps** are the same as the original Pestis, with `pestis-db.js` in place of the Supabase library. `tools/make_server_copy.py` makes them from the original apps, so later improvements to Pestis are carried across the same way.
+- **The apps** started as the original Pestis, with `pestis-db.js` in place of the Supabase library; they're now changed here directly.
 - **Version numbers** end in **`-oci`**, for example `2026.10.23-r72-oci`. The offline copy has its own name, so the two Pestis copies never mix.
 - **Sign-in** stays on for 30 days of use on a device; the apps still sign out after the idle time set in Admin (5 minutes to start with).

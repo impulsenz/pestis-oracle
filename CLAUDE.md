@@ -41,7 +41,6 @@ The owner is not a programmer. Talk in plain words about what changed for the pe
   - Sign-in (Google ID token via `/auth/callback`, emailed links), files (`/api/files`, signed links), live updates (`/api/live`, server-sent events).
 - `server/schema.mjs`: tables and columns. **To add a column or table, add it here**; the server creates whatever is missing when it starts. A column the apps save that isn't listed is added automatically (logged), but list it properly.
 - `server/setup-pestis-server.sh`: the installer (already run on the server; re-running is safe). `SETUP.md` is the owner's guide.
-- `tools/make_server_copy.py`: the one-time conversion from the Supabase apps. **Don't run it again**: it would overwrite the apps with the old Supabase versions.
 
 ## Rules that must hold
 

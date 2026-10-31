@@ -2,8 +2,8 @@
 // Keeps the app and its libraries available with no connection. Photos are NOT stored on the device.
 // Calls to the Pestis server are NOT cached here - the app's own upload queue handles data.
 
-const SHELL_CACHE = 'pestis-oci-shell-v108';
-const RUNTIME_CACHE = 'pestis-oci-runtime-v108';
+const SHELL_CACHE = 'pestis-oci-shell-v109';
+const RUNTIME_CACHE = 'pestis-oci-runtime-v109';
 
 const SHELL = ['./', './index.html', './admin.html', './pestis-db.js', './images/pesties-logo.png'];   // admin.html: the app's add-ons (Admin, profile, Settings)
 const CDN = [
@@ -104,12 +104,6 @@ self.addEventListener('fetch', event => {
         })());
         return;
     }
-
-    // Photos are never kept on the device: they load from the server only when opened
-    if (url.hostname.endsWith('.supabase.co') && url.pathname.includes('/storage/')) return;
-
-    // Everything else from Supabase (database, auth) goes straight to the network
-    if (url.hostname.endsWith('.supabase.co')) return;
 
     // App files and libraries: serve the saved copy instantly, refresh it in the background
     if (url.origin === self.location.origin || CDN_HOSTS.includes(url.hostname)) {

@@ -2280,7 +2280,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.31-r108-oci';
+        const APP_VERSION = '2026.10.31-r109-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -6728,8 +6728,6 @@
             return out;
         }
 
-        // Downloads photos once so they can be viewed with no signal (the offline cache keeps them)
-        const prefetchedUrls = new Set();
         function sitePhotoUrls() {
             const recs = [];
             siteDevices.forEach(d => d.recommendationsHistory.forEach(r => recs.push(r)));
@@ -6737,38 +6735,8 @@
             recs.sort((a, b) => new Date(b.date) - new Date(a.date));
             return recs.flatMap(r => r.photos || []);
         }
-        async function prefetchPhotos(urls, prog) {
-            // Photos are no longer saved on the device - they load only when a recommendation is opened.
-            if (prog) prog.skip('photos');
-            return;
-            const canKeep = typeof navigator !== 'undefined' && navigator.serviceWorker && navigator.serviceWorker.controller;
-            const list = Array.from(new Set(urls)).filter(u => u && !u.startsWith('blob:') && !prefetchedUrls.has(u)).slice(0, 200);
-            if (!canKeep || list.length === 0) {
-                if (prog) prog.skip('photos');
-                return;
-            }
-            let done = 0;
-            let next = 0;
-            if (prog) { prog.items(0, list.length, 'Photos'); prog.step('photos', 0, `Saving photos for offline use... 0 of ${list.length}`); }
-            const worker = async () => {
-                while (next < list.length) {
-                    const u = list[next++];
-                    try {
-                        const res = await fetch(u, { mode: 'cors', credentials: 'omit' });
-                        if (res.ok) {
-                            await readBodyWithProgress(res, n => { if (prog) prog.addBytes(n); });
-                            prefetchedUrls.add(u);
-                        }
-                    } catch (e) { /* skip - it can still load later */ }
-                    done++;
-                    if (prog) {
-                        prog.items(done, list.length, 'Photos');
-                        prog.step('photos', done / list.length, `Saving photos for offline use... ${done} of ${list.length}`);
-                    }
-                }
-            };
-            await Promise.all(Array.from({ length: Math.min(4, list.length) }, worker));
-        }
+        // Photos are no longer saved on the device - they load only when a recommendation is opened.
+        function prefetchPhotos(urls, prog) { if (prog) prog.skip('photos'); }
 
         // ---------- Site sync progress: each part of the site with its own bar (shown in Sync Data) ----------
         const SYNC_LABELS = { upload: 'Sending anything waiting on this device', details: 'Site details', records: 'Service records', recommendations: 'Recommendations',
@@ -7041,7 +7009,6 @@
         }
 
         // Turns saved rows (+ anything still in the upload queue) into the site dashboard state
-        let photosAwaitingLinks = [];
         let siteMaps = [];              // floor plans: [{ id, name, path, local, w, h, drawing }]
         let drawingColumnMissing = false;   // the database can't keep plan drawings yet
         let sitePins = new Map();       // barcode -> { mapId, x, y, at, by }
@@ -7196,7 +7163,6 @@
                     r._slots.push({ path: paths[i], local: local });
                 }
             }
-            photosAwaitingLinks = [];
             await new Promise(r => setTimeout(r, 0)); // let the loading screen paint
 
             // 1. Barcode changes: earlier records move to the new barcode
@@ -8931,29 +8897,8 @@
             fetchMissingPhotoLinks();
         }
 
-        // Photos without a saved link show as "loading" and are filled in here, after the screen is up
-        let fetchingLinks = false;
-        async function fetchMissingPhotoLinks() {
-            return; // photos load on demand when a recommendation is opened
-            if (fetchingLinks || !selectedClient || !photosAwaitingLinks.length || !isOnline) return;
-            fetchingLinks = true;
-            const seq = siteSyncSeq;
-            try {
-                const paths = photosAwaitingLinks.slice();
-                await withSyncBadge('photos', `Loading ${mediaCountText(paths)}...`, () => getSignedUrls(paths));
-                if (seq !== siteSyncSeq || !selectedClient) return;
-                const cache = await getSiteCache(selectedClient.id);
-                await buildSiteState(selectedClient.id, cache ? cache.rows : [], new Set(scannedBarcodesThisVisit), null, { quick: true });
-                if (seq !== siteSyncSeq) return;
-                photosAwaitingLinks = []; // anything still missing now has a real reason recorded
-                rerenderOpenSite();
-                prefetchPhotos(sitePhotoUrls());
-            } catch (e) {
-                logAppError('Loading photo links', e);
-            } finally {
-                fetchingLinks = false;
-            }
-        }
+        // (photos load on demand when a recommendation is opened)
+        function fetchMissingPhotoLinks() {}
 
         async function getBase64ImageFromUrl(imageUrl) {
             try {
@@ -14946,6 +14891,8 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r109', date: '2026-10-31', v: { svc: '2026.10.31-r109' },
+            svc: ['Behind the scenes: old code that no longer ran has been tidied away. Nothing changes in how the app works'] },
         { rev: 'r108', date: '2026-10-31', v: { svc: '2026.10.31-r108' },
             svc: ['Saving a station shows it in the scanned list straight away as "Serviced this visit" (a new station too), instead of after a pause'] },
         { rev: 'r107', date: '2026-10-31', v: { svc: '2026.10.31-r107', adm: '2026.10.31-a46', cli: '2026.10.31-p61' },
