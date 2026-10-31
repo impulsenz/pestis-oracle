@@ -2280,7 +2280,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.31-r107-oci';
+        const APP_VERSION = '2026.10.31-r108-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -6973,6 +6973,21 @@
                 if (!document.getElementById('stationFormContainer').classList.contains('hidden')) { scheduleSiteRefresh(clientId); return; } // not while a form is open
                 refreshSiteStateFromCache().catch(e => logAppError('Refreshing site', e));
             }, siteRowCount > 50000 ? 8000 : 1200);
+        }
+        // A station just saved shows in the scanned list at once, with what was saved (a new station is added to the list);
+        // the full working-out of the site follows a moment later (scheduleSiteRefresh) and puts everything else right
+        function showSavedStation(barcode, dev, p, name, type) {
+            const h = { at: Date.now(), activity: p.activityLevel || 'None', species: p.speciesCaught || 'None', count: p.pestCount, pests: pestsOf(p), prep: p.prepUsed || '',
+                qty: p.quantity, unit: p.quantityUnit || '', batch: p.batchNumber || '', notes: p.notes || '', technician: p.technician || '', thisVisit: true };
+            if (!dev) {
+                dev = { barcode_id: barcode, locationName: name, deviceType: type, recommendationsHistory: [], lastPayload: p, visitPayload: null, visitRef: null, visitRec: null, history: [], firstAt: h.at };
+                siteDevices = siteDevices.concat([dev]);
+            }
+            // saved again on this visit: this save takes the place of the last one
+            dev.history = (dev.history || []).filter(x => !x.thisVisit).concat([h]);
+            Object.assign(dev, { visitPayload: p, visitRef: p.clientRef || null, lastPayload: p, locationName: name, deviceType: type });
+            pestRecsMemo = { devs: null, recs: null };   // (critical limits count this save straight away)
+            try { renderDeviceLists(); } catch (e) { logAppError('Showing the saved station', e); }
         }
         // a refresh still waiting is done now (before a station is opened, so it shows what was just saved)
         function flushSiteRefresh() {
@@ -13388,12 +13403,13 @@
 
                 clearPendingPhotos(false); // previews stay visible until the upload finishes
                 keptPhotos = [];
-                scannedBarcodesThisVisit.add(currentBarcode);
-                savedSinceRefresh.add(currentBarcode);
+                const savedBarcode = currentBarcode;
+                scannedBarcodesThisVisit.add(savedBarcode);
+                savedSinceRefresh.add(savedBarcode);
                 hideStationForm();
                 // This station is put right at once; the whole site is worked out again a moment later, while the technician
                 // walks to the next station (on a big site that takes seconds, and it used to hold up Save)
-                if (dev) Object.assign(dev, { visitPayload: payloadData, visitRef: payloadData.clientRef || null, lastPayload: payloadData, locationName: locNameInput, deviceType: devType });
+                showSavedStation(savedBarcode, dev, payloadData, locNameInput, devType);
                 scheduleSiteRefresh(selectedClient.id);
                 return true;
             } catch (err) {
@@ -14930,6 +14946,8 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r108', date: '2026-10-31', v: { svc: '2026.10.31-r108' },
+            svc: ['Saving a station shows it in the scanned list straight away as "Serviced this visit" (a new station too), instead of after a pause'] },
         { rev: 'r107', date: '2026-10-31', v: { svc: '2026.10.31-r107', adm: '2026.10.31-a46', cli: '2026.10.31-p61' },
             svc: ['Notifications: the client updates you have seen, and the What’s new you have read, are saved to your account - on another phone or computer, or after clearing the browser, they stay seen'],
             adm: ['What’s new you have read is saved to your account, so it stays read on any computer or after clearing the browser',

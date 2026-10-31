@@ -129,11 +129,13 @@ try {
   const saved = await sp.evaluate('saveStationServiceRecord()');
   // Save doesn't wait for the whole site to be worked out again: that follows a moment later; scanning the same
   // station before then works it out first, so the station shows what was just saved
-  const quick = await sp.evaluate(() => ({ waiting: !!siteRefreshTimer, marked: savedSinceRefresh.has('NEW-88') }));
+  const quick = await sp.evaluate(() => { const card = document.querySelector('#scannedList [data-barcode="NEW-88"]');
+    return { waiting: !!siteRefreshTimer, marked: savedSinceRefresh.has('NEW-88'), listed: !!card && /Serviced this visit/.test(card.textContent) }; });
   await sp.evaluate("handleScannedBarcode('NEW-88')");
   const rescan = await sp.evaluate(() => { const d = siteDevices.find(x => x.barcode_id === 'NEW-88'); return { waiting: !!siteRefreshTimer, visitRef: !!(d && d.visitRef), hist: d ? d.history.length : 0, open: !document.getElementById('stationFormContainer').classList.contains('hidden') }; });
   await sp.evaluate('hideStationForm()'); await sleep(500);
   ok(saved !== false, 'station record saved in the app');
+  ok(quick.listed, 'a saved station shows in the scanned list straight away, as serviced', quick);
   ok(quick.waiting && quick.marked && !rescan.waiting && rescan.visitRef && rescan.hist >= 1 && rescan.open, 'save is quick; scanning the station again shows what was saved', { quick, rescan });
   await sp.evaluate('flushQueue && flushQueue()');
   let got = null;
