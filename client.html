@@ -323,8 +323,6 @@
         .ov-combo .pr-combo { min-width: 10rem; }
         .ov-combo .pr-combo-btn { padding-top: .38rem; padding-bottom: .38rem; font-size: .75rem; }
         /* floor plan cards: the whole plan shows (it isn't cropped), on white */
-        .plan-card .rec-media { aspect-ratio: 16 / 10; background: #fff; }
-        .plan-card .rec-media img { object-fit: contain; }
 </style>
 <style id="pestisReportsCss">
 /* PESTIS-REPORTS-CSS:BEGIN */
@@ -355,7 +353,12 @@
 .pr-cap { font-size: .7rem; font-weight: 800; color: var(--muted); margin-bottom: .3rem; }
 .pr-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: .7rem; }
 .pr-svg { width: 100%; height: auto; display: block; }
-.pr-svg .pr-grid { stroke: var(--border); stroke-width: 1; }
+.pr-svg .pr-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 5; opacity: .8; }
+.pr-svg .pr-base { stroke: var(--muted); stroke-width: 1.2; opacity: .45; }
+.pr-svg .pr-line { filter: drop-shadow(0 3px 4px rgba(15, 23, 42, .16)); }
+.pr-svg .pr-dot { fill: var(--surface, #fff); stroke-width: 2.2; transition: r .15s ease; }
+.pr-svg .pr-dot:hover { r: 6px; }
+.pr-svg .pr-dot-over { fill: #dc2626; stroke: #fff; }
 .pr-svg .pr-ax { font-size: 11px; fill: var(--muted); font-family: inherit; }
 .pr-legend { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .72rem; color: var(--text); margin-top: .35rem; }
 .pr-legend i { display: inline-block; width: .7rem; height: .7rem; border-radius: 3px; margin-right: .35rem; vertical-align: -1px; }
@@ -724,7 +727,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (on the server); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.31-p65-oci';
+const PORTAL_VERSION = '2026.10.31-p66-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -1639,7 +1642,7 @@ function renderSiteHeader() {
     const unreadVisits = unopenedVisits().length;
     // a red "!" on Visits while a visit report with a critical limit breach hasn't been opened
     const breachVisits = unopenedVisits().filter(v => visitBreaches(v).length).length;
-    $('siteTabs').innerHTML = TABS.map(([k, l]) => `<button type="button" class="nav-tab ${state.tab === k ? 'active' : ''}" onclick="${k === 'plans' ? "planId = null; planFocus = null; if (state.tab === 'plans') renderPlans(); else " : k === 'reports' ? "state.reportsHome = true; if (state.tab === 'reports') renderReports(); else " : ''}setTab('${k}')">${l}${k === 'recs' && openRecs ? `<span class="count">${openRecs}</span>` : ''}${k === 'visits' && breachVisits ? `<span class="count alert" title="A visit report with a critical limit breach - not opened yet">!</span>` : ''}${k === 'visits' && unreadVisits ? `<span class="count" title="Visit reports you haven't opened yet">${unreadVisits}</span>` : ''}${k === 'sightings' && toReview ? `<span class="count" title="Actioned by your technician, waiting for your review">${toReview}</span>` : ''}</button>`).join('');
+    $('siteTabs').innerHTML = TABS.map(([k, l]) => `<button type="button" class="nav-tab ${state.tab === k ? 'active' : ''}" onclick="${k === 'plans' ? "planFocus = null; if (state.tab === 'plans') renderPlans(); else " : k === 'reports' ? "state.reportsHome = true; if (state.tab === 'reports') renderReports(); else " : ''}setTab('${k}')">${l}${k === 'recs' && openRecs ? `<span class="count">${openRecs}</span>` : ''}${k === 'visits' && breachVisits ? `<span class="count alert" title="A visit report with a critical limit breach - not opened yet">!</span>` : ''}${k === 'visits' && unreadVisits ? `<span class="count" title="Visit reports you haven't opened yet">${unreadVisits}</span>` : ''}${k === 'sightings' && toReview ? `<span class="count" title="Actioned by your technician, waiting for your review">${toReview}</span>` : ''}</button>`).join('');
 }
 // visit reports from the last 90 days this person hasn't opened (opening one counts it as read, here and in the bell)
 function unopenedVisits() {
@@ -2155,9 +2158,12 @@ function breachesNow() { return stationLimits().map(l => limitStatus(l)).filter(
 function visitBreaches(v) {
     return stationLimits().map(l => limitStatus(l, v.completed, v.completed + 5 * 60000)).filter(x => x.over && x.entries.some(e => v.entries.includes(e)));
 }
+// the stations a visit took over a critical limit: just their names (tap one to see its records)
 function limitAlertHtml(list, title) {
-    return `<div class="alert-box breach-box p-4 space-y-2" role="alert"><div class="font-black uppercase tracking-wide text-sm">⚠ ${esc(title)}</div>${list.map(x => `<div class="breach-row clickable" role="button" tabindex="0" title="See the stations and records" onclick="showBreach(${jsArg(x.limit.id)}, ${x.month})" onkeydown="if (event.key === 'Enter') this.click()"><div class="flex flex-wrap items-baseline justify-between gap-2"><b>${esc(x.limit.station || x.limit.zone)} · ${esc(limitPest(x.limit))}</b><span class="chip chip-red">${x.total} of ${x.limit.max} allowed${x.limit.max ? ` · ${Math.round(x.total / x.limit.max * 100)}%` : ''}</span></div>
-        <div class="text-xs mt-0.5">${x.total - x.limit.max} over this station's monthly limit in ${esc(monthLabel(x.month))} (critical limit: ${esc(x.limit.zone)}).</div></div>`).join('')}</div>`;
+    const by = new Map();
+    list.forEach(x => { const k = x.limit.barcode || x.limit.station; if (!by.has(k)) by.set(k, x); });
+    return `<div class="alert-box breach-box p-4 space-y-2" role="alert"><div class="font-black uppercase tracking-wide text-sm">⚠ ${esc(title)} · ${plural(by.size, 'station')}</div>
+        <div class="flex flex-wrap gap-1.5">${Array.from(by.values()).map(x => `<button type="button" class="breach-row clickable !py-1 !px-2.5 text-xs font-bold" title="See this station's records" onclick="showBreach(${jsArg(x.limit.id)}, ${x.month})">${esc(x.limit.station || x.limit.zone)}</button>`).join('')}</div></div>`;
 }
 
 // ---------- Recommendations ----------
@@ -3467,13 +3473,13 @@ function showOnPlan(barcode) {
 async function renderPlans() {
     const m = state.model;
     if (!m.maps.length) { $('tabBody').innerHTML = `<div class="card p-5">${emptyNote('No floor plans have been added for this site yet.')}</div>`; return; }
-    // first: a card for each floor plan; tapping a card opens that plan
-    if (!m.maps.some(p => p.id === planId)) { planId = null; renderPlanCards(); return; }
+    // the floor plan last looked at, or the first one (of the first building); the drop-downs pick another
+    if (!m.maps.some(p => p.id === planId)) { const g = planGroups()[0]; planId = (g && g.plans[0] ? g.plans[0] : m.maps[0]).id; }
     const plan = m.maps.find(p => p.id === planId);
     const pins = planPins(plan);
     $('tabBody').innerHTML = `<div class="card p-5 space-y-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="plan-bar"><button type="button" class="btn btn-secondary !py-1.5 !px-3" onclick="planId = null; planFocus = null; renderPlans()">‹ All floor plans</button>${planPickersHtml(plan)}<span id="planZoom" class="plan-zoom"></span></div>
+            <div class="plan-bar">${planPickersHtml(plan)}<span id="planZoom" class="plan-zoom"></span></div>
             <div class="flex flex-wrap items-center gap-2">
                 <button type="button" class="btn btn-secondary !py-2 !px-3" onclick="openPlanStations(${jsArg(plan.id)})" title="Every station on this floor plan">📍 ${plural(pins.length, 'station')} on this plan</button>
                 <button type="button" id="planHeatBtn" class="btn ${planHeat.on ? 'btn-primary' : 'btn-secondary'} !py-2 !px-3" onclick="togglePlanHeat()" aria-pressed="${planHeat.on}" title="Colour the plan by pest activity">🔥 Heat map</button>
@@ -3524,7 +3530,6 @@ function drawPlanHeat() {
     c.className = 'heat-layer'; c.setAttribute('aria-hidden', 'true');
     pbox.prepend(c);
 }
-// the Floor plans tab opens on these: the plan's picture, its name and how many stations are on it
 // buildings and their floor plans (a plan with no building, or whose building has gone, is listed after the buildings)
 function planGroups() {
     const m = state.model, ids = new Set(m.buildings.map(b => b.id));
@@ -3542,45 +3547,7 @@ function planPickersHtml(plan) {
 }
 function planPickBuilding(id) { const g = planGroups().find(x => x.id === id); if (!g || !g.plans.length) return; planId = g.plans[0].id; planFocus = null; renderPlans(); }
 function planPickPlan(id) { planId = id; planFocus = null; renderPlans(); }
-function renderPlanCards() {
-    const m = state.model;
-    $('tabBody').innerHTML = `<div class="card p-5 space-y-4">
-        <div class="flex flex-wrap items-center justify-between gap-2"><span class="eyebrow flex items-center gap-2" style="color:#0891b2;"><span class="w-2 h-2 rounded-full" style="background:#0891b2;"></span>Floor plans</span><span class="text-xs t-muted">${plural(m.maps.length, 'floor plan')} · tap one to open it</span></div>
-        <div id="planCards" class="space-y-5">${planGroups().map(g => `<div class="space-y-2">${m.buildings.length ? `<div class="plan-group">🏢 ${esc(g.name)} <span>${plural(g.plans.length, 'floor plan')}</span></div>` : ''}
-        <div class="rec-grid ov-cards plan-cards" style="--ov-w:${OV_SIZES[Math.max(ovPrefs().size, 2)]}rem">${g.plans.map(p => {
-            const n = planPins(p).length, late = planPins(p).filter(x => x.overdue).length;
-            return `<button type="button" class="rec-card plan-card" data-plan="${esc(p.id)}" onclick="planId = this.dataset.plan; planFocus = null; renderPlans()" aria-label="Open the floor plan ${esc(p.name)}">
-                <div class="rec-media" data-plan-img="${esc(p.image_path || '')}">
-                    <div class="rec-media-ph">${p.image_path ? 'Loading plan...' : '<b>🗺️</b>No picture'}</div>
-                    <div class="rec-badges"><span class="chip chip-blue">${plural(n, 'station')}</span>${late ? `<span class="chip chip-red">${late} overdue</span>` : ''}</div>
-                </div>
-                <div class="rec-body">
-                    <div class="rec-type-row"><span class="rec-type">Floor plan</span></div>
-                    <div class="rec-title clamp2">${esc(p.name)}</div>
-                    <div class="rec-meta"><span class="rec-meta-item">🗺️ <span class="truncate">Tap to open</span></span>${p.updated_at || p.created_at ? `<span class="rec-meta-item t-faint">Updated ${fmtDate(p.updated_at || p.created_at)}</span>` : ''}</div>
-                </div>
-            </button>`;
-        }).join('')}</div></div>`).join('')}</div></div>`;
-    fillPlanCardImages($('planCards'));
-}
 // each card: the plan's picture with its station pins on it (the same pins as the open plan)
-async function fillPlanCardImages(box) {
-    const els = Array.from(box.querySelectorAll('[data-plan-img]')).filter(el => el.dataset.planImg);
-    for (const el of els) {
-        const plan = state.model.maps.find(p => p.image_path === el.dataset.planImg), ph = el.querySelector('.rec-media-ph');
-        if (!plan || !ph) continue;
-        try {
-            const img = await planImage(plan);
-            const k = Math.min(1, 900 / Math.max(img.width, img.height)), c = document.createElement('canvas');
-            c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-            const g = c.getContext('2d');
-            g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
-            const r = Math.max(8, Math.round(Math.min(c.width, c.height) / 26));   // big enough to see on a small card
-            planPinData(plan).forEach(x => PVR.pin(g, x.x * c.width, x.y * c.height, r, x.color, x.overdue));
-            if (ph.isConnected) ph.outerHTML = `<img src="${c.toDataURL('image/jpeg', .85)}" alt="${esc(plan.name)} with its stations" style="object-fit:contain;background:#fff;">`;
-        } catch (e) { if (ph.isConnected) ph.innerHTML = '<b>🗺️</b>Picture unavailable'; }
-    }
-}
 function planPins(plan) { return state.model.stations.filter(x => x.mapId === plan.id && x.x != null && x.y != null); }
 // every station on a floor plan: tap one to point it out on the plan, or open its details
 function openPlanStations(id) {
@@ -3918,7 +3885,7 @@ async function downloadVisitPdf(id) {
         await PVR.build({
             siteId: state.site.id, id: v.id, siteName: siteName(state.site), address: state.site.Address || '', completed: v.completed, type: v.type, tech: v.tech, start: v.start, end: v.end,
             stationsChecked: new Set(v.entries.map(e => e.barcode)).size, services: v.services, notes: v.notes,
-            breaches: visitBreaches(v).map(x => `${x.limit.station} · ${limitPest(x.limit)}: ${x.total} recorded in ${monthLabel(x.month || v.completed)}, this station's limit ${x.limit.max} a month (${x.total - x.limit.max} over) - critical limit ${x.limit.zone}`),
+            breaches: Array.from(new Set(visitBreaches(v).map(x => x.limit.station || x.limit.zone))),   // (just the stations)
             added: v.added, removed: v.removed,
             entries: v.entries.filter(e => !e.extra).map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, acts: entryActs(e), breach: breached.has(e.barcode), pests: entryPestsText(e, ' x', ''),
                 prep: e.prep ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '', notes: e.notes })),
@@ -4176,6 +4143,27 @@ const PR = (() => {
     const months = (a, b) => { const out = []; for (let k = monthKey(a); k <= monthKey(Math.min(b, Date.now())); k++) out.push(k); return out; };
 
     // ---------- small SVG charts ----------
+    // a smooth line through the points: gently curved, but it never swings above or below the points either side of it
+    // (so it never dips under 0 or over a peak) - a monotone curve
+    function smoothPath(p) {
+        const f = v => Math.round(v * 10) / 10;
+        if (p.length < 3) return p.map((q, i) => `${i ? 'L' : 'M'}${f(q[0])},${f(q[1])}`).join('');
+        const n = p.length, d = [], m = [];
+        for (let i = 0; i < n - 1; i++) d.push((p[i + 1][1] - p[i][1]) / (p[i + 1][0] - p[i][0]));
+        m.push(d[0]);
+        for (let i = 1; i < n - 1; i++) m.push(d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2);
+        m.push(d[n - 2]);
+        for (let i = 0; i < n - 1; i++) {
+            if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+            const a = m[i] / d[i], b = m[i + 1] / d[i], h = a * a + b * b;
+            if (h > 9) { const t = 3 / Math.sqrt(h); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+        }
+        for (let i = 0; i < n; i++) m[i] *= .75;   // (a little less curve)
+        let out = `M${f(p[0][0])},${f(p[0][1])}`;
+        for (let i = 0; i < n - 1; i++) { const dx = (p[i + 1][0] - p[i][0]) / 3; out += `C${f(p[i][0] + dx)},${f(p[i][1] + m[i] * dx)} ${f(p[i + 1][0] - dx)},${f(p[i + 1][1] - m[i + 1] * dx)} ${f(p[i + 1][0])},${f(p[i + 1][1])}`; }
+        return out;
+    }
+    let chartN = 0;   // (each chart's fades have their own names)
     function lineChart(series, keys, opts) {
         opts = opts || {};
         const W = 760, H = 260, pl = opts.yLbl ? 64 : 40, pr = 12, pt = 14, pb = 34;
@@ -4186,13 +4174,16 @@ const PR = (() => {
         // a line breaks only where there's no data yet (months not reached); nothing caught is drawn as 0
         const runs = vals => { const out = []; let cur = []; vals.forEach((v, i) => { if (v == null) { if (cur.length) out.push(cur); cur = []; } else cur.push(i); }); if (cur.length) out.push(cur); return out; };
         const every = Math.ceil(n / 12);
+        const gid = 'prfade' + (++chartN), dot = n > 40 ? 2.2 : n > 24 ? 2.8 : 3.6;
         return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(opts.label || 'Chart')}">
             ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="pr-grid"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" class="pr-ax">${e(yl(t))}</text>`).join('')}
             ${keys.map((k, i) => (i % every === 0 && (i === n - 1 || n - 1 - i >= every * 0.75)) || i === n - 1 ? `<text x="${x(i)}" y="${H - 12}" text-anchor="${n > 1 && i === n - 1 ? 'end' : i === 0 && n > 1 ? 'start' : 'middle'}" class="pr-ax">${e(opts.lbl ? opts.lbl(k) : k)}</text>` : '').join('')}
             ${opts.limit != null ? `<line x1="${pl}" x2="${W - pr}" y1="${y(opts.limit)}" y2="${y(opts.limit)}" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 5"/><text x="${W - pr}" y="${y(opts.limit) - 5}" text-anchor="end" class="pr-ax" fill="#dc2626">Limit ${opts.limit}</text>` : ''}
-            ${series.map(s => runs(s.vals).map(r => `<polygon fill="${s.color}" fill-opacity="${series.length > 3 ? .06 : .14}" stroke="none" points="${r.map(i => `${x(i)},${y(s.vals[i])}`).join(' ')} ${x(r[r.length - 1])},${y(0)} ${x(r[0])},${y(0)}"/>`).join('')).join('')}
-            ${series.map(s => runs(s.vals).map(r => `<polyline fill="none" stroke="${s.color}" stroke-width="${s.thin ? 1.8 : 2.5}" ${s.dash ? 'stroke-dasharray="5 4"' : ''} stroke-linejoin="round" stroke-linecap="round" points="${r.map(i => `${x(i)},${y(s.vals[i])}`).join(' ')}"/>`).join('')
-                + s.vals.map((v, i) => v == null ? '' : `<circle cx="${x(i)}" cy="${y(v)}" r="${opts.limit != null && v > opts.limit ? 5 : 3.2}" fill="${opts.limit != null && v > opts.limit ? '#dc2626' : s.color}"><title>${e(s.name)} · ${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${e(yl(v))}</title></circle>`).join('')).join('')}
+            <defs>${series.map((s, si) => `<linearGradient id="${gid}-${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity="${series.length > 3 ? .12 : .3}"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient>`).join('')}</defs>
+            ${series.map((s, si) => runs(s.vals).map(r => `<path fill="url(#${gid}-${si})" stroke="none" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}L${x(r[r.length - 1])},${y(0)}L${x(r[0])},${y(0)}Z"/>`).join('')).join('')}
+            <line x1="${pl}" x2="${W - pr}" y1="${y(0)}" y2="${y(0)}" class="pr-base"/>
+            ${series.map(s => runs(s.vals).map(r => `<path fill="none" stroke="${s.color}" stroke-width="${s.thin ? 2 : 3}" ${s.dash ? 'stroke-dasharray="6 5"' : ''} stroke-linejoin="round" stroke-linecap="round" class="pr-line" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}"/>`).join('')
+                + s.vals.map((v, i) => { if (v == null) return ''; const over = opts.limit != null && v > opts.limit; return `<circle cx="${x(i)}" cy="${y(v)}" r="${over ? 5 : dot}" class="pr-dot${over ? ' pr-dot-over' : ''}" stroke="${over ? '#dc2626' : s.color}"><title>${e(s.name)} · ${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${e(yl(v))}</title></circle>`; }).join('')).join('')}
         </svg>${series.length > 1 ? `<div class="pr-legend">${series.map(s => `<span><i style="background:${s.color}"></i>${e(s.name)}</span>`).join('')}</div>` : ''}`;
     }
     function barChart(rows, opts) {
@@ -4595,8 +4586,7 @@ const PR = (() => {
             return {
                 html: kpis([{ v: list.length, l: 'breaches', c: list.length ? '#dc2626' : '#16a34a' }, { v: `${by.size} of ${sts.length}`, l: 'internal rodent stations with activity', c: by.size ? '#dc2626' : '' },
                         { v: new Set(list.map(x => monthKey(x.at))).size, l: 'months with a breach' }, { v: last ? fmtD(last.at) : 'None', l: 'latest breach' }])
-                    + (recent.length ? `<div class="pr-alert"><b>⚠ ${plural(recent.length, 'breach')} in the last 30 days</b><div class="pr-alert-st">At: ${uniq2(recent.map(x => x.barcode)).map(bc => stLink(opts, d.stations.find(z => z.barcode === bc) || { barcode: bc, name: bc })).join(', ')}</div></div>`
-                        : `<div class="pr-alert pr-alert-ok"><b>✓ No rodent activity at the third line in the last 30 days.</b></div>`)
+                    + (recent.length ? '' : `<div class="pr-alert pr-alert-ok"><b>✓ No rodent activity at the third line in the last 30 days.</b></div>`)
                     + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Breaches each month${tps.length > 1 ? ', by station type' : ''}</div>${lineChart(series.length ? series : [{ name: 'Breaches', color: '#dc2626', vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: 'Third line breaches per month' })}</div>`
                     + `<div class="pr-chart"><div class="pr-cap">Stations with the most breaches</div>${barChart(busiest.slice(0, 12).map(o => ({ l: o.st.name, v: o.n, c: color(opts, o.st.type) })))}</div></div>`
                     + table(head, rows.map(x => ({ _cls: 'pr-late', cells: [e(fmtDT(x.at)), stLink(opts, x.stationObj), e(x.type), e(x.map || '-'), e(found(x)), e(x.tech), e(x.notes)] })), { empty: 'No rodent activity at the third line for this choice. 🎉' }),
@@ -4856,6 +4846,14 @@ const LOGS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r114', date: '2026-10-31', v: { svc: '2026.10.31-r114', adm: '2026.10.31-a51', cli: '2026.10.31-p66' },
+            svc: ['Visit report: the critical limit breach box simply lists the stations over their limit (the station records below show what was found)'],
+            adm: ['Reports: the line graphs are smoother, with a soft shading under each line and neater points',
+                  'Third line breaches report: no red box on top - the breaches are listed below'],
+            cli: ['Floor plans: the tab opens straight on a floor plan - pick the building and the floor plan from the drop-downs',
+                  'Visit report: the critical limit breach box simply lists the stations over their limit',
+                  'Reports: the line graphs are smoother, with a soft shading under each line and neater points',
+                  'Third line breaches report: no red box on top - the breaches are listed below'] },
         { rev: 'r113', date: '2026-10-31', v: { svc: '2026.10.31-r113', adm: '2026.10.31-a50', cli: '2026.10.31-p65' },
             svc: ['Visit report colours: red for a critical limit breach or high activity, amber for a pest caught or medium activity, green for low or no activity',
                   'Visit report: a long list of critical limit breaches carries on over the next pages (it could run off the page and leave the first page blank), and each coloured row has a clear line between it and the next'],
@@ -5294,7 +5292,7 @@ const SEEN = (() => {
 /* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
 // Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
 //   { siteId, id (the visit's, if it has reached the server), siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
-//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, acts (every activity on the check), breach (took the station over a critical limit), pests, prep, notes }],
+//     breaches: ['station name', ..] (stations the visit took over a critical limit), entries: [{ name, barcode, type, activity, acts (every activity on the check), breach (took the station over a critical limit), pests, prep, notes }],
 //     added / removed: [{ name, barcode, type }] (stations installed or taken out on the visit),
 //     recs: [{ id, no, status, raised, station, barcode, text, closed, note }],
 //   Stations, recommendations and the visit link to the Client Portal.
@@ -5553,7 +5551,8 @@ const PVR = (() => {
         };
 
         header();
-        if ((v.breaches || []).length) alert(['CRITICAL LIMIT BREACH'].concat(v.breaches));
+        // the stations over a critical limit, as a simple list (the station records below show what was found)
+        if ((v.breaches || []).length) alert([`CRITICAL LIMIT BREACH · ${v.breaches.length} station${v.breaches.length === 1 ? '' : 's'} over the limit`, v.breaches.map(n => String(n).replace(/ /g, ' ')).join(',  ')]);   // (a name never splits over two lines)
         facts([['Arrived', v.start ? time(v.start) : '-'], ['Left', v.inProgress ? 'In progress' : time(v.end || v.completed)],
             ['Time on site', v.inProgress ? '-' : dur(v.start, v.end || v.completed)], ['Stations checked', v.stationsChecked != null ? v.stationsChecked : new Set((v.entries || []).map(e => e.barcode)).size]]);
         if ((v.services || []).length) para('Services completed: ' + v.services.join(', '));

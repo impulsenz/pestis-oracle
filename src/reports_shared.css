@@ -26,7 +26,12 @@
 .pr-cap { font-size: .7rem; font-weight: 800; color: var(--muted); margin-bottom: .3rem; }
 .pr-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: .7rem; }
 .pr-svg { width: 100%; height: auto; display: block; }
-.pr-svg .pr-grid { stroke: var(--border); stroke-width: 1; }
+.pr-svg .pr-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 5; opacity: .8; }
+.pr-svg .pr-base { stroke: var(--muted); stroke-width: 1.2; opacity: .45; }
+.pr-svg .pr-line { filter: drop-shadow(0 3px 4px rgba(15, 23, 42, .16)); }
+.pr-svg .pr-dot { fill: var(--surface, #fff); stroke-width: 2.2; transition: r .15s ease; }
+.pr-svg .pr-dot:hover { r: 6px; }
+.pr-svg .pr-dot-over { fill: #dc2626; stroke: #fff; }
 .pr-svg .pr-ax { font-size: 11px; fill: var(--muted); font-family: inherit; }
 .pr-legend { display: flex; flex-wrap: wrap; gap: .3rem .9rem; font-size: .72rem; color: var(--text); margin-top: .35rem; }
 .pr-legend i { display: inline-block; width: .7rem; height: .7rem; border-radius: 3px; margin-right: .35rem; vertical-align: -1px; }

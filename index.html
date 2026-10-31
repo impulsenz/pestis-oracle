@@ -2280,7 +2280,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.31-r113-oci';
+        const APP_VERSION = '2026.10.31-r114-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -9018,7 +9018,7 @@
                 siteName: selectedClient.Name, address: selectedClient.Address || '', completed: v.endedAt || v.date || Date.now(), type: visitTypeOf(v), tech: v.technician || '',
                 start: v.startedAt || (entries[0] && entries[0].at) || null, end: v.inProgress ? null : (v.endedAt || v.date), inProgress: !!v.inProgress,
                 stationsChecked: new Set(entries.map(e => e.barcode)).size, services: v.servicesCompleted || [], notes: v.summaryNote || '',
-                breaches: visitLimitBreaches(v).map(x => `${x.name} · ${x.rule.species}: ${x.total} caught in ${monthName(x.month)}, this station's limit ${x.rule.max} a month (${x.total - x.rule.max} over) - critical limit ${x.limit.name}`),
+                breaches: Array.from(new Set(visitLimitBreaches(v).map(x => x.name))),   // (just the stations; the report lists them)
                 added: v.inProgress ? visitStationChanges(selectedClient.id).added : (v.stationsAdded || []),
                 removed: v.inProgress ? visitStationChanges(selectedClient.id).removed : (v.stationsRemoved || []),
                 entries: entries.map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, acts: [e.activity].concat((e.pests || []).map(x => x.activity)), breach: breached.has(e.barcode),
@@ -14998,6 +14998,14 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r114', date: '2026-10-31', v: { svc: '2026.10.31-r114', adm: '2026.10.31-a51', cli: '2026.10.31-p66' },
+            svc: ['Visit report: the critical limit breach box simply lists the stations over their limit (the station records below show what was found)'],
+            adm: ['Reports: the line graphs are smoother, with a soft shading under each line and neater points',
+                  'Third line breaches report: no red box on top - the breaches are listed below'],
+            cli: ['Floor plans: the tab opens straight on a floor plan - pick the building and the floor plan from the drop-downs',
+                  'Visit report: the critical limit breach box simply lists the stations over their limit',
+                  'Reports: the line graphs are smoother, with a soft shading under each line and neater points',
+                  'Third line breaches report: no red box on top - the breaches are listed below'] },
         { rev: 'r113', date: '2026-10-31', v: { svc: '2026.10.31-r113', adm: '2026.10.31-a50', cli: '2026.10.31-p65' },
             svc: ['Visit report colours: red for a critical limit breach or high activity, amber for a pest caught or medium activity, green for low or no activity',
                   'Visit report: a long list of critical limit breaches carries on over the next pages (it could run off the page and leave the first page blank), and each coloured row has a clear line between it and the next'],
@@ -15436,7 +15444,7 @@ const SEEN = (() => {
 /* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
 // Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
 //   { siteId, id (the visit's, if it has reached the server), siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
-//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, acts (every activity on the check), breach (took the station over a critical limit), pests, prep, notes }],
+//     breaches: ['station name', ..] (stations the visit took over a critical limit), entries: [{ name, barcode, type, activity, acts (every activity on the check), breach (took the station over a critical limit), pests, prep, notes }],
 //     added / removed: [{ name, barcode, type }] (stations installed or taken out on the visit),
 //     recs: [{ id, no, status, raised, station, barcode, text, closed, note }],
 //   Stations, recommendations and the visit link to the Client Portal.
@@ -15695,7 +15703,8 @@ const PVR = (() => {
         };
 
         header();
-        if ((v.breaches || []).length) alert(['CRITICAL LIMIT BREACH'].concat(v.breaches));
+        // the stations over a critical limit, as a simple list (the station records below show what was found)
+        if ((v.breaches || []).length) alert([`CRITICAL LIMIT BREACH · ${v.breaches.length} station${v.breaches.length === 1 ? '' : 's'} over the limit`, v.breaches.map(n => String(n).replace(/ /g, ' ')).join(',  ')]);   // (a name never splits over two lines)
         facts([['Arrived', v.start ? time(v.start) : '-'], ['Left', v.inProgress ? 'In progress' : time(v.end || v.completed)],
             ['Time on site', v.inProgress ? '-' : dur(v.start, v.end || v.completed)], ['Stations checked', v.stationsChecked != null ? v.stationsChecked : new Set((v.entries || []).map(e => e.barcode)).size]]);
         if ((v.services || []).length) para('Services completed: ' + v.services.join(', '));

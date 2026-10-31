@@ -124,6 +124,27 @@ const PR = (() => {
     const months = (a, b) => { const out = []; for (let k = monthKey(a); k <= monthKey(Math.min(b, Date.now())); k++) out.push(k); return out; };
 
     // ---------- small SVG charts ----------
+    // a smooth line through the points: gently curved, but it never swings above or below the points either side of it
+    // (so it never dips under 0 or over a peak) - a monotone curve
+    function smoothPath(p) {
+        const f = v => Math.round(v * 10) / 10;
+        if (p.length < 3) return p.map((q, i) => `${i ? 'L' : 'M'}${f(q[0])},${f(q[1])}`).join('');
+        const n = p.length, d = [], m = [];
+        for (let i = 0; i < n - 1; i++) d.push((p[i + 1][1] - p[i][1]) / (p[i + 1][0] - p[i][0]));
+        m.push(d[0]);
+        for (let i = 1; i < n - 1; i++) m.push(d[i - 1] * d[i] <= 0 ? 0 : (d[i - 1] + d[i]) / 2);
+        m.push(d[n - 2]);
+        for (let i = 0; i < n - 1; i++) {
+            if (d[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+            const a = m[i] / d[i], b = m[i + 1] / d[i], h = a * a + b * b;
+            if (h > 9) { const t = 3 / Math.sqrt(h); m[i] = t * a * d[i]; m[i + 1] = t * b * d[i]; }
+        }
+        for (let i = 0; i < n; i++) m[i] *= .75;   // (a little less curve)
+        let out = `M${f(p[0][0])},${f(p[0][1])}`;
+        for (let i = 0; i < n - 1; i++) { const dx = (p[i + 1][0] - p[i][0]) / 3; out += `C${f(p[i][0] + dx)},${f(p[i][1] + m[i] * dx)} ${f(p[i + 1][0] - dx)},${f(p[i + 1][1] - m[i + 1] * dx)} ${f(p[i + 1][0])},${f(p[i + 1][1])}`; }
+        return out;
+    }
+    let chartN = 0;   // (each chart's fades have their own names)
     function lineChart(series, keys, opts) {
         opts = opts || {};
         const W = 760, H = 260, pl = opts.yLbl ? 64 : 40, pr = 12, pt = 14, pb = 34;
@@ -134,13 +155,16 @@ const PR = (() => {
         // a line breaks only where there's no data yet (months not reached); nothing caught is drawn as 0
         const runs = vals => { const out = []; let cur = []; vals.forEach((v, i) => { if (v == null) { if (cur.length) out.push(cur); cur = []; } else cur.push(i); }); if (cur.length) out.push(cur); return out; };
         const every = Math.ceil(n / 12);
+        const gid = 'prfade' + (++chartN), dot = n > 40 ? 2.2 : n > 24 ? 2.8 : 3.6;
         return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(opts.label || 'Chart')}">
             ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="pr-grid"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" class="pr-ax">${e(yl(t))}</text>`).join('')}
             ${keys.map((k, i) => (i % every === 0 && (i === n - 1 || n - 1 - i >= every * 0.75)) || i === n - 1 ? `<text x="${x(i)}" y="${H - 12}" text-anchor="${n > 1 && i === n - 1 ? 'end' : i === 0 && n > 1 ? 'start' : 'middle'}" class="pr-ax">${e(opts.lbl ? opts.lbl(k) : k)}</text>` : '').join('')}
             ${opts.limit != null ? `<line x1="${pl}" x2="${W - pr}" y1="${y(opts.limit)}" y2="${y(opts.limit)}" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 5"/><text x="${W - pr}" y="${y(opts.limit) - 5}" text-anchor="end" class="pr-ax" fill="#dc2626">Limit ${opts.limit}</text>` : ''}
-            ${series.map(s => runs(s.vals).map(r => `<polygon fill="${s.color}" fill-opacity="${series.length > 3 ? .06 : .14}" stroke="none" points="${r.map(i => `${x(i)},${y(s.vals[i])}`).join(' ')} ${x(r[r.length - 1])},${y(0)} ${x(r[0])},${y(0)}"/>`).join('')).join('')}
-            ${series.map(s => runs(s.vals).map(r => `<polyline fill="none" stroke="${s.color}" stroke-width="${s.thin ? 1.8 : 2.5}" ${s.dash ? 'stroke-dasharray="5 4"' : ''} stroke-linejoin="round" stroke-linecap="round" points="${r.map(i => `${x(i)},${y(s.vals[i])}`).join(' ')}"/>`).join('')
-                + s.vals.map((v, i) => v == null ? '' : `<circle cx="${x(i)}" cy="${y(v)}" r="${opts.limit != null && v > opts.limit ? 5 : 3.2}" fill="${opts.limit != null && v > opts.limit ? '#dc2626' : s.color}"><title>${e(s.name)} · ${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${e(yl(v))}</title></circle>`).join('')).join('')}
+            <defs>${series.map((s, si) => `<linearGradient id="${gid}-${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity="${series.length > 3 ? .12 : .3}"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient>`).join('')}</defs>
+            ${series.map((s, si) => runs(s.vals).map(r => `<path fill="url(#${gid}-${si})" stroke="none" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}L${x(r[r.length - 1])},${y(0)}L${x(r[0])},${y(0)}Z"/>`).join('')).join('')}
+            <line x1="${pl}" x2="${W - pr}" y1="${y(0)}" y2="${y(0)}" class="pr-base"/>
+            ${series.map(s => runs(s.vals).map(r => `<path fill="none" stroke="${s.color}" stroke-width="${s.thin ? 2 : 3}" ${s.dash ? 'stroke-dasharray="6 5"' : ''} stroke-linejoin="round" stroke-linecap="round" class="pr-line" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}"/>`).join('')
+                + s.vals.map((v, i) => { if (v == null) return ''; const over = opts.limit != null && v > opts.limit; return `<circle cx="${x(i)}" cy="${y(v)}" r="${over ? 5 : dot}" class="pr-dot${over ? ' pr-dot-over' : ''}" stroke="${over ? '#dc2626' : s.color}"><title>${e(s.name)} · ${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${e(yl(v))}</title></circle>`; }).join('')).join('')}
         </svg>${series.length > 1 ? `<div class="pr-legend">${series.map(s => `<span><i style="background:${s.color}"></i>${e(s.name)}</span>`).join('')}</div>` : ''}`;
     }
     function barChart(rows, opts) {
@@ -543,8 +567,7 @@ const PR = (() => {
             return {
                 html: kpis([{ v: list.length, l: 'breaches', c: list.length ? '#dc2626' : '#16a34a' }, { v: `${by.size} of ${sts.length}`, l: 'internal rodent stations with activity', c: by.size ? '#dc2626' : '' },
                         { v: new Set(list.map(x => monthKey(x.at))).size, l: 'months with a breach' }, { v: last ? fmtD(last.at) : 'None', l: 'latest breach' }])
-                    + (recent.length ? `<div class="pr-alert"><b>⚠ ${plural(recent.length, 'breach')} in the last 30 days</b><div class="pr-alert-st">At: ${uniq2(recent.map(x => x.barcode)).map(bc => stLink(opts, d.stations.find(z => z.barcode === bc) || { barcode: bc, name: bc })).join(', ')}</div></div>`
-                        : `<div class="pr-alert pr-alert-ok"><b>✓ No rodent activity at the third line in the last 30 days.</b></div>`)
+                    + (recent.length ? '' : `<div class="pr-alert pr-alert-ok"><b>✓ No rodent activity at the third line in the last 30 days.</b></div>`)
                     + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Breaches each month${tps.length > 1 ? ', by station type' : ''}</div>${lineChart(series.length ? series : [{ name: 'Breaches', color: '#dc2626', vals: ks.map(() => 0) }], ks, { lbl: monthLbl, label: 'Third line breaches per month' })}</div>`
                     + `<div class="pr-chart"><div class="pr-cap">Stations with the most breaches</div>${barChart(busiest.slice(0, 12).map(o => ({ l: o.st.name, v: o.n, c: color(opts, o.st.type) })))}</div></div>`
                     + table(head, rows.map(x => ({ _cls: 'pr-late', cells: [e(fmtDT(x.at)), stLink(opts, x.stationObj), e(x.type), e(x.map || '-'), e(found(x)), e(x.tech), e(x.notes)] })), { empty: 'No rodent activity at the third line for this choice. 🎉' }),

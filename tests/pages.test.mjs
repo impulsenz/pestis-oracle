@@ -57,6 +57,12 @@ try {
     const cp = await page(boss, w); cp.app = 'portal' + w;
     await step(cp, 'open', async () => { await cp.goto(`${BASE}/client.html#/site/1/overview`); await cp.waitForFunction(() => typeof state !== 'undefined' && state.model, null, { timeout: 30000 }); });
     for (const t of ['overview', 'recs', 'sightings', 'reports', 'visits', 'documents', 'plans', 'techs']) await step(cp, 'tab ' + t, () => cp.evaluate(t => setTab(t), t));
+    await step(cp, 'floor plans open on a plan', async () => {
+      await cp.evaluate(() => { planId = null; setTab('plans'); }); await sleep(1500);
+      const got = await cp.evaluate(() => ({ stage: !!document.getElementById('planStage'), cards: document.querySelectorAll('.plan-card').length, pick: document.querySelectorAll('#tabBody .plan-pick-b, #tabBody .plan-pick-p').length }));
+      if (!got.stage || got.cards || got.pick < 2) all.push(`[${cp.app}] the floor plans tab doesn't open on a plan with the building and plan pickers: ${JSON.stringify(got)}`);
+      await cp.screenshot({ path: path.join(SHOTS, `portal-plans-${w}.png`) });
+    });
     await step(cp, 'expiry notifications', async () => {
       const keys = await cp.evaluate(async () => { await loadAllDocs(); return bellItems(true).map(i => i.key); });
       if (!keys.some(k => /^plan:m2:.*:m$/.test(k)) || !keys.some(k => /^plan:m3:.*:x$/.test(k)) || !keys.includes(`doc:d1:${dayIn(15)}:m`) || keys.some(k => k.startsWith('plan:m1:')))
@@ -66,6 +72,14 @@ try {
     const reps = await cp.evaluate(() => PR.REPORTS.map(r => r.id));
     await cp.evaluate(() => setTab('reports'));
     for (const r of reps) await step(cp, 'report ' + r, () => cp.evaluate(r => PR.show(state.prBox, r), r));
+    await step(cp, 'smooth line graphs', async () => {
+      await cp.evaluate(() => PR.show(state.prBox, 'trend')); await sleep(500);
+      const got = await cp.evaluate(() => ({ curves: Array.from(document.querySelectorAll('.pr-svg path.pr-line')).filter(p => /C/.test(p.getAttribute('d'))).length, polylines: document.querySelectorAll('.pr-svg polyline').length }));
+      if (!got.curves || got.polylines) all.push(`[${cp.app}] the line graphs aren't smooth: ${JSON.stringify(got)}`);
+      await cp.screenshot({ path: path.join(SHOTS, `portal-trend-${w}.png`) });
+      await cp.evaluate(() => PR.show(state.prBox, 'third')); await sleep(400);
+      if (await cp.evaluate(() => document.querySelectorAll('#tabBody .pr-alert:not(.pr-alert-ok)').length)) all.push(`[${cp.app}] the third line report still has the red card on top`);
+    });
     await step(cp, 'bell', () => cp.evaluate(() => { document.getElementById('bellBtn').click(); }));
     await step(cp, 'bell seen stays listed', async () => {
       const before = await cp.evaluate(() => document.querySelectorAll('#bellPanel [data-key]').length);
@@ -88,7 +102,7 @@ try {
         const [dl] = await Promise.all([cp.waitForEvent('download'), cp.evaluate(() => downloadVisitPdf(state.model.visits[state.model.visits.length - 1].id))]);
         await dl.saveAs(path.join(SHOTS, 'visit-report.pdf'));
         const [dl2] = await Promise.all([cp.waitForEvent('download'), cp.evaluate(() => PVR.build({ siteName: 'Long breach list', completed: Date.now(), type: 'Routine Service',
-          breaches: Array.from({ length: 90 }, (_, i) => `Station ${i + 1} · Fly: 40 recorded, this station's limit 25 a month (15 over) - critical limit Warehouse`),
+          breaches: Array.from({ length: 1500 }, (_, i) => `A-ILT ${String(i + 1).padStart(4, '0')}`),
           entries: Array.from({ length: 30 }, (_, i) => ({ name: 'Station ' + i, barcode: 'B' + i, type: 'Flying Insect Monitoring', activity: ['None', 'Low', 'Medium', 'High', 'Caught'][i % 5], breach: i === 4, pests: '' })) }))]);
         await dl2.saveAs(path.join(SHOTS, 'long-breaches.pdf'));
       }
@@ -96,12 +110,13 @@ try {
         // a long breach list carries on over the pages: every line is on the page (above the footer), and page 1 isn't left empty
         const r = await cp.evaluate(async () => {
           window.__pdf.pos = [];
-          await PVR.build({ siteName: 'Long', completed: Date.now(), breaches: Array.from({ length: 150 }, (_, i) => 'Breach line ' + (i + 1)), entries: [] });
+          await PVR.build({ siteName: 'Long', completed: Date.now(), breaches: Array.from({ length: 1500 }, (_, i) => `Station ${i + 1}`), entries: [] });
           return window.__pdf.pos;
         });
-        const lines = r.filter(p => /^Breach line \d+$/.test(p.t));
-        if (lines.length !== 150 || lines.some(p => p.y > 198) || !lines.some(p => p.page === 1) || !r.some(p => p.page === 2 && /CRITICAL LIMIT BREACH \(continued\)/.test(p.t)))
-          all.push(`[${cp.app}] a long breach list doesn't carry onto the next page: ${lines.length} lines, lowest ${Math.max(...lines.map(p => p.y))}, on pages ${Array.from(new Set(lines.map(p => p.page))).join(',')}`);
+        // just the stations (no limits or counts), each one on a page above the footer
+        const lines = r.filter(p => /^Station\s\d+/.test(p.t)), names = new Set(lines.flatMap(p => p.t.replace(/\u00a0/g, " ").split(/,\s+/).map(x => x.trim()).filter(Boolean)));
+        if (names.size !== 1500 || lines.some(p => p.y > 198) || !lines.some(p => p.page === 1) || !r.some(p => p.page === 2 && /CRITICAL LIMIT BREACH .*\(continued\)/.test(p.t)) || r.some(p => /over\)|limit \d/.test(p.t)))
+          all.push(`[${cp.app}] a long breach list doesn't carry onto the next page: ${names.size} stations, lowest ${Math.max(...lines.map(p => p.y))}, on pages ${Array.from(new Set(lines.map(p => p.page))).join(',')}`);
       }
     });
     await step(cp, 'days open', async () => {

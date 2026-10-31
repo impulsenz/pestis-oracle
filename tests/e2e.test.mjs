@@ -500,10 +500,10 @@ try {
   ok(allPestRows.length === 2 && JSON.stringify(oneType) === '["Dock ILT"]' && typed.length === 2 && typed.includes('Dock ILT') && typed.includes('Store trap') && label === '2 types' && btnTxt === 'All types', 'tick-box list: two station types ticked shows both (and the button says "2 types")', { allPestRows, oneType, typed, label, btnTxt });
   // the heat map on the Client Portal floor plan
   await hp.evaluate("setTab('plans')"); await sleep(600);
-  // the floor plans page: the plans under their buildings
-  await hp.evaluate("planId = null; renderPlans()"); await sleep(600);
-  const planGroupsShown = await hp.evaluate(() => Array.from(document.querySelectorAll('.plan-group')).map(g => g.textContent.replace(/\s+/g, ' ').trim()));
-  ok(JSON.stringify(planGroupsShown) === '["🏢 Main building 1 floor plan","🏢 Warehouse 1 floor plan"]', 'portal floor plans: the plans are listed under their buildings', planGroupsShown);
+  // the floor plans tab opens straight on a floor plan (the first building's first plan), not every plan at once
+  await hp.evaluate("planId = null; renderPlans()"); await sleep(1500);
+  const firstPlan = await hp.evaluate(() => ({ plan: planId, picks: Array.from(document.querySelectorAll('.plan-bar .pv-pick .heat-dd-btn')).map(b => b.textContent), cards: document.querySelectorAll('.plan-card, .plan-group').length }));
+  ok(JSON.stringify(firstPlan.picks) === '["Main building","Ground floor"]' && !firstPlan.cards, 'portal floor plans: the tab opens on the first building floor plan, with the drop-downs', firstPlan);
   await hp.evaluate("planId = 'mapH'; renderPlans()"); await sleep(1500);
   // the plan's top bar: a building drop-down, a floor plan drop-down (no row of plan buttons), and the zoom buttons
   const bar = await hp.evaluate(() => ({ picks: Array.from(document.querySelectorAll('.plan-bar .pv-pick .heat-dd-btn')).map(b => b.textContent), zoom: document.querySelectorAll('#planZoom .pz-ctl button').length, tabs: document.querySelectorAll('.plan-bar .tab-btn').length }));

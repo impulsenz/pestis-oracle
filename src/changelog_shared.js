@@ -3,6 +3,14 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r114', date: '2026-10-31', v: { svc: '2026.10.31-r114', adm: '2026.10.31-a51', cli: '2026.10.31-p66' },
+            svc: ['Visit report: the critical limit breach box simply lists the stations over their limit (the station records below show what was found)'],
+            adm: ['Reports: the line graphs are smoother, with a soft shading under each line and neater points',
+                  'Third line breaches report: no red box on top - the breaches are listed below'],
+            cli: ['Floor plans: the tab opens straight on a floor plan - pick the building and the floor plan from the drop-downs',
+                  'Visit report: the critical limit breach box simply lists the stations over their limit',
+                  'Reports: the line graphs are smoother, with a soft shading under each line and neater points',
+                  'Third line breaches report: no red box on top - the breaches are listed below'] },
         { rev: 'r113', date: '2026-10-31', v: { svc: '2026.10.31-r113', adm: '2026.10.31-a50', cli: '2026.10.31-p65' },
             svc: ['Visit report colours: red for a critical limit breach or high activity, amber for a pest caught or medium activity, green for low or no activity',
                   'Visit report: a long list of critical limit breaches carries on over the next pages (it could run off the page and leave the first page blank), and each coloured row has a clear line between it and the next'],

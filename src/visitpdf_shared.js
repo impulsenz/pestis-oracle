@@ -1,7 +1,7 @@
 /* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
 // Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
 //   { siteId, id (the visit's, if it has reached the server), siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
-//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, acts (every activity on the check), breach (took the station over a critical limit), pests, prep, notes }],
+//     breaches: ['station name', ..] (stations the visit took over a critical limit), entries: [{ name, barcode, type, activity, acts (every activity on the check), breach (took the station over a critical limit), pests, prep, notes }],
 //     added / removed: [{ name, barcode, type }] (stations installed or taken out on the visit),
 //     recs: [{ id, no, status, raised, station, barcode, text, closed, note }],
 //   Stations, recommendations and the visit link to the Client Portal.
@@ -260,7 +260,8 @@ const PVR = (() => {
         };
 
         header();
-        if ((v.breaches || []).length) alert(['CRITICAL LIMIT BREACH'].concat(v.breaches));
+        // the stations over a critical limit, as a simple list (the station records below show what was found)
+        if ((v.breaches || []).length) alert([`CRITICAL LIMIT BREACH · ${v.breaches.length} station${v.breaches.length === 1 ? '' : 's'} over the limit`, v.breaches.map(n => String(n).replace(/ /g, ' ')).join(',  ')]);   // (a name never splits over two lines)
         facts([['Arrived', v.start ? time(v.start) : '-'], ['Left', v.inProgress ? 'In progress' : time(v.end || v.completed)],
             ['Time on site', v.inProgress ? '-' : dur(v.start, v.end || v.completed)], ['Stations checked', v.stationsChecked != null ? v.stationsChecked : new Set((v.entries || []).map(e => e.barcode)).size]]);
         if ((v.services || []).length) para('Services completed: ' + v.services.join(', '));
