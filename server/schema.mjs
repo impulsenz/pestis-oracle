@@ -139,6 +139,7 @@ export const TABLES = {
       started_at: c('ts'), completed_at: c('ts', NOW), signed_in_at: c('ts'), signed_out_at: c('ts'), notes: c('text'),
       services_completed: c('json', { def: [], nn: true }), unscanned_count: c('int'), edited_at: c('ts'), edited_by: c('text'), created_at: c('ts', NOW),
       signed_by: c('text'), signature_path: c('text'), signed_at: c('ts'), no_signature_reason: c('text'),
+      stations_added: c('json'), stations_removed: c('json'),   // [{ barcode, name, type }] installed / taken out on the visit
     },
     index: [['client_id']],
   },

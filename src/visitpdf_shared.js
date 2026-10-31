@@ -1,7 +1,8 @@
 /* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
 // Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
 //   { siteId, id (the visit's, if it has reached the server), siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
-//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, pests, prep, notes }],
+//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, acts (every activity on the check), pests, prep, notes }],
+//     added / removed: [{ name, barcode, type }] (stations installed or taken out on the visit),
 //     recs: [{ id, no, status, raised, station, barcode, text, closed, note }],
 //   Stations, recommendations and the visit link to the Client Portal.
 //     signedBy, signedAt, noSignatureReason, signature (picture data URL or null), by (who downloaded it), app ('Service App' | 'Client Portal') }
@@ -16,6 +17,15 @@ const PVR = (() => {
     const ENTRY_COLS = [['Station', 34], ['Barcode', 18], ['Type', 30], ['Activity', 16], ['Pests', 24], ['Preparation', 50], ['Notes', 50]];
     // where a station, recommendation or visit opens in the Client Portal (reports link back to it)
     const portalLink = (cid, kind, id) => cid == null || id == null ? null : `${location.origin}/client.html#/site/${encodeURIComponent(cid)}/${{ station: 'overview', rec: 'recs', visit: 'visits' }[kind]}/${kind}/${encodeURIComponent(id)}`;
+    // a station check's colour: red if a pest was caught or the activity was high, amber for low or medium (or any other
+    // sign of activity), green for no activity. acts = every activity recorded on the check (more pests have their own)
+    function level(acts) {
+        const a = (Array.isArray(acts) ? acts : [acts]).map(x => String(x || '').trim().toLowerCase()).filter(x => x && x !== 'none' && x !== 'no activity');
+        return a.some(x => x === 'caught' || x === 'high') ? 'red' : a.length ? 'amber' : 'green';
+    }
+    const LEVEL_FILL = { red: [254, 202, 202], amber: [253, 230, 138], green: [187, 247, 208] };
+    const LEVEL_TEXT = { red: 'Red: pest caught or high activity', amber: 'Amber: low or medium activity', green: 'Green: no activity' };
+    const STATION_COLS = [['Station', 50], ['Barcode', 30], ['Type', 60]];
     const REC_COLS = [['No.', 16], ['Status', 18], ['Raised', 20], ['Station', 30], ['Barcode', 18], ['Recommendation', 70], ['Closed', 20], ['Latest note', 50]];
 
     // the Pesties logo, made small enough for a PDF (loaded once)
@@ -200,7 +210,8 @@ const PVR = (() => {
             y += 19;
         };
         // links: for each row, { column number: web address } - those cells are blue and open the address when clicked
-        const table = (cols, rows, links) => {
+        // fills: a colour for each row's background ([r, g, b], or none for the usual stripes)
+        const table = (cols, rows, links, fills) => {
             const total = cols.reduce((a, c) => a + c[1], 0), scale = (W - 2 * M) / total, widths = cols.map(c => c[1] * scale);
             const head = () => {
                 doc.setFillColor(226, 232, 240); doc.rect(M, y, W - 2 * M, 7, 'F');
@@ -215,7 +226,9 @@ const PVR = (() => {
                 const cells = r.map((val, i) => doc.splitTextToSize(String(val == null ? '' : val), widths[i] - 3));
                 const h = Math.max(...cells.map(c => c.length)) * 3.4 + 2.6;
                 if (y + h > H - 12) { newPage(); head(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
-                if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
+                const fill = fills && fills[ri];
+                if (fill) { doc.setFillColor(...fill); doc.rect(M, y, W - 2 * M, h, 'F'); doc.setDrawColor(255, 255, 255); doc.setLineWidth(.4); doc.line(M, y + h, W - M, y + h); }
+                else if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
                 let x0 = M; cells.forEach((c, i) => {
                     const url = links && links[ri] && links[ri][i];
                     if (url) doc.setTextColor(37, 99, 235); else doc.setTextColor(15, 23, 42);
@@ -246,8 +259,16 @@ const PVR = (() => {
         heading("Technician's notes"); para(v.notes || 'No notes provided');
         heading('Station records');
         const stLink = b => portalLink(v.siteId, 'station', b);
+        // the colours used (a key above the table)
+        if ((v.entries || []).length) {
+            room(8); let kx = M; doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+            ['green', 'amber', 'red'].forEach(k => { doc.setFillColor(...LEVEL_FILL[k]); doc.rect(kx, y - 3, 4, 4, 'F'); doc.setTextColor(51, 65, 85); doc.text(LEVEL_TEXT[k], kx + 5.5, y); kx += doc.getTextWidth(LEVEL_TEXT[k]) + 12; });
+            y += 4;
+        }
         table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']),
-            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })));
+            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })), (v.entries || []).map(e => LEVEL_FILL[level(e.acts || [e.activity])]));
+        if ((v.added || []).length) { heading(`Stations installed on this visit (${v.added.length})`); table(STATION_COLS, v.added.map(s => [s.name || s.barcode, s.barcode, s.type || '']), v.added.map(s => ({ 0: stLink(s.barcode), 1: stLink(s.barcode) }))); }
+        if ((v.removed || []).length) { heading(`Stations removed on this visit (${v.removed.length})`); table(STATION_COLS, v.removed.map(s => [s.name || s.barcode, s.barcode, s.type || ''])); }
         if ((v.recs || []).length) {
             heading('Recommendations raised');
             table(REC_COLS, v.recs.map(r => [r.no || '', r.status || '', day(r.raised), r.station || '', r.barcode || '', r.text || '', r.closed ? day(r.closed) : '', r.note || '']),
@@ -525,7 +546,7 @@ body.pz-lock{overflow:hidden}`;
         return view._pz;
     }
 
-    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
+    return { build, level, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------

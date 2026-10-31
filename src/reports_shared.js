@@ -10,6 +10,8 @@ const PR = (() => {
     const e = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const parse = p => { if (typeof p === 'string') { try { return JSON.parse(p); } catch (x) { return {}; } } return p || {}; };
     const DAY = 86400000;
+    // whole calendar days from one moment to another, the same count as the rest of the apps
+    const calDays = (a, b) => { const d = t => { const x = new Date(t); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); }; return Math.max(0, Math.round((d(b) - d(a)) / DAY)); };
     const LOC = 'en-NZ';
     const fmtD = t => t ? new Date(t).toLocaleDateString(LOC, { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
     const fmtDT = t => t ? new Date(t).toLocaleString(LOC, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '-';
@@ -557,7 +559,7 @@ const PR = (() => {
             const ks = months(a || (list.length ? Math.min(...list.map(r => r.raisedAt)) : Date.now()), b);
             const head = [{ t: 'Number' }, { t: 'Raised' }, { t: 'Station' }, { t: 'Type' }, { t: 'Recommendation' }, { t: 'Status' }, { t: 'Days open', num: true }];
             const no = r => r.no != null ? 'R-' + String(r.no).padStart(4, '0') : '';
-            const days = r => Math.max(0, Math.round(((r.completedAt || Date.now()) - r.raisedAt) / DAY));
+            const days = r => calDays(r.raisedAt, r.completedAt || Date.now());
             return {
                 html: kpis([{ v: list.length, l: 'raised' }, { v: list.filter(r => r.status !== 'complete').length, l: 'still open or pending', c: '#ea580c' }, { v: done.length, l: 'completed', c: '#16a34a' }, { v: avg == null ? '-' : avg + ' days', l: 'average time to complete' }])
                     + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Raised and completed each month</div>${lineChart([{ name: 'Raised', color: '#ea580c', vals: ks.map(k => list.filter(r => monthKey(r.raisedAt) === k).length) }, { name: 'Completed', color: '#16a34a', vals: ks.map(k => done.filter(r => monthKey(r.completedAt) === k).length) }], ks, { lbl: monthLbl, label: 'Recommendations raised and completed per month' })}</div><div class="pr-chart"><div class="pr-cap">By type</div>${barChart(Array.from(byCat.entries()).sort((p, q) => q[1] - p[1]).map(([c, n], i) => ({ l: c, v: n, c: PALETTE[i % 8] })))}</div></div>`

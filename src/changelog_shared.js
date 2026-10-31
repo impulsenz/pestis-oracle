@@ -3,6 +3,17 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r112', date: '2026-10-31', v: { svc: '2026.10.31-r112', adm: '2026.10.31-a49', cli: '2026.10.31-p64' },
+            svc: ['Documents: the expiry date is picked from a calendar (you can still type it in), with "No expiry" to clear it',
+                  'Visit report: each station row is coloured - green no activity, amber low or medium activity, red a pest caught or high activity - with a key above the table',
+                  'Visit report: the stations installed and the stations removed on the visit are listed, so the customer can see them',
+                  'Recommendations: days open are counted in calendar days, so the same recommendation shows the same number everywhere'],
+            adm: ['Documents: the expiry date is picked from a calendar (you can still type it in), with "No expiry" to clear it',
+                  'Recommendations: days open are counted in calendar days, the same as the other apps'],
+            cli: ['Notifications: ones you have seen stay in the list (new ones are at the top, marked New) - they just no longer count on the bell',
+                  'Visit report: each station row is coloured - green no activity, amber low or medium activity, red a pest caught or high activity',
+                  'Visit report: the stations installed and the stations removed on the visit are listed',
+                  'Recommendations: the days open now match everywhere (the card and "Oldest still open" could differ by a day)'] },
         { rev: 'r111', date: '2026-10-31', v: { svc: '2026.10.31-r111', adm: '2026.10.31-a48', cli: '2026.10.31-p63' },
             svc: ['Notifications: floor plans due for their yearly check come up a month before, and again once the check is overdue (instead of under Needs action)',
                   'Notifications: a site document gives another notification when it expires within a month, and again once it has expired',

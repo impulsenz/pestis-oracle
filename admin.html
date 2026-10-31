@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.31-a48-oci
+    Version 2026.10.31-a49-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -1825,6 +1825,9 @@
         // CSS.escape isn't in every browser
         function cssEsc(v) { return (window.CSS && CSS.escape) ? CSS.escape(String(v)) : String(v).replace(/["\\\]\[]/g, '\\$&'); }
 
+        // whole calendar days from one moment to another (raised yesterday = 1 day), the same count in every app
+        function daysBetween(fromMs, toMs) { const d = t => { const x = new Date(t); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); }; return Math.max(0, Math.round((d(toMs) - d(fromMs)) / 86400000)); }
+
         // ---------- Station type colours ----------
         const STATION_COLORS = [
             // "Non-Toxic" also contains "toxic", so it is ruled out first
@@ -2078,6 +2081,34 @@
         const DOC_CATEGORIES = ['Service agreement', 'SDS', 'Insurance', 'Site map', 'Certificates', 'Reports', 'Other'];
 
         const openDocFolders = new Set();
+
+        // a date from a calendar: the browser's date box (tap it for the calendar, or type the date in it).
+        // Gives 'YYYY-MM-DD', '' when cleared (opts.clear names that button) or null when cancelled
+        function pickDate(title, current, opts) {
+            opts = opts || {};
+            return new Promise(resolve => {
+                const box = document.createElement('div');
+                box.className = 'overlay fixed inset-0 flex items-center justify-center p-4';
+                box.style.zIndex = '90';
+                box.innerHTML = `<form class="card p-5 w-full max-w-sm space-y-3" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+                    <h3 class="font-black t-strong">${esc(title)}</h3>${opts.note ? `<p class="text-xs t-muted">${esc(opts.note)}</p>` : ''}
+                    <input type="date" class="field" id="pickDateInput" value="${esc(current || '')}" aria-label="${esc(title)}">
+                    <div class="flex flex-wrap justify-between gap-2">${opts.clear ? `<button type="button" data-a="clear" class="btn btn-secondary">${esc(opts.clear)}</button>` : '<span></span>'}
+                        <span class="flex gap-2"><button type="button" data-a="cancel" class="btn btn-secondary">Cancel</button><button type="submit" class="btn btn-primary">Save</button></span></div></form>`;
+                const input = box.querySelector('input');
+                const done = v => { box.remove(); document.removeEventListener('keydown', esc_); resolve(v); };
+                const esc_ = e => { if (e.key === 'Escape') done(null); };
+                box.addEventListener('click', e => { if (e.target === box) return done(null); const a = e.target.closest('[data-a]'); if (a) done(a.dataset.a === 'clear' ? '' : null); });
+                box.querySelector('form').addEventListener('submit', e => {
+                    e.preventDefault();
+                    if (!input.value) { if (opts.clear) done(''); else input.focus(); return; }
+                    done(input.value);
+                });
+                document.addEventListener('keydown', esc_);
+                document.body.appendChild(box);
+                setTimeout(() => input.focus(), 50);
+            });
+        }
 
         function docExpiryChip(d) {
             if (!d.expires_on) return '';
@@ -3266,7 +3297,8 @@
 /* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
 // Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
 //   { siteId, id (the visit's, if it has reached the server), siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
-//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, pests, prep, notes }],
+//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, acts (every activity on the check), pests, prep, notes }],
+//     added / removed: [{ name, barcode, type }] (stations installed or taken out on the visit),
 //     recs: [{ id, no, status, raised, station, barcode, text, closed, note }],
 //   Stations, recommendations and the visit link to the Client Portal.
 //     signedBy, signedAt, noSignatureReason, signature (picture data URL or null), by (who downloaded it), app ('Service App' | 'Client Portal') }
@@ -3281,6 +3313,15 @@ const PVR = (() => {
     const ENTRY_COLS = [['Station', 34], ['Barcode', 18], ['Type', 30], ['Activity', 16], ['Pests', 24], ['Preparation', 50], ['Notes', 50]];
     // where a station, recommendation or visit opens in the Client Portal (reports link back to it)
     const portalLink = (cid, kind, id) => cid == null || id == null ? null : `${location.origin}/client.html#/site/${encodeURIComponent(cid)}/${{ station: 'overview', rec: 'recs', visit: 'visits' }[kind]}/${kind}/${encodeURIComponent(id)}`;
+    // a station check's colour: red if a pest was caught or the activity was high, amber for low or medium (or any other
+    // sign of activity), green for no activity. acts = every activity recorded on the check (more pests have their own)
+    function level(acts) {
+        const a = (Array.isArray(acts) ? acts : [acts]).map(x => String(x || '').trim().toLowerCase()).filter(x => x && x !== 'none' && x !== 'no activity');
+        return a.some(x => x === 'caught' || x === 'high') ? 'red' : a.length ? 'amber' : 'green';
+    }
+    const LEVEL_FILL = { red: [254, 202, 202], amber: [253, 230, 138], green: [187, 247, 208] };
+    const LEVEL_TEXT = { red: 'Red: pest caught or high activity', amber: 'Amber: low or medium activity', green: 'Green: no activity' };
+    const STATION_COLS = [['Station', 50], ['Barcode', 30], ['Type', 60]];
     const REC_COLS = [['No.', 16], ['Status', 18], ['Raised', 20], ['Station', 30], ['Barcode', 18], ['Recommendation', 70], ['Closed', 20], ['Latest note', 50]];
 
     // the Pesties logo, made small enough for a PDF (loaded once)
@@ -3465,7 +3506,8 @@ const PVR = (() => {
             y += 19;
         };
         // links: for each row, { column number: web address } - those cells are blue and open the address when clicked
-        const table = (cols, rows, links) => {
+        // fills: a colour for each row's background ([r, g, b], or none for the usual stripes)
+        const table = (cols, rows, links, fills) => {
             const total = cols.reduce((a, c) => a + c[1], 0), scale = (W - 2 * M) / total, widths = cols.map(c => c[1] * scale);
             const head = () => {
                 doc.setFillColor(226, 232, 240); doc.rect(M, y, W - 2 * M, 7, 'F');
@@ -3480,7 +3522,9 @@ const PVR = (() => {
                 const cells = r.map((val, i) => doc.splitTextToSize(String(val == null ? '' : val), widths[i] - 3));
                 const h = Math.max(...cells.map(c => c.length)) * 3.4 + 2.6;
                 if (y + h > H - 12) { newPage(); head(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
-                if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
+                const fill = fills && fills[ri];
+                if (fill) { doc.setFillColor(...fill); doc.rect(M, y, W - 2 * M, h, 'F'); doc.setDrawColor(255, 255, 255); doc.setLineWidth(.4); doc.line(M, y + h, W - M, y + h); }
+                else if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
                 let x0 = M; cells.forEach((c, i) => {
                     const url = links && links[ri] && links[ri][i];
                     if (url) doc.setTextColor(37, 99, 235); else doc.setTextColor(15, 23, 42);
@@ -3511,8 +3555,16 @@ const PVR = (() => {
         heading("Technician's notes"); para(v.notes || 'No notes provided');
         heading('Station records');
         const stLink = b => portalLink(v.siteId, 'station', b);
+        // the colours used (a key above the table)
+        if ((v.entries || []).length) {
+            room(8); let kx = M; doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+            ['green', 'amber', 'red'].forEach(k => { doc.setFillColor(...LEVEL_FILL[k]); doc.rect(kx, y - 3, 4, 4, 'F'); doc.setTextColor(51, 65, 85); doc.text(LEVEL_TEXT[k], kx + 5.5, y); kx += doc.getTextWidth(LEVEL_TEXT[k]) + 12; });
+            y += 4;
+        }
         table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']),
-            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })));
+            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })), (v.entries || []).map(e => LEVEL_FILL[level(e.acts || [e.activity])]));
+        if ((v.added || []).length) { heading(`Stations installed on this visit (${v.added.length})`); table(STATION_COLS, v.added.map(s => [s.name || s.barcode, s.barcode, s.type || '']), v.added.map(s => ({ 0: stLink(s.barcode), 1: stLink(s.barcode) }))); }
+        if ((v.removed || []).length) { heading(`Stations removed on this visit (${v.removed.length})`); table(STATION_COLS, v.removed.map(s => [s.name || s.barcode, s.barcode, s.type || ''])); }
         if ((v.recs || []).length) {
             heading('Recommendations raised');
             table(REC_COLS, v.recs.map(r => [r.no || '', r.status || '', day(r.raised), r.station || '', r.barcode || '', r.text || '', r.closed ? day(r.closed) : '', r.note || '']),
@@ -3790,7 +3842,7 @@ body.pz-lock{overflow:hidden}`;
         return view._pz;
     }
 
-    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
+    return { build, level, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------
@@ -3973,6 +4025,17 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r112', date: '2026-10-31', v: { svc: '2026.10.31-r112', adm: '2026.10.31-a49', cli: '2026.10.31-p64' },
+            svc: ['Documents: the expiry date is picked from a calendar (you can still type it in), with "No expiry" to clear it',
+                  'Visit report: each station row is coloured - green no activity, amber low or medium activity, red a pest caught or high activity - with a key above the table',
+                  'Visit report: the stations installed and the stations removed on the visit are listed, so the customer can see them',
+                  'Recommendations: days open are counted in calendar days, so the same recommendation shows the same number everywhere'],
+            adm: ['Documents: the expiry date is picked from a calendar (you can still type it in), with "No expiry" to clear it',
+                  'Recommendations: days open are counted in calendar days, the same as the other apps'],
+            cli: ['Notifications: ones you have seen stay in the list (new ones are at the top, marked New) - they just no longer count on the bell',
+                  'Visit report: each station row is coloured - green no activity, amber low or medium activity, red a pest caught or high activity',
+                  'Visit report: the stations installed and the stations removed on the visit are listed',
+                  'Recommendations: the days open now match everywhere (the card and "Oldest still open" could differ by a day)'] },
         { rev: 'r111', date: '2026-10-31', v: { svc: '2026.10.31-r111', adm: '2026.10.31-a48', cli: '2026.10.31-p63' },
             svc: ['Notifications: floor plans due for their yearly check come up a month before, and again once the check is overdue (instead of under Needs action)',
                   'Notifications: a site document gives another notification when it expires within a month, and again once it has expired',
@@ -4402,6 +4465,8 @@ const PR = (() => {
     const e = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const parse = p => { if (typeof p === 'string') { try { return JSON.parse(p); } catch (x) { return {}; } } return p || {}; };
     const DAY = 86400000;
+    // whole calendar days from one moment to another, the same count as the rest of the apps
+    const calDays = (a, b) => { const d = t => { const x = new Date(t); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); }; return Math.max(0, Math.round((d(b) - d(a)) / DAY)); };
     const LOC = 'en-NZ';
     const fmtD = t => t ? new Date(t).toLocaleDateString(LOC, { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
     const fmtDT = t => t ? new Date(t).toLocaleString(LOC, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '-';
@@ -4949,7 +5014,7 @@ const PR = (() => {
             const ks = months(a || (list.length ? Math.min(...list.map(r => r.raisedAt)) : Date.now()), b);
             const head = [{ t: 'Number' }, { t: 'Raised' }, { t: 'Station' }, { t: 'Type' }, { t: 'Recommendation' }, { t: 'Status' }, { t: 'Days open', num: true }];
             const no = r => r.no != null ? 'R-' + String(r.no).padStart(4, '0') : '';
-            const days = r => Math.max(0, Math.round(((r.completedAt || Date.now()) - r.raisedAt) / DAY));
+            const days = r => calDays(r.raisedAt, r.completedAt || Date.now());
             return {
                 html: kpis([{ v: list.length, l: 'raised' }, { v: list.filter(r => r.status !== 'complete').length, l: 'still open or pending', c: '#ea580c' }, { v: done.length, l: 'completed', c: '#16a34a' }, { v: avg == null ? '-' : avg + ' days', l: 'average time to complete' }])
                     + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Raised and completed each month</div>${lineChart([{ name: 'Raised', color: '#ea580c', vals: ks.map(k => list.filter(r => monthKey(r.raisedAt) === k).length) }, { name: 'Completed', color: '#16a34a', vals: ks.map(k => done.filter(r => monthKey(r.completedAt) === k).length) }], ks, { lbl: monthLbl, label: 'Recommendations raised and completed per month' })}</div><div class="pr-chart"><div class="pr-cap">By type</div>${barChart(Array.from(byCat.entries()).sort((p, q) => q[1] - p[1]).map(([c, n], i) => ({ l: c, v: n, c: PALETTE[i % 8] })))}</div></div>`
@@ -5189,7 +5254,7 @@ const LOGS = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a48-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a49-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');
@@ -5857,10 +5922,8 @@ const LOGS = (() => {
         async function adminDocExpiry(id) {
             const d = adminData.docs.find(x => x.id === id);
             if (!d) return;
-            const v = prompt(`Expiry date for "${d.title}" (YYYY-MM-DD). Leave empty if it doesn't expire.`, d.expires_on || '');
-            if (v === null) return;
-            const val = v.trim();
-            if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val)) { alert('Enter the date as YYYY-MM-DD, e.g. 2027-03-31.'); return; }
+            const val = await pickDate(`Expiry date for "${d.title}"`, d.expires_on, { clear: 'No expiry', note: 'Pick the date from the calendar, or type it in.' });
+            if (val === null) return;
             await adminDocUpdate(d, { expires_on: val || null }, `Document "${d.title}" expiry ${val ? 'set to ' + fmtDay(val) : 'removed'}`);
         }
         async function adminDocMove(id) {
@@ -6829,7 +6892,7 @@ const LOGS = (() => {
             recs: ['Outstanding recommendations', 'Every open or pending recommendation across all sites.', () => {
                 xlsxDownload('Pestis outstanding recommendations', ['Number', 'Site', 'Station', 'Barcode', 'Recommendation', 'Status', 'Raised', 'Raised by', 'Days open'],
                     adminData.recs.slice().sort((a, b) => (a.raised_at > b.raised_at ? 1 : -1)).map(r => [fmtRecNo(r.rec_no), siteById(r.client_id) ? siteById(r.client_id).Name : r.client_id, r.station_name, r.station_barcode, r.text, r.status,
-                        fmtDay(String(r.raised_at || '').slice(0, 10)), r.raised_by, Math.floor((Date.now() - Date.parse(r.raised_at)) / 86400000)]));
+                        fmtDay(String(r.raised_at || '').slice(0, 10)), r.raised_by, daysBetween(Date.parse(r.raised_at), Date.now())]));
             }],
             services: ['Service schedule', 'Every contracted service with when it was last done and next due.', () => {
                 const rows = [];

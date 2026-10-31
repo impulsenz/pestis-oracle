@@ -5,7 +5,7 @@ import { start, idToken, playwright, STUBS_DIR, tmpDir } from './harness.mjs';
 const { chromium } = playwright();
 const PORT = 8097, BASE = `http://127.0.0.1:${PORT}`, KEY = 'sb-127-auth-token';
 const srv = await start({ port: PORT, dataDir: tmpDir('pages') });
-const STUBS = { 'cdn.tailwindcss.com': 'tailwind-real.js', 'html5-qrcode': 'qr-stub.js', 'jspdf': 'jspdf-stub.js', 'jszip': 'jszip.min.js' };
+const STUBS = { 'cdn.tailwindcss.com': 'tailwind-real.js', 'html5-qrcode': 'qr-stub.js', 'jspdf': process.env.REAL_JSPDF || 'jspdf-stub.js', 'jszip': 'jszip.min.js' };
 const session = async (email, extra) => (await (await fetch(BASE + '/api/auth/google', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ credential: idToken(email, extra) }) })).json()).session;
 const api = s => async (table, body) => (await fetch(BASE + '/api/db', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.access_token }, body: JSON.stringify(Object.assign({ table }, body)) })).json();
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -21,7 +21,7 @@ async function page(sess, w = 1280) {
   p.on('pageerror', e => all.push(`[${p.app} ${p.where}] PAGEERROR ${e.message}`));
   p.on('console', m => { if (m.type() === 'error' && !/Failed to load resource|favicon|net::ERR/.test(m.text())) all.push(`[${p.app} ${p.where}] CONSOLE ${m.text().slice(0, 300)}`); });
   p.on('dialog', d => d.dismiss());
-  await p.route('**/*', r => { const u = r.request().url(); for (const [k, f] of Object.entries(STUBS)) if (u.includes(k)) return r.fulfill({ path: path.join(STUBS_DIR, f), contentType: 'application/javascript' }); return u.startsWith(BASE) ? r.continue() : r.fulfill({ status: 404, body: '' }); });
+  await p.route('**/*', r => { const u = r.request().url(); for (const [k, f] of Object.entries(STUBS)) if (u.includes(k)) return r.fulfill({ path: path.resolve(STUBS_DIR, f), contentType: 'application/javascript' }); return u.startsWith(BASE) ? r.continue() : r.fulfill({ status: 404, body: '' }); });
   return p;
 }
 let steps = 0; const step = async (p, where, fn) => { steps++; p.where = where; try { await fn(); } catch (e) { all.push(`[${p.app} ${where}] THROW ${e.message.split('\n')[0]}`); } await sleep(350); };
@@ -41,7 +41,8 @@ try {
     logs.push({ client_id: 1, barcode_id: 'B' + i, created_at: at, payload: { locationName: 'Station ' + i, deviceType: t, technician: 'Tina Tech', servicedAt: at, activityLevel: pest === 'None' ? 'None' : t.includes('Toxic') ? 'Low' : 'Caught', speciesCaught: pest, pestCount: pest === 'None' ? undefined : (i + m) % 9 + 1, prepUsed: t.includes('Toxic') ? 'Bait block' : 'None', quantity: t.includes('Toxic') ? 2 : undefined, quantityUnit: 'each', batchNumber: 'X1', clientRef: `r${m}-${i}` } });
   }
   await api(tech)('service_logs', { op: 'insert', values: logs });
-  const visits = []; for (let m = 0; m < 14; m++) { const at = new Date(Date.now() - m * 30 * 86400000 - 86400000 + 3600000).toISOString(); visits.push({ id: 'v' + m, client_id: '1', visit_type: 'Routine Service', technician: 'Tina Tech', started_at: at, completed_at: at, created_at: at }); }
+  const visits = []; for (let m = 0; m < 14; m++) { const at = new Date(Date.now() - m * 30 * 86400000 - 86400000 + 3600000).toISOString(); visits.push(Object.assign({ id: 'v' + m, client_id: '1', visit_type: 'Routine Service', technician: 'Tina Tech', started_at: at, completed_at: at, created_at: at },
+    m ? {} : { stations_added: [{ barcode: 'B11', name: 'Station 11', type: types[3] }], stations_removed: [{ barcode: 'OLD1', name: 'Old bait box', type: types[1] }] })); }
   await api(tech)('visits', { op: 'insert', values: visits });
   await api(tech)('recommendations', { op: 'insert', values: [{ id: 'rec-1', client_id: '1', station_barcode: 'B1', station_name: 'Station 1', text: 'Seal the gap', raised_by: 'Tina Tech' }] });
   await api(tech)('pest_sightings', { op: 'insert', values: [{ id: 'ps1', client_id: '1', pest: 'Rat', location: 'Dock', urgency: 'Routine', reported_by: 'Jane', seen_at: new Date().toISOString() }] });
@@ -66,9 +67,32 @@ try {
     await cp.evaluate(() => setTab('reports'));
     for (const r of reps) await step(cp, 'report ' + r, () => cp.evaluate(r => PR.show(state.prBox, r), r));
     await step(cp, 'bell', () => cp.evaluate(() => { document.getElementById('bellBtn').click(); }));
+    await step(cp, 'bell seen stays listed', async () => {
+      const before = await cp.evaluate(() => document.querySelectorAll('#bellPanel [data-key]').length);
+      await cp.evaluate(() => markAllBellSeen());
+      const after = await cp.evaluate(() => ({ n: document.querySelectorAll('#bellPanel [data-key]').length, count: document.getElementById('bellCount').classList.contains('hidden'), isNew: document.querySelectorAll('#bellPanel .chip-blue').length }));
+      if (!before || after.n !== before || !after.count || after.isNew) all.push(`[${cp.app}] seen notifications should stay in the bell list without a count: ${before} -> ${JSON.stringify(after)}`);
+      await cp.evaluate(() => { $('bellPanel').classList.add('hidden'); });
+    });
     await step(cp, 'settings', () => cp.evaluate(() => openSettings()));
     await step(cp, 'whats new', () => cp.evaluate(() => openWhatsNew()));
     await step(cp, 'visit report', () => cp.evaluate(() => openVisit(state.model.visits[state.model.visits.length - 1].id)));
+    await step(cp, 'visit report colours', async () => {
+      const got = await cp.evaluate(() => ({ cls: Array.from(document.querySelectorAll('#modalBody tr[class*="lvl-"]')).map(r => r.className.match(/lvl-\w+/)[0]), t: document.getElementById('modalBody').textContent }));
+      const lv = await cp.evaluate(() => [['None'], ['Low'], ['Medium'], ['High'], ['Caught'], ['None', 'Caught'], ['Low', 'High'], [], ['Taken']].map(a => PVR.level(a)).join());
+      if (lv !== 'green,amber,amber,red,red,red,red,green,amber') all.push(`[${cp.app}] the activity colours are wrong: ${lv}`);
+      ['lvl-green', 'lvl-red'].forEach(c => { if (!got.cls.includes(c)) all.push(`[${cp.app}] the visit report has no ${c} rows: ${got.cls.join(' ')}`); });
+      if (!/Stations installed on this visit \(1\)[\s\S]*Station 11[\s\S]*Stations removed on this visit \(1\)[\s\S]*Old bait box/.test(got.t)) all.push(`[${cp.app}] the visit report doesn't list the stations installed and removed`);
+      await cp.screenshot({ path: path.join(SHOTS, `portal-visit-${w}.png`) });
+      if (w === 1280 && process.env.REAL_JSPDF) {
+        const [dl] = await Promise.all([cp.waitForEvent('download'), cp.evaluate(() => downloadVisitPdf(state.model.visits[state.model.visits.length - 1].id))]);
+        await dl.saveAs(path.join(SHOTS, 'visit-report.pdf'));
+      }
+    });
+    await step(cp, 'days open', async () => {
+      const d = await cp.evaluate(() => [calDays(new Date(2026, 0, 1, 23).getTime(), new Date(2026, 0, 2, 1).getTime()), calDays(new Date(2026, 0, 1, 1).getTime(), new Date(2026, 0, 1, 23).getTime())]);
+      if (d.join() !== '1,0') all.push(`[${cp.app}] days open aren't calendar days: ${d}`);
+    });
     await step(cp, 'station', () => cp.evaluate(() => showStation('B2')));
     await cp.context().close();
   }
@@ -79,6 +103,18 @@ try {
   await step(ad, 'site page', async () => { await ad.evaluate(() => { openAdmin('sites'); openAdminSite('1'); }); await sleep(2500); });
   await step(ad, 'reports for site', async () => { await ad.evaluate(() => { openAdmin('reports'); const s = document.getElementById('repSite'); s.value = '1'; loadAdminReports(); }); await sleep(2000); });
   await step(ad, 'whats new', () => ad.evaluate(() => openWhatsNew()));
+  await step(ad, 'expiry calendar', async () => {
+    for (const day of [dayIn(200), dayIn(15)]) {
+      await ad.evaluate(() => { openAdmin('documents'); adminDocExpiry('d1'); });
+      await ad.waitForSelector('#pickDateInput', { timeout: 5000 });
+      if (await ad.getAttribute('#pickDateInput', 'type') !== 'date') all.push('[admin] the expiry date is not a calendar');
+      await ad.fill('#pickDateInput', day);
+      if (day === dayIn(200)) await ad.screenshot({ path: path.join(SHOTS, 'admin-expiry-calendar.png') });
+      await ad.evaluate(() => document.getElementById('pickDateInput').form.requestSubmit()); await sleep(1200);
+      const v = await ad.evaluate(() => adminData.docs.find(d => d.id === 'd1').expires_on);
+      if (String(v).slice(0, 10) !== day) all.push(`[admin] the expiry date picked wasn't saved: ${v} (wanted ${day})`);
+    }
+  });
   await step(ad, 'needs attention', async () => {
     await ad.evaluate(() => { try { closeInfoModal(); } catch (e) {} openAdmin("overview"); });
     const t = await ad.evaluate(() => document.getElementById('adminAttention').textContent);
@@ -117,12 +153,17 @@ try {
     await step(sp, 'profile', () => sp.evaluate(() => openProfileModal()));
     await step(sp, 'whats new', () => sp.evaluate(() => openWhatsNew()));
     await step(sp, 'start visit', async () => { await sp.evaluate(() => { chooseVisitType = async () => 'Routine Service'; document.getElementById('startServiceLabel').click(); }); await sleep(1500); });
+    if (w === 1280) await step(sp, 'remove a station on the visit', async () => {
+      await sp.evaluate(() => performDeleteStation('B10')); await sleep(800);
+      const ch = await sp.evaluate(() => visitStationChanges('1'));
+      if (!ch.removed.some(s => s.barcode === 'B10' && s.name === 'Station 10')) all.push(`[${sp.app}] a station removed on the visit isn't noted: ${JSON.stringify(ch)}`);
+    });
     await step(sp, 'scan', () => sp.evaluate(() => handleScannedBarcode('B3')));
     await step(sp, 'save', () => sp.evaluate(() => { return saveStationServiceRecord(); }));
     await step(sp, 'complete', async () => { await sp.evaluate(() => { askChoice = async () => 'b'; return openCompleteVisitModal(); }); });
     await step(sp, 'sign tab', () => sp.evaluate(() => { document.getElementById('closingSiteNotes').value = 'ok'; setCloseTab('sign'); }));
     const review = await sp.evaluate(() => (document.getElementById('signOffReview').textContent || ''));
-    if (!/Stations scanned \(1 of 12\)/.test(review)) all.push(`[${sp.app}] the sign step doesn't count the saved station: ${review.slice(0, 200)}`);
+    if (!/Stations scanned \(1 of 1[12]\)/.test(review)) all.push(`[${sp.app}] the sign step doesn't count the saved station: ${review.slice(0, 200)}`);
     await step(sp, 'close modal', () => sp.evaluate(() => closeCompleteVisitModal()));
     await step(sp, 'expiry notifications', async () => {
       await sp.evaluate(async () => { document.querySelectorAll(".overlay:not(#notifModal)").forEach(o => o.classList.add("hidden")); await loadBellExtras(); await openNotifModal(); });

@@ -2280,7 +2280,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.31-r111-oci';
+        const APP_VERSION = '2026.10.31-r112-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -2424,7 +2424,8 @@
         function fmtRecNo(n) { return n == null || n === '' || isNaN(Number(n)) ? '' : 'R-' + String(Number(n)).padStart(4, '0'); }
         // CSS.escape isn't in every browser
         function cssEsc(v) { return (window.CSS && CSS.escape) ? CSS.escape(String(v)) : String(v).replace(/["\\\]\[]/g, '\\$&'); }
-        function daysBetween(fromMs, toMs) { return Math.max(0, Math.floor((toMs - fromMs) / 86400000)); }
+        // whole calendar days from one moment to another (raised yesterday = 1 day), the same count in every app
+        function daysBetween(fromMs, toMs) { const d = t => { const x = new Date(t); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); }; return Math.max(0, Math.round((d(toMs) - d(fromMs)) / 86400000)); }
 
         // ---------- Station type colours ----------
         const STATION_COLORS = [
@@ -3211,15 +3212,40 @@
             } catch (e) { siteDocsError = portalMissing(e) ? 'missing' : (e.message || String(e)); }
             if (siteDocsFor === id) renderSiteDocs();
         }
+        // a date from a calendar: the browser's date box (tap it for the calendar, or type the date in it).
+        // Gives 'YYYY-MM-DD', '' when cleared (opts.clear names that button) or null when cancelled
+        function pickDate(title, current, opts) {
+            opts = opts || {};
+            return new Promise(resolve => {
+                const box = document.createElement('div');
+                box.className = 'overlay fixed inset-0 flex items-center justify-center p-4';
+                box.style.zIndex = '90';
+                box.innerHTML = `<form class="card p-5 w-full max-w-sm space-y-3" role="dialog" aria-modal="true" aria-label="${esc(title)}">
+                    <h3 class="font-black t-strong">${esc(title)}</h3>${opts.note ? `<p class="text-xs t-muted">${esc(opts.note)}</p>` : ''}
+                    <input type="date" class="field" id="pickDateInput" value="${esc(current || '')}" aria-label="${esc(title)}">
+                    <div class="flex flex-wrap justify-between gap-2">${opts.clear ? `<button type="button" data-a="clear" class="btn btn-secondary">${esc(opts.clear)}</button>` : '<span></span>'}
+                        <span class="flex gap-2"><button type="button" data-a="cancel" class="btn btn-secondary">Cancel</button><button type="submit" class="btn btn-primary">Save</button></span></div></form>`;
+                const input = box.querySelector('input');
+                const done = v => { box.remove(); document.removeEventListener('keydown', esc_); resolve(v); };
+                const esc_ = e => { if (e.key === 'Escape') done(null); };
+                box.addEventListener('click', e => { if (e.target === box) return done(null); const a = e.target.closest('[data-a]'); if (a) done(a.dataset.a === 'clear' ? '' : null); });
+                box.querySelector('form').addEventListener('submit', e => {
+                    e.preventDefault();
+                    if (!input.value) { if (opts.clear) done(''); else input.focus(); return; }
+                    done(input.value);
+                });
+                document.addEventListener('keydown', esc_);
+                document.body.appendChild(box);
+                setTimeout(() => input.focus(), 50);
+            });
+        }
         // set, change or clear a document's expiry date (the client and the team are reminded before it runs out)
         async function setDocExpiry(id) {
             const d = siteDocs.find(x => x.id === id);
             if (!d || !isAdminUser()) return;
             if (!isOnline) { alert('Expiry dates can be changed when you\'re online.'); return; }
-            const v = prompt(`Expiry date for "${d.title}" (YYYY-MM-DD).\nLeave empty for no expiry.`, d.expires_on || '');
-            if (v === null) return;
-            const val = v.trim();
-            if (val && !/^\d{4}-\d{2}-\d{2}$/.test(val) || (val && isNaN(Date.parse(val + 'T00:00:00')))) { alert('Enter the date as YYYY-MM-DD, for example 2027-06-30.'); return; }
+            const val = await pickDate(`Expiry date for "${d.title}"`, d.expires_on, { clear: 'No expiry', note: 'Pick the date from the calendar, or type it in.' });
+            if (val === null) return;
             const { error } = await _supabase.from('site_documents').update({ expires_on: val || null }).eq('id', id);
             if (error) { alert('Could not change the expiry date: ' + error.message); return; }
             d.expires_on = val || null;
@@ -7123,7 +7149,8 @@
                 clientRef: r.id, siteNotes: r.notes, technician: r.technician, visitType: r.visit_type,
                 startedAt: r.started_at, completedAt: r.completed_at, signedInAt: r.signed_in_at, signedOutAt: r.signed_out_at,
                 servicesCompleted: r.services_completed || [], unscannedCount: r.unscanned_count, editedAt: r.edited_at, editedBy: r.edited_by,
-                signedBy: r.signed_by || '', signedAt: r.signed_at || null, noSignatureReason: r.no_signature_reason || '', signaturePath: r.signature_path || null
+                signedBy: r.signed_by || '', signedAt: r.signed_at || null, noSignatureReason: r.no_signature_reason || '', signaturePath: r.signature_path || null,
+                stationsAdded: r.stations_added || [], stationsRemoved: r.stations_removed || []
             }, r)));
             t('recommendation_updates').forEach(r => out.push(base(REC_UPDATE_ID, r.created_at || r.at, {
                 clientRef: r.id, recRef: r.rec_id, status: r.status, note: r.note || '', photos: r.photos || [], technician: r.technician, servicedAt: r.at
@@ -7260,6 +7287,7 @@
                     edited: !!p.editedAt, editedBy: p.editedBy || '',
                     signedBy: p.signedBy || '', signedAt: p.signedAt || null, noSignatureReason: p.noSignatureReason || '',
                     signaturePath: p.signaturePath || null, signatureBlobKey: (r._blobKeys && r._blobKeys[0]) || null,
+                    stationsAdded: p.stationsAdded || [], stationsRemoved: p.stationsRemoved || [],
                     entries: [], recUpdates: [], other: [], firstAt: null
                 };
             });
@@ -8990,7 +9018,9 @@
                 start: v.startedAt || (entries[0] && entries[0].at) || null, end: v.inProgress ? null : (v.endedAt || v.date), inProgress: !!v.inProgress,
                 stationsChecked: new Set(entries.map(e => e.barcode)).size, services: v.servicesCompleted || [], notes: v.summaryNote || '',
                 breaches: visitLimitBreaches(v).map(x => `${x.name} · ${x.rule.species}: ${x.total} caught in ${monthName(x.month)}, this station's limit ${x.rule.max} a month (${x.total - x.rule.max} over) - critical limit ${x.limit.name}`),
-                entries: entries.map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity,
+                added: v.inProgress ? visitStationChanges(selectedClient.id).added : (v.stationsAdded || []),
+                removed: v.inProgress ? visitStationChanges(selectedClient.id).removed : (v.stationsRemoved || []),
+                entries: entries.map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, acts: [e.activity].concat((e.pests || []).map(x => x.activity)),
                     pests: (e.pests && e.pests.length ? e.pests : e.species && e.species !== NONE_SPECIES ? [{ species: e.species, count: e.count }] : []).map(x => `${x.species}${x.count ? ' x' + x.count : ''}`).join(', '),
                     prep: e.prep && e.prep !== NONE_PREP ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '', notes: e.notes || '' })),
                 recs: recs.map(r => ({ id: r.pending ? null : r.id, no: fmtRecNo(r.recNo), status: (REC_STATUS[r.status] || REC_STATUS.open).label, raised: r.date, station: r.station, barcode: r.general ? '' : r.barcode,
@@ -13389,6 +13419,7 @@
                         sp ? { blobs: [sp.blob], photoField: 'photo_path', prefix: 'STATION_' + safeName(currentBarcode) } : undefined);
                     clearStationPhoto();
                     siteStations.set(currentBarcode, Object.assign({}, st || {}, row));
+                    if (!st) noteVisitStation(selectedClient, 'added', row);
                 }
                 // A new recommendation is its own record (the database gives it the next number)
                 if (newRec) {
@@ -13448,10 +13479,25 @@
             });
         }
 
+        // the stations installed and removed while a visit is open (kept on this device, saved with the visit when it's completed)
+        const VISIT_ST_KEY = cid => 'pestis-visit-stations:' + cid;
+        function visitStationChanges(cid) { const o = loadJSON(VISIT_ST_KEY(cid), null) || {}; return { added: o.added || [], removed: o.removed || [] }; }
+        function noteVisitStation(client, kind, st) {
+            // (a visit is open once it's started, or once a station has been saved since the last visit was completed)
+            if (!client || !(client.visit_started_at || (client === selectedClient && scannedBarcodesThisVisit.size)) || !st || !st.barcode) return;
+            const o = visitStationChanges(client.id), other = kind === 'added' ? 'removed' : 'added';
+            // installed and taken out again on the same visit: neither
+            if (kind === 'removed' && o.added.some(x => x.barcode === st.barcode)) o.added = o.added.filter(x => x.barcode !== st.barcode);
+            else if (!o[kind].some(x => x.barcode === st.barcode)) o[kind].push({ barcode: st.barcode, name: st.name || st.barcode, type: st.type || '' });
+            if (kind === 'added') o[other] = o[other].filter(x => x.barcode !== st.barcode);
+            saveJSON(VISIT_ST_KEY(client.id), o);
+        }
+        function clearVisitStationChanges(cid) { try { localStorage.removeItem(VISIT_ST_KEY(cid)); } catch (e) {} }
         async function performDeleteStation(barcode) {
             const client = selectedClient;
             if (!client) return;
             const cid = client.id;
+            { const dv = siteDevices.find(d => d.barcode_id === barcode) || {}, st = siteStations.get(barcode) || {}; noteVisitStation(client, 'removed', { barcode, name: st.name || dv.locationName, type: st.type || dv.deviceType }); }
             const isThisStation = i => i.kind === 'insert_log' && String(i.clientId) === String(cid) && i.data.barcode_id === barcode;
             try {
                 // 1. Records for this station still waiting on this device: just remove them
@@ -13557,6 +13603,7 @@
 
                 await queueSiteChange({ action: 'visit_cancelled', title: 'Visit cancelled', note: `${refs.size} uploaded record${refs.size === 1 ? '' : 's'} removed` }, 'Visit cancelled · log');
                 await markVisitClosed(client, 'Visit cancelled - closed');
+                clearVisitStationChanges(cid);
 
                 // 3. Take this visit's records out of the saved copy so they disappear straight away
                 if (cache) {
@@ -13845,10 +13892,13 @@
                     signed_by: so.blob ? so.name : null,
                     signed_at: so.blob ? so.at : null,
                     no_signature_reason: so.blob ? null : so.reason,
+                    stations_added: visitStationChanges(selectedClient.id).added,
+                    stations_removed: visitStationChanges(selectedClient.id).removed,
                     completed_at: new Date().toISOString()
                 }, so.blob ? `Visit completed · signed by ${so.name}` : 'Visit completed · not signed', so.blob ? { blobs: [so.blob], photoField: 'signature_path', prefix: 'SIGNATURE' } : undefined);
 
                 await markVisitClosed(selectedClient, 'Visit completed - closed');
+                clearVisitStationChanges(selectedClient.id);
                 if (f.doneIds.size > 0) {
                     const today = todayStr();
                     const updated = f.services.map(s => f.doneIds.has(s.id)
@@ -14947,6 +14997,17 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r112', date: '2026-10-31', v: { svc: '2026.10.31-r112', adm: '2026.10.31-a49', cli: '2026.10.31-p64' },
+            svc: ['Documents: the expiry date is picked from a calendar (you can still type it in), with "No expiry" to clear it',
+                  'Visit report: each station row is coloured - green no activity, amber low or medium activity, red a pest caught or high activity - with a key above the table',
+                  'Visit report: the stations installed and the stations removed on the visit are listed, so the customer can see them',
+                  'Recommendations: days open are counted in calendar days, so the same recommendation shows the same number everywhere'],
+            adm: ['Documents: the expiry date is picked from a calendar (you can still type it in), with "No expiry" to clear it',
+                  'Recommendations: days open are counted in calendar days, the same as the other apps'],
+            cli: ['Notifications: ones you have seen stay in the list (new ones are at the top, marked New) - they just no longer count on the bell',
+                  'Visit report: each station row is coloured - green no activity, amber low or medium activity, red a pest caught or high activity',
+                  'Visit report: the stations installed and the stations removed on the visit are listed',
+                  'Recommendations: the days open now match everywhere (the card and "Oldest still open" could differ by a day)'] },
         { rev: 'r111', date: '2026-10-31', v: { svc: '2026.10.31-r111', adm: '2026.10.31-a48', cli: '2026.10.31-p63' },
             svc: ['Notifications: floor plans due for their yearly check come up a month before, and again once the check is overdue (instead of under Needs action)',
                   'Notifications: a site document gives another notification when it expires within a month, and again once it has expired',
@@ -15368,7 +15429,8 @@ const SEEN = (() => {
 /* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
 // Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
 //   { siteId, id (the visit's, if it has reached the server), siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
-//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, pests, prep, notes }],
+//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, acts (every activity on the check), pests, prep, notes }],
+//     added / removed: [{ name, barcode, type }] (stations installed or taken out on the visit),
 //     recs: [{ id, no, status, raised, station, barcode, text, closed, note }],
 //   Stations, recommendations and the visit link to the Client Portal.
 //     signedBy, signedAt, noSignatureReason, signature (picture data URL or null), by (who downloaded it), app ('Service App' | 'Client Portal') }
@@ -15383,6 +15445,15 @@ const PVR = (() => {
     const ENTRY_COLS = [['Station', 34], ['Barcode', 18], ['Type', 30], ['Activity', 16], ['Pests', 24], ['Preparation', 50], ['Notes', 50]];
     // where a station, recommendation or visit opens in the Client Portal (reports link back to it)
     const portalLink = (cid, kind, id) => cid == null || id == null ? null : `${location.origin}/client.html#/site/${encodeURIComponent(cid)}/${{ station: 'overview', rec: 'recs', visit: 'visits' }[kind]}/${kind}/${encodeURIComponent(id)}`;
+    // a station check's colour: red if a pest was caught or the activity was high, amber for low or medium (or any other
+    // sign of activity), green for no activity. acts = every activity recorded on the check (more pests have their own)
+    function level(acts) {
+        const a = (Array.isArray(acts) ? acts : [acts]).map(x => String(x || '').trim().toLowerCase()).filter(x => x && x !== 'none' && x !== 'no activity');
+        return a.some(x => x === 'caught' || x === 'high') ? 'red' : a.length ? 'amber' : 'green';
+    }
+    const LEVEL_FILL = { red: [254, 202, 202], amber: [253, 230, 138], green: [187, 247, 208] };
+    const LEVEL_TEXT = { red: 'Red: pest caught or high activity', amber: 'Amber: low or medium activity', green: 'Green: no activity' };
+    const STATION_COLS = [['Station', 50], ['Barcode', 30], ['Type', 60]];
     const REC_COLS = [['No.', 16], ['Status', 18], ['Raised', 20], ['Station', 30], ['Barcode', 18], ['Recommendation', 70], ['Closed', 20], ['Latest note', 50]];
 
     // the Pesties logo, made small enough for a PDF (loaded once)
@@ -15567,7 +15638,8 @@ const PVR = (() => {
             y += 19;
         };
         // links: for each row, { column number: web address } - those cells are blue and open the address when clicked
-        const table = (cols, rows, links) => {
+        // fills: a colour for each row's background ([r, g, b], or none for the usual stripes)
+        const table = (cols, rows, links, fills) => {
             const total = cols.reduce((a, c) => a + c[1], 0), scale = (W - 2 * M) / total, widths = cols.map(c => c[1] * scale);
             const head = () => {
                 doc.setFillColor(226, 232, 240); doc.rect(M, y, W - 2 * M, 7, 'F');
@@ -15582,7 +15654,9 @@ const PVR = (() => {
                 const cells = r.map((val, i) => doc.splitTextToSize(String(val == null ? '' : val), widths[i] - 3));
                 const h = Math.max(...cells.map(c => c.length)) * 3.4 + 2.6;
                 if (y + h > H - 12) { newPage(); head(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
-                if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
+                const fill = fills && fills[ri];
+                if (fill) { doc.setFillColor(...fill); doc.rect(M, y, W - 2 * M, h, 'F'); doc.setDrawColor(255, 255, 255); doc.setLineWidth(.4); doc.line(M, y + h, W - M, y + h); }
+                else if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
                 let x0 = M; cells.forEach((c, i) => {
                     const url = links && links[ri] && links[ri][i];
                     if (url) doc.setTextColor(37, 99, 235); else doc.setTextColor(15, 23, 42);
@@ -15613,8 +15687,16 @@ const PVR = (() => {
         heading("Technician's notes"); para(v.notes || 'No notes provided');
         heading('Station records');
         const stLink = b => portalLink(v.siteId, 'station', b);
+        // the colours used (a key above the table)
+        if ((v.entries || []).length) {
+            room(8); let kx = M; doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+            ['green', 'amber', 'red'].forEach(k => { doc.setFillColor(...LEVEL_FILL[k]); doc.rect(kx, y - 3, 4, 4, 'F'); doc.setTextColor(51, 65, 85); doc.text(LEVEL_TEXT[k], kx + 5.5, y); kx += doc.getTextWidth(LEVEL_TEXT[k]) + 12; });
+            y += 4;
+        }
         table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']),
-            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })));
+            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })), (v.entries || []).map(e => LEVEL_FILL[level(e.acts || [e.activity])]));
+        if ((v.added || []).length) { heading(`Stations installed on this visit (${v.added.length})`); table(STATION_COLS, v.added.map(s => [s.name || s.barcode, s.barcode, s.type || '']), v.added.map(s => ({ 0: stLink(s.barcode), 1: stLink(s.barcode) }))); }
+        if ((v.removed || []).length) { heading(`Stations removed on this visit (${v.removed.length})`); table(STATION_COLS, v.removed.map(s => [s.name || s.barcode, s.barcode, s.type || ''])); }
         if ((v.recs || []).length) {
             heading('Recommendations raised');
             table(REC_COLS, v.recs.map(r => [r.no || '', r.status || '', day(r.raised), r.station || '', r.barcode || '', r.text || '', r.closed ? day(r.closed) : '', r.note || '']),
@@ -15892,7 +15974,7 @@ body.pz-lock{overflow:hidden}`;
         return view._pz;
     }
 
-    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
+    return { build, level, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------

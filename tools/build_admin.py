@@ -3,7 +3,7 @@ import re, json, sys, tempfile
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
 SP = ROOT + 'src/'
-ADMIN_VERSION = '2026.10.31-a48-oci'   # bump the a-number when Admin changes
+ADMIN_VERSION = '2026.10.31-a49-oci'   # bump the a-number when Admin changes
 idx = open(ROOT + 'index.html').read()
 src = open(SP + 'admin_src.html').read()          # the add-on version of admin.html (template + addonScript)
 
@@ -38,7 +38,7 @@ unitText,userSettingFields,userSettingRead,userSettingWrite,visitAgeText,visitIn
 fillAdminDocFolders,sitePickUsers,contractInfo,openInfoModal,closeInfoModal,openPestGuide,renderPestGuideList,coverUrl,txt,hashString,CARD_GRADIENTS,adminData,clientUpdates,
 pestSubOf,pestSubs,PEST_SUB_ORDER,pestGallery,findPestGallery,commonsSearch,drawPestGallery,pgStep,pgOpenFull,pestGalleryHtml,pgState,LIST_TABLES,LIST_EXTRA_COLS,
 toDbClientFields,mergeClients,normalizeClientRow,learnClientColumns,saveSiteDocument,FREQUENCIES,FREQ_MAP,pestGuideOf,wikiPestInfo,PEST_LIBRARY,PEST_CATEGORY_TEXT,
-SCAN_SOUNDS,SCAN_VIBES,PHOTO_PRESETS,RENEWAL_WARN_DAYS,VISIT_STALE_HOURS,teamSettings,teamMembers,addFrequency,MONTH_SHORT,freqMonths,freqSelectValue,firstChosenDue,setServiceFrequency,toggleServiceMonth,monthPickerHtml,dueMonth,STANDARD_FOLDERS,copyPortalLink,newDocFolder,safely,adminProfiles,adminAllowed,notifKey,expiryStage,daysUntil,plansNeedingCheck,staffSeen,markNotifSeen,mergeStaffSeen'''.replace('\n', '').split(',')
+SCAN_SOUNDS,SCAN_VIBES,PHOTO_PRESETS,RENEWAL_WARN_DAYS,VISIT_STALE_HOURS,teamSettings,teamMembers,addFrequency,MONTH_SHORT,freqMonths,freqSelectValue,firstChosenDue,setServiceFrequency,toggleServiceMonth,monthPickerHtml,dueMonth,STANDARD_FOLDERS,copyPortalLink,newDocFolder,safely,adminProfiles,adminAllowed,notifKey,expiryStage,daysUntil,plansNeedingCheck,staffSeen,markNotifSeen,mergeStaffSeen,pickDate,daysBetween'''.replace('\n', '').split(',')
 SKIP = set('''_supabase,enqueue,queueItems,currentUser,currentProfile,isOnline,appOptions,clientsData,selectedClient,addon,isAdmin,isAdminUser,queueSiteChange,startSiteVisit,
 openRecModal,openServicesModal,loadOptions,populateOptionSelects,cacheSet,updateSyncBadge,removeQueueItem,applyTeamSettings,buildNotifications,logAppError,acctApply,
 acctCacheKey,renderSiteCards,renderNotifications,loadSiteDocs,closeAdmin,showSiteDashboard,mwOpenSite,sessionSet,sessionGet,flushQueue,siteDocs,siteDocFolders,

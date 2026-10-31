@@ -143,6 +143,13 @@
         .tbl td { padding: .55rem .7rem; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
         .tbl tr:last-child td { border-bottom: 0; }
         .tbl tr.clickable { cursor: pointer; } .tbl tr.clickable:hover td { background: var(--surface2); }
+        /* a visit's station checks coloured by activity: green none, amber low or medium, red caught or high */
+        .tbl tr.lvl-green td { background: #dcfce7; } .tbl tr.lvl-amber td { background: #fef3c7; } .tbl tr.lvl-red td { background: #fee2e2; }
+        html.dark .tbl tr.lvl-green td { background: rgba(34, 197, 94, .16); } html.dark .tbl tr.lvl-amber td { background: rgba(245, 158, 11, .18); } html.dark .tbl tr.lvl-red td { background: rgba(239, 68, 68, .2); }
+        .tbl tr.lvl-green.clickable:hover td, .tbl tr.lvl-amber.clickable:hover td, .tbl tr.lvl-red.clickable:hover td { filter: brightness(.96); }
+        .lvl-key { display: flex; flex-wrap: wrap; gap: .35rem 1rem; } .lvl-key span { display: inline-flex; align-items: center; gap: .35rem; }
+        .lvl-key i { width: .8rem; height: .8rem; border-radius: .2rem; display: inline-block; } .lvl-key .lvl-green { background: #86efac; } .lvl-key .lvl-amber { background: #fcd34d; } .lvl-key .lvl-red { background: #fca5a5; }
+        .bell-seen { opacity: .72; }
         .tbl td.num, .tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
         .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
         .type-dot { display: inline-block; width: .7rem; height: .7rem; border-radius: 999px; flex-shrink: 0; box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px rgba(148, 163, 184, .55); }
@@ -717,7 +724,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (on the server); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.31-p63-oci';
+const PORTAL_VERSION = '2026.10.31-p64-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -803,6 +810,8 @@ function fmtDateTime(t) { return isNaN(new Date(t)) ? '-' : `${fmtDate(t)} ${fmt
 function fmtDay(s) { if (!s) return '-'; const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : fmtDate(s); }
 function daysSince(t) { return t == null ? null : Math.floor((Date.now() - t) / 86400000); }
 function dayStart(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d).getTime(); }
+// whole calendar days from one moment to another (raised yesterday = 1 day), the same count everywhere
+function calDays(from, to) { return Math.max(0, Math.round((dayStart(toDayStr(to)) - dayStart(toDayStr(from))) / 86400000)); }
 function fmtRecNo(n) { return n == null || n === '' || isNaN(Number(n)) ? 'R-····' : 'R-' + String(Number(n)).padStart(4, '0'); }
 function fmtQty(q, u) { if (q == null || q === '' || isNaN(q)) return ''; return `${Math.round(Number(q) * 100) / 100} ${u === 'L' ? 'L' : (u || 'each')}`; }
 function initials(name) { return String(name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase(); }
@@ -1062,14 +1071,16 @@ function bellItems(includeSeen) {
     const seen = bellSeen();
     return wanted.filter(it => !seen.has(it.key));
 }
+// the bell counts what hasn't been seen; everything still shows in the list (new ones first, marked New)
 function renderBell() {
-    const items = bellItems();
+    const all = bellItems(true), seen = bellSeen(), fresh = all.filter(it => !seen.has(it.key));
+    const items = fresh.concat(all.filter(it => seen.has(it.key)));
     const c = $('bellCount');
-    c.textContent = items.length > 99 ? '99+' : items.length;
-    c.classList.toggle('hidden', !items.length);
-    $('bellPanel').innerHTML = `<div class="flex items-center justify-between gap-2 px-1"><span class="eyebrow t-accent">Notifications</span>${items.length ? '<button type="button" id="bellSeenBtn" class="link-btn !text-[11px]" onclick="markAllBellSeen()">Mark all as seen</button>' : ''}</div>` + (items.map(it => `
-        <button type="button" class="row-item clickable w-full text-left p-2.5 flex gap-2 items-start" data-key="${esc(it.key)}" onclick="$('bellPanel').classList.add('hidden'); markBellKeySeen(this.dataset.key); ${it.go}" ${it.red ? 'style="border-color:#ef4444;"' : ''}>
-            <span>${it.icon}</span><span class="min-w-0"><span class="block font-bold t-strong">${esc(it.title)}</span><span class="block t-muted break-words">${esc(it.sub)}</span></span></button>`).join('') || '<div class="row-item p-3 t-faint italic text-center">Nothing new.</div>');
+    c.textContent = fresh.length > 99 ? '99+' : fresh.length;
+    c.classList.toggle('hidden', !fresh.length);
+    $('bellPanel').innerHTML = `<div class="flex items-center justify-between gap-2 px-1"><span class="eyebrow t-accent">Notifications${fresh.length ? ` · ${fresh.length} new` : ''}</span>${fresh.length ? '<button type="button" id="bellSeenBtn" class="link-btn !text-[11px]" onclick="markAllBellSeen()">Mark all as seen</button>' : ''}</div>` + (items.map(it => { const isNew = !seen.has(it.key); return `
+        <button type="button" class="row-item clickable w-full text-left p-2.5 flex gap-2 items-start${isNew ? '' : ' bell-seen'}" data-key="${esc(it.key)}" onclick="$('bellPanel').classList.add('hidden'); markBellKeySeen(this.dataset.key); ${it.go}" ${it.red ? 'style="border-color:#ef4444;"' : ''}>
+            <span>${it.icon}</span><span class="min-w-0"><span class="block font-bold t-strong">${isNew ? '<span class="chip chip-blue !py-0 mr-1">New</span>' : ''}${esc(it.title)}</span><span class="block t-muted break-words">${esc(it.sub)}</span></span></button>`; }).join('') || '<div class="row-item p-3 t-faint italic text-center">No notifications.</div>');
 }
 function toggleBell() { renderBell(); $('bellPanel').classList.toggle('hidden'); keepOnScreen($('bellPanel')); }
 function goToDocs(cid) { location.hash = `#/site/${encodeURIComponent(cid)}/documents`; }
@@ -1538,7 +1549,8 @@ function buildModel(site, d) {
         id: v.id, type: v.visit_type || 'Routine Service', tech: v.technician || '', notes: v.notes || '',
         start: Date.parse(v.signed_in_at || v.started_at) || null, end: Date.parse(v.signed_out_at || v.completed_at) || Date.parse(v.created_at),
         completed: Date.parse(v.completed_at) || Date.parse(v.created_at), services: Array.isArray(v.services_completed) ? v.services_completed : [], entries: [],
-        signedBy: v.signed_by || '', signedAt: Date.parse(v.signed_at) || null, noSignatureReason: v.no_signature_reason || '', signaturePath: v.signature_path || null
+        signedBy: v.signed_by || '', signedAt: Date.parse(v.signed_at) || null, noSignatureReason: v.no_signature_reason || '', signaturePath: v.signature_path || null,
+        added: Array.isArray(v.stations_added) ? v.stations_added : [], removed: Array.isArray(v.stations_removed) ? v.stations_removed : []
     })).filter(v => !isNaN(v.completed)).sort((a, b) => a.completed - b.completed);
     let vi = 0;
     entries.forEach(e => {
@@ -1753,6 +1765,8 @@ function entryPestsText(e, times, none) {
     const list = e.pests && e.pests.length ? e.pests : e.species ? [{ species: e.species, count: e.count }] : [];
     return list.map(x => x.species + (x.count ? (times || ' ×') + x.count : '')).join(', ') || (none == null ? '-' : none);
 }
+// every activity on a check (more pests each have their own), for its colour
+function entryActs(e) { return [e.activity].concat((e.pests || []).map(x => x.activity)); }
 function stationCell(s) { return `<div class="flex items-center gap-2">${typeDot(s.type)}<div class="min-w-0"><div class="font-bold t-strong">${esc(s.name)}</div><div class="t-faint mono text-[11px]">${esc(s.barcode)}</div></div></div>`; }
 const STANDARD_FOLDERS = ['SDS', 'Service agreement', 'Maps', 'Site specific', 'Meeting notes', 'Entomology', 'Training', 'Insurance'];
 const CATEGORY_FOLDER = { 'SDS': 'SDS', 'Service agreement': 'Service agreement', 'Site map': 'Maps', 'Insurance': 'Insurance' };
@@ -2151,7 +2165,7 @@ let recFilter = 'open';
 let recSearch = '';
 function recAge(r) {
     const end = r.status === 'complete' ? (r.completedAt || r.lastChange) : Date.now();
-    const d = Math.max(0, Math.floor((end - r.raisedAt) / 86400000));
+    const d = calDays(r.raisedAt, end);
     return r.status === 'complete' ? `Closed in ${plural(d, 'day')}` : `Open ${plural(d, 'day')}`;
 }
 function recRowHtml(r, ctx) {
@@ -2235,7 +2249,7 @@ function recStatsHtml() {
     if (!m.recs.length) return '';
     const open = m.recs.filter(r => r.status !== 'complete'), done = m.recs.filter(r => r.status === 'complete');
     const closedAt = r => r.completedAt || r.lastChange;
-    const daysOpen = r => Math.max(0, Math.round(((r.status === 'complete' ? closedAt(r) : now) - r.raisedAt) / day));
+    const daysOpen = r => calDays(r.raisedAt, r.status === 'complete' ? closedAt(r) : now);
     const avgClose = done.length ? Math.round(done.reduce((n, r) => n + daysOpen(r), 0) / done.length) : null;
     const oldest = open.slice().sort((a, b) => a.raisedAt - b.raisedAt)[0];
     const done90 = done.filter(r => closedAt(r) > now - 90 * day).length;
@@ -3212,11 +3226,14 @@ function showVisit(id) {
         ${v.services.length ? `<div class="flex flex-wrap gap-1.5">${v.services.map(s => `<span class="chip chip-green">${esc(s)}</span>`).join('')}</div>` : ''}
         <div><div class="eyebrow t-faint mb-1">Technician's notes</div><div class="inset p-3 whitespace-pre-line t-strong">${esc(v.notes || 'No notes provided')}</div></div>
         <div class="space-y-2"><div class="eyebrow t-faint">Station records (${v.entries.filter(e => !e.extra).length})</div>
-            ${v.entries.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Station</th><th>Activity</th><th>Pests</th><th>Preparation</th></tr></thead><tbody>${v.entries.filter(e => !e.extra).map(e => `
-                <tr class="clickable" onclick="showStation(${jsArg(e.barcode)})"><td>${stationCell(e.station || e)}</td><td>${activityChip(e.activity)}</td><td>${esc(entryPestsText(e))}</td>
+            ${v.entries.length ? `<div class="lvl-key text-[11px] t-muted"><span><i class="lvl-green"></i>No activity</span><span><i class="lvl-amber"></i>Low or medium activity</span><span><i class="lvl-red"></i>Pest caught or high activity</span></div>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Station</th><th>Activity</th><th>Pests</th><th>Preparation</th></tr></thead><tbody>${v.entries.filter(e => !e.extra).map(e => `
+                <tr class="clickable lvl-${PVR.level(entryActs(e))}" onclick="showStation(${jsArg(e.barcode)})"><td>${stationCell(e.station || e)}</td><td>${activityChip(e.activity)}</td><td>${esc(entryPestsText(e))}</td>
                 <td>${e.prep ? `${esc(e.prep)}<div class="t-faint text-[11px]">${fmtQty(e.qty, e.unit)}${e.batch ? ' · batch ' + esc(e.batch) : ''}</div>` : '-'}</td></tr>
-                ${e.notes ? `<tr><td colspan="4" class="t-muted text-[11px] !pt-0">Notes: ${esc(e.notes)}</td></tr>` : ''}`).join('')}</tbody></table></div>` : emptyNote('No station records on this visit.')}
+                ${e.notes ? `<tr class="lvl-${PVR.level(entryActs(e))}"><td colspan="4" class="t-muted text-[11px] !pt-0">Notes: ${esc(e.notes)}</td></tr>` : ''}`).join('')}</tbody></table></div>` : emptyNote('No station records on this visit.')}
         </div>
+        ${[['added', 'Stations installed on this visit', 'chip-green'], ['removed', 'Stations removed on this visit', 'chip-red']].map(([k, t, cls]) => v[k].length ? `<div class="space-y-2"><div class="eyebrow t-faint">${t} (${v[k].length})</div>
+            <div class="flex flex-wrap gap-1.5">${v[k].map(s => `<span class="chip ${cls}">${esc(s.name || s.barcode)} · <span class="mono">${esc(s.barcode)}</span>${s.type ? ' · ' + esc(s.type) : ''}</span>`).join('')}</div></div>` : '').join('')}
         ${v.recs.length ? `<div class="space-y-2"><div class="eyebrow t-faint">Recommendations raised</div>${v.recs.map(r => recRowHtml(r, 'none')).join('')}</div>` : ''}
         ${v.signedBy ? `<div class="inset p-3"><div class="eyebrow t-faint">Customer sign-off</div><div class="flex items-center gap-3 flex-wrap mt-1"><span id="visitSig"></span><span class="font-bold t-strong">✓ Signed by ${esc(v.signedBy)}${v.signedAt ? ` <span class="t-faint font-normal">${fmtDateTime(v.signedAt)}</span>` : ''}</span></div></div>`
             : v.noSignatureReason ? `<div class="inset p-3"><div class="eyebrow t-faint">Customer sign-off</div><div class="font-bold mt-1" style="color:#d97706;">Not signed: ${esc(v.noSignatureReason)}</div></div>` : ''}`;
@@ -3901,7 +3918,8 @@ async function downloadVisitPdf(id) {
             siteId: state.site.id, id: v.id, siteName: siteName(state.site), address: state.site.Address || '', completed: v.completed, type: v.type, tech: v.tech, start: v.start, end: v.end,
             stationsChecked: new Set(v.entries.map(e => e.barcode)).size, services: v.services, notes: v.notes,
             breaches: visitBreaches(v).map(x => `${x.limit.station} · ${limitPest(x.limit)}: ${x.total} recorded in ${monthLabel(x.month || v.completed)}, this station's limit ${x.limit.max} a month (${x.total - x.limit.max} over) - critical limit ${x.limit.zone}`),
-            entries: v.entries.filter(e => !e.extra).map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, pests: entryPestsText(e, ' x', ''),
+            added: v.added, removed: v.removed,
+            entries: v.entries.filter(e => !e.extra).map(e => ({ name: e.name, barcode: e.barcode, type: e.type, activity: e.activity, acts: entryActs(e), pests: entryPestsText(e, ' x', ''),
                 prep: e.prep ? `${e.prep} ${fmtQty(e.qty, e.unit)}${e.batch ? ' batch ' + e.batch : ''}` : '', notes: e.notes })),
             recs: v.recs.map(r => ({ id: r.id, no: fmtRecNo(r.no), status: STATUS[r.status] ? STATUS[r.status].label : r.status, raised: r.raisedAt, station: r.station, barcode: r.barcode, text: r.text,
                 closed: r.status === 'complete' ? (r.completedAt || r.lastChange) : null, note: r.updates.length ? r.updates[r.updates.length - 1].note : '' })),
@@ -4043,6 +4061,8 @@ const PR = (() => {
     const e = v => String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const parse = p => { if (typeof p === 'string') { try { return JSON.parse(p); } catch (x) { return {}; } } return p || {}; };
     const DAY = 86400000;
+    // whole calendar days from one moment to another, the same count as the rest of the apps
+    const calDays = (a, b) => { const d = t => { const x = new Date(t); return new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); }; return Math.max(0, Math.round((d(b) - d(a)) / DAY)); };
     const LOC = 'en-NZ';
     const fmtD = t => t ? new Date(t).toLocaleDateString(LOC, { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
     const fmtDT = t => t ? new Date(t).toLocaleString(LOC, { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '-';
@@ -4590,7 +4610,7 @@ const PR = (() => {
             const ks = months(a || (list.length ? Math.min(...list.map(r => r.raisedAt)) : Date.now()), b);
             const head = [{ t: 'Number' }, { t: 'Raised' }, { t: 'Station' }, { t: 'Type' }, { t: 'Recommendation' }, { t: 'Status' }, { t: 'Days open', num: true }];
             const no = r => r.no != null ? 'R-' + String(r.no).padStart(4, '0') : '';
-            const days = r => Math.max(0, Math.round(((r.completedAt || Date.now()) - r.raisedAt) / DAY));
+            const days = r => calDays(r.raisedAt, r.completedAt || Date.now());
             return {
                 html: kpis([{ v: list.length, l: 'raised' }, { v: list.filter(r => r.status !== 'complete').length, l: 'still open or pending', c: '#ea580c' }, { v: done.length, l: 'completed', c: '#16a34a' }, { v: avg == null ? '-' : avg + ' days', l: 'average time to complete' }])
                     + `<div class="pr-two"><div class="pr-chart"><div class="pr-cap">Raised and completed each month</div>${lineChart([{ name: 'Raised', color: '#ea580c', vals: ks.map(k => list.filter(r => monthKey(r.raisedAt) === k).length) }, { name: 'Completed', color: '#16a34a', vals: ks.map(k => done.filter(r => monthKey(r.completedAt) === k).length) }], ks, { lbl: monthLbl, label: 'Recommendations raised and completed per month' })}</div><div class="pr-chart"><div class="pr-cap">By type</div>${barChart(Array.from(byCat.entries()).sort((p, q) => q[1] - p[1]).map(([c, n], i) => ({ l: c, v: n, c: PALETTE[i % 8] })))}</div></div>`
@@ -4835,6 +4855,17 @@ const LOGS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r112', date: '2026-10-31', v: { svc: '2026.10.31-r112', adm: '2026.10.31-a49', cli: '2026.10.31-p64' },
+            svc: ['Documents: the expiry date is picked from a calendar (you can still type it in), with "No expiry" to clear it',
+                  'Visit report: each station row is coloured - green no activity, amber low or medium activity, red a pest caught or high activity - with a key above the table',
+                  'Visit report: the stations installed and the stations removed on the visit are listed, so the customer can see them',
+                  'Recommendations: days open are counted in calendar days, so the same recommendation shows the same number everywhere'],
+            adm: ['Documents: the expiry date is picked from a calendar (you can still type it in), with "No expiry" to clear it',
+                  'Recommendations: days open are counted in calendar days, the same as the other apps'],
+            cli: ['Notifications: ones you have seen stay in the list (new ones are at the top, marked New) - they just no longer count on the bell',
+                  'Visit report: each station row is coloured - green no activity, amber low or medium activity, red a pest caught or high activity',
+                  'Visit report: the stations installed and the stations removed on the visit are listed',
+                  'Recommendations: the days open now match everywhere (the card and "Oldest still open" could differ by a day)'] },
         { rev: 'r111', date: '2026-10-31', v: { svc: '2026.10.31-r111', adm: '2026.10.31-a48', cli: '2026.10.31-p63' },
             svc: ['Notifications: floor plans due for their yearly check come up a month before, and again once the check is overdue (instead of under Needs action)',
                   'Notifications: a site document gives another notification when it expires within a month, and again once it has expired',
@@ -5256,7 +5287,8 @@ const SEEN = (() => {
 /* PESTIS-VISITPDF:BEGIN - the visit report PDF and the A4 pest map (identical in the Service App and the Client Portal; edit visitpdf_shared.js and run sync_visitpdf.py) */
 // Each app turns its own visit into the plain description below, so the report is the same wherever it's downloaded:
 //   { siteId, id (the visit's, if it has reached the server), siteName, address, completed, type, tech, start, end, inProgress, stationsChecked, services: [..], notes,
-//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, pests, prep, notes }],
+//     breaches: ['line', ..], entries: [{ name, barcode, type, activity, acts (every activity on the check), pests, prep, notes }],
+//     added / removed: [{ name, barcode, type }] (stations installed or taken out on the visit),
 //     recs: [{ id, no, status, raised, station, barcode, text, closed, note }],
 //   Stations, recommendations and the visit link to the Client Portal.
 //     signedBy, signedAt, noSignatureReason, signature (picture data URL or null), by (who downloaded it), app ('Service App' | 'Client Portal') }
@@ -5271,6 +5303,15 @@ const PVR = (() => {
     const ENTRY_COLS = [['Station', 34], ['Barcode', 18], ['Type', 30], ['Activity', 16], ['Pests', 24], ['Preparation', 50], ['Notes', 50]];
     // where a station, recommendation or visit opens in the Client Portal (reports link back to it)
     const portalLink = (cid, kind, id) => cid == null || id == null ? null : `${location.origin}/client.html#/site/${encodeURIComponent(cid)}/${{ station: 'overview', rec: 'recs', visit: 'visits' }[kind]}/${kind}/${encodeURIComponent(id)}`;
+    // a station check's colour: red if a pest was caught or the activity was high, amber for low or medium (or any other
+    // sign of activity), green for no activity. acts = every activity recorded on the check (more pests have their own)
+    function level(acts) {
+        const a = (Array.isArray(acts) ? acts : [acts]).map(x => String(x || '').trim().toLowerCase()).filter(x => x && x !== 'none' && x !== 'no activity');
+        return a.some(x => x === 'caught' || x === 'high') ? 'red' : a.length ? 'amber' : 'green';
+    }
+    const LEVEL_FILL = { red: [254, 202, 202], amber: [253, 230, 138], green: [187, 247, 208] };
+    const LEVEL_TEXT = { red: 'Red: pest caught or high activity', amber: 'Amber: low or medium activity', green: 'Green: no activity' };
+    const STATION_COLS = [['Station', 50], ['Barcode', 30], ['Type', 60]];
     const REC_COLS = [['No.', 16], ['Status', 18], ['Raised', 20], ['Station', 30], ['Barcode', 18], ['Recommendation', 70], ['Closed', 20], ['Latest note', 50]];
 
     // the Pesties logo, made small enough for a PDF (loaded once)
@@ -5455,7 +5496,8 @@ const PVR = (() => {
             y += 19;
         };
         // links: for each row, { column number: web address } - those cells are blue and open the address when clicked
-        const table = (cols, rows, links) => {
+        // fills: a colour for each row's background ([r, g, b], or none for the usual stripes)
+        const table = (cols, rows, links, fills) => {
             const total = cols.reduce((a, c) => a + c[1], 0), scale = (W - 2 * M) / total, widths = cols.map(c => c[1] * scale);
             const head = () => {
                 doc.setFillColor(226, 232, 240); doc.rect(M, y, W - 2 * M, 7, 'F');
@@ -5470,7 +5512,9 @@ const PVR = (() => {
                 const cells = r.map((val, i) => doc.splitTextToSize(String(val == null ? '' : val), widths[i] - 3));
                 const h = Math.max(...cells.map(c => c.length)) * 3.4 + 2.6;
                 if (y + h > H - 12) { newPage(); head(); doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); }
-                if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
+                const fill = fills && fills[ri];
+                if (fill) { doc.setFillColor(...fill); doc.rect(M, y, W - 2 * M, h, 'F'); doc.setDrawColor(255, 255, 255); doc.setLineWidth(.4); doc.line(M, y + h, W - M, y + h); }
+                else if (ri % 2) { doc.setFillColor(248, 250, 252); doc.rect(M, y, W - 2 * M, h, 'F'); }
                 let x0 = M; cells.forEach((c, i) => {
                     const url = links && links[ri] && links[ri][i];
                     if (url) doc.setTextColor(37, 99, 235); else doc.setTextColor(15, 23, 42);
@@ -5501,8 +5545,16 @@ const PVR = (() => {
         heading("Technician's notes"); para(v.notes || 'No notes provided');
         heading('Station records');
         const stLink = b => portalLink(v.siteId, 'station', b);
+        // the colours used (a key above the table)
+        if ((v.entries || []).length) {
+            room(8); let kx = M; doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5);
+            ['green', 'amber', 'red'].forEach(k => { doc.setFillColor(...LEVEL_FILL[k]); doc.rect(kx, y - 3, 4, 4, 'F'); doc.setTextColor(51, 65, 85); doc.text(LEVEL_TEXT[k], kx + 5.5, y); kx += doc.getTextWidth(LEVEL_TEXT[k]) + 12; });
+            y += 4;
+        }
         table(ENTRY_COLS, (v.entries || []).map(e => [e.name, e.barcode, e.type, e.activity === 'None' || !e.activity ? 'No activity' : e.activity, e.pests || '-', e.prep || '-', e.notes || '']),
-            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })));
+            (v.entries || []).map(e => ({ 0: stLink(e.barcode), 1: stLink(e.barcode) })), (v.entries || []).map(e => LEVEL_FILL[level(e.acts || [e.activity])]));
+        if ((v.added || []).length) { heading(`Stations installed on this visit (${v.added.length})`); table(STATION_COLS, v.added.map(s => [s.name || s.barcode, s.barcode, s.type || '']), v.added.map(s => ({ 0: stLink(s.barcode), 1: stLink(s.barcode) }))); }
+        if ((v.removed || []).length) { heading(`Stations removed on this visit (${v.removed.length})`); table(STATION_COLS, v.removed.map(s => [s.name || s.barcode, s.barcode, s.type || ''])); }
         if ((v.recs || []).length) {
             heading('Recommendations raised');
             table(REC_COLS, v.recs.map(r => [r.no || '', r.status || '', day(r.raised), r.station || '', r.barcode || '', r.text || '', r.closed ? day(r.closed) : '', r.note || '']),
@@ -5780,7 +5832,7 @@ body.pz-lock{overflow:hidden}`;
         return view._pz;
     }
 
-    return { build, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
+    return { build, level, logo, pestMap, pestMapPage, pin, portalLink, heatPoints, heatCanvas, heatPanel, heatOpen, heatFilter, heatTick, heatMount, panZoom, pick, pickGo };
 })();
 
 // ---------- Boards: boxes you can drag into a new order and resize (width and height), like the Service App's site page ----------
