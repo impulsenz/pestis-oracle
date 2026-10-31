@@ -147,30 +147,6 @@ sudo systemctl start pestis
 
 Where things are: database `/var/lib/pestis/pestis.db`; photos and documents `/var/lib/pestis/files`; the apps and server `/opt/pestis/app`; settings `/etc/pestis.env`.
 
-**A pretend site to try things on.** This adds a site called "TEST - Harbour Foods (pretend site)" with 14 stations, two critical limits, about 18 months of made-up visits and station checks (with some breaches), recommendations and a pest sighting. It is ordinary data, so all three apps show it like any other site. Nothing else is touched, and `remove` deletes only the test site and everything on it.
-
-| Task | Command (on the server, over SSH) |
-|---|---|
-| Add the test site | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add` |
-| ...or a bigger one: 20 stations of every type, 5 years of history | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add-big` |
-| ...and let a client login see it | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs add --client someone@example.com` (the client login must already exist in Admin) |
-| Is there a test site? | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs status` |
-| Remove it again | `sudo -u pestis node /opt/pestis/app/tools/test_site.mjs remove` |
-
-To start the test site again from scratch, run `remove` and then `add`. It appears in the apps straight away; tap Refresh (or reopen the app) if it's already open.
-
-**A huge pretend site, to push the apps to their limits.** "TEST - Kauri Coast Foods (huge pretend site)": about 3,000 stations of every station type in 6 buildings and 8 floor plans (drawn, every station pinned), 10 years of history (one routine visit most months, up to 5 in a busy month: the initial install, stage installs, call outs, broken treatments, technical support, meetings, fogging, an uninstall), a preparation on every check, about 317,000 station checks, 100 recommendations with notes and photos, 300 pest sightings, 15 contacts, 8 services, 4 critical limits, documents (some expired) and an activity log. It takes about 10 seconds to make and adds about 260 MB to the database.
-
-Heads-up: the apps download a site's whole history when it's opened (about 110 MB for this one, much less over the internet as it's compressed). On a computer it opens in a few seconds; on a phone the first download takes longer, and the phone keeps a copy for next time. Smaller sizes: add `--stations 500 --years 3`, for example.
-
-| Task | Command (on the server, over SSH) |
-|---|---|
-| Add the huge site | `sudo -u pestis node /opt/pestis/app/tools/huge_site.mjs add` |
-| ...smaller | `sudo -u pestis node /opt/pestis/app/tools/huge_site.mjs add --stations 500 --years 3` |
-| ...and let a client login see it | add `--client someone@example.com` (the client login must already exist in Admin) |
-| Is it there? | `sudo -u pestis node /opt/pestis/app/tools/huge_site.mjs status` |
-| Remove it (and give the space back) | `sudo -u pestis node /opt/pestis/app/tools/huge_site.mjs remove` |
-
 ---
 
 ## If something goes wrong

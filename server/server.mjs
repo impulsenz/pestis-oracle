@@ -97,7 +97,7 @@ function loadTables() {
 loadTables();
 db.exec(`CREATE INDEX IF NOT EXISTS service_logs_client_ref_idx ON service_logs (client_id, json_extract(payload, '$.clientRef'))`);
 // Every station check gets a change number (rev) when it's added or changed, however it's written (the apps, the server's own
-// tidy-ups, the pretend-site scripts). The Admin site and the Client Portal keep a copy of a site's checks and then ask only for
+// tidy-ups, anything run on the database). The Admin site and the Client Portal keep a copy of a site's checks and then ask only for
 // rev above the highest they have.
 db.exec(`
   CREATE TABLE IF NOT EXISTS log_rev_seq (v INTEGER NOT NULL);

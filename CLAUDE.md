@@ -58,7 +58,6 @@ The owner is not a programmer. Talk in plain words about what changed for the pe
 - `api.test.mjs`: the real `pestis-db.js` against the server: access rules, automatic behaviour, functions, files, live updates, emailed links.
 - `e2e.test.mjs`: the three real apps in Chromium (Playwright): the Service App records a station check and completes a visit, Admin opens, the Client Portal signs in by emailed link, and the Google sign-in round trip. CDN scripts (Tailwind, html5-qrcode, jsPDF) are served from `tests/stubs`, so no internet is needed.
 - `offline.test.mjs`: the offline copy.
-- `testsite.test.mjs`: `tools/test_site.mjs` (the owner's pretend site: `add` / `status` / `remove`, run on the server against the database; see SETUP.md) and `tools/huge_site.mjs` (the huge one: ~3,000 stations, 10 years; tested small). If a table or column they write changes, keep the scripts in step.
 
 In the browser tests, sign someone in by putting their session (from `POST /api/auth/google`) in `localStorage` under `sb-127-auth-token` before the page loads. App functions can be called with `page.evaluate` (e.g. `handleScannedBarcode('X')`, `saveStationServiceRecord()`, `flushQueue()`).
 
