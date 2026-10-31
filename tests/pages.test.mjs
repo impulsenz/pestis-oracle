@@ -93,6 +93,21 @@ try {
         if (await cp.evaluate(() => document.querySelector('.pr-tip').classList.contains('on'))) all.push(`[${cp.app}] clicking elsewhere doesn't close the graph pop-up`);
       } else all.push(`[${cp.app}] no graph points to hover`);
       await cp.screenshot({ path: path.join(SHOTS, `portal-trend-${w}.png`) });
+      // year on year: this month (not over yet) is a dashed line fading out to where it's heading, not a drop to 0
+      await cp.evaluate(() => PR.show(state.prBox, 'trend', { view: 'yoy', station: [], pest: [], type: [] })); await sleep(500);
+      const yoy = await cp.evaluate(() => { const m0 = new Date().getMonth(), svg = document.querySelector('.pr-svg');
+        const solid = Array.from(svg.querySelectorAll('.pr-pt:not(.pr-pt-ghost)')).filter(g => g.getAttribute('data-pt').split(':')[2] === String(m0) && /20\d\d/.test(g.getAttribute('aria-label')) && g.getAttribute('aria-label').startsWith(String(new Date().getFullYear())));
+        const ghost = svg.querySelector('.pr-pt-ghost');
+        return { ghostLine: !!svg.querySelector('path.pr-ghost'), ghostPts: svg.querySelectorAll('.pr-pt-ghost').length, solidNow: solid.length, ghostId: ghost && ghost.getAttribute('data-pt') }; });
+      if (!yoy.ghostPts || yoy.solidNow) all.push(`[${cp.app}] year on year: this month should be a dashed projection, not a point on the line: ${JSON.stringify(yoy)}`);
+      if (yoy.ghostId) {
+        await cp.evaluate(id => { const g = document.querySelector(`[data-pt="${id}"]`); g.setAttribute('data-test-gh', '1'); g.scrollIntoView({ block: 'center' }); }, yoy.ghostId);
+        await cp.hover('[data-test-gh="1"] .pr-hit', { force: true }); await sleep(400);
+        const tip = await cp.evaluate(() => (document.querySelector('.pr-tip.on') || {}).textContent || '');
+        if (!/about/.test(tip) || !/Expected/.test(tip)) all.push(`[${cp.app}] the projected point's pop-up doesn't say what's expected: ${tip.slice(0, 160)}`);
+        await cp.screenshot({ path: path.join(SHOTS, `portal-yoy-${w}.png`) });
+        await cp.mouse.move(3, 400);
+      }
       await cp.evaluate(() => PR.show(state.prBox, 'third')); await sleep(400);
       if (await cp.evaluate(() => document.querySelectorAll('#tabBody .pr-alert:not(.pr-alert-ok)').length)) all.push(`[${cp.app}] the third line report still has the red card on top`);
     });

@@ -3,6 +3,11 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r117', date: '2026-11-01', v: { adm: '2026.11.01-a54', cli: '2026.11.01-p69' },
+            adm: ['Reports, year on year: this year’s line stops at last month instead of dropping towards 0 for the month that isn’t over yet. A dashed line that fades out shows where it’s heading (from the same months in the other years and how this year is going) - point at it for the expected number and this month so far',
+                  'Reports: the shading under the graph lines is stronger'],
+            cli: ['Reports, year on year: this year’s line stops at last month instead of dropping towards 0 for the month that isn’t over yet. A dashed line that fades out shows where it’s heading - point at it for the expected number and this month so far',
+                  'Reports: the shading under the graph lines is stronger'] },
         { rev: 'r116', date: '2026-11-01', v: { adm: '2026.11.01-a53', cli: '2026.11.01-p68' },
             adm: ['Reports: click (or tap) a point on a line graph and its pop-up stays open, listing every record behind it - scroll inside it if there are a lot. Click anywhere else (or ✕) to close it'],
             cli: ['Reports: click (or tap) a point on a line graph and its pop-up stays open, listing every record behind it - scroll inside it if there are a lot. Click anywhere else (or ✕) to close it'] },

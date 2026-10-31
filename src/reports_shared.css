@@ -31,6 +31,7 @@
 .pr-svg .pr-line { filter: drop-shadow(0 3px 4px rgba(15, 23, 42, .16)); }
 .pr-svg .pr-dot { fill: var(--surface, #fff); stroke-width: 2.2; transition: r .15s ease; }
 .pr-svg .pr-pt { cursor: pointer; outline: none; }
+.pr-svg .pr-pt-ghost .pr-dot { fill: var(--surface, #fff); }
 .pr-svg .pr-hit { fill: transparent; stroke: none; }
 .pr-svg .pr-pt:hover .pr-dot, .pr-svg .pr-pt:focus .pr-dot { r: 6.5px; stroke-width: 3; }
 /* the pop-up over a graph's point */

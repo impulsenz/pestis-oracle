@@ -70,6 +70,7 @@
 .pr-svg .pr-line { filter: drop-shadow(0 3px 4px rgba(15, 23, 42, .16)); }
 .pr-svg .pr-dot { fill: var(--surface, #fff); stroke-width: 2.2; transition: r .15s ease; }
 .pr-svg .pr-pt { cursor: pointer; outline: none; }
+.pr-svg .pr-pt-ghost .pr-dot { fill: var(--surface, #fff); }
 .pr-svg .pr-hit { fill: transparent; stroke: none; }
 .pr-svg .pr-pt:hover .pr-dot, .pr-svg .pr-pt:focus .pr-dot { r: 6.5px; stroke-width: 3; }
 /* the pop-up over a graph's point */
@@ -1299,6 +1300,11 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r117', date: '2026-11-01', v: { adm: '2026.11.01-a54', cli: '2026.11.01-p69' },
+            adm: ['Reports, year on year: this year’s line stops at last month instead of dropping towards 0 for the month that isn’t over yet. A dashed line that fades out shows where it’s heading (from the same months in the other years and how this year is going) - point at it for the expected number and this month so far',
+                  'Reports: the shading under the graph lines is stronger'],
+            cli: ['Reports, year on year: this year’s line stops at last month instead of dropping towards 0 for the month that isn’t over yet. A dashed line that fades out shows where it’s heading - point at it for the expected number and this month so far',
+                  'Reports: the shading under the graph lines is stronger'] },
         { rev: 'r116', date: '2026-11-01', v: { adm: '2026.11.01-a53', cli: '2026.11.01-p68' },
             adm: ['Reports: click (or tap) a point on a line graph and its pop-up stays open, listing every record behind it - scroll inside it if there are a lot. Click anywhere else (or ✕) to close it'],
             cli: ['Reports: click (or tap) a point on a line graph and its pop-up stays open, listing every record behind it - scroll inside it if there are a lot. Click anywhere else (or ✕) to close it'] },
@@ -1902,14 +1908,21 @@ const PR = (() => {
     // station checks (the pests, how many checks and stations, and the latest few with the date, time, station and technician),
     // recommendations or visits (s.kind). all: every record (the pop-up was clicked and stays open), not just the latest few
     function tipFor(id, all) {
-        const [cid, si, i] = String(id).split(':'), c = CHARTS.get(cid), s = c && c.series[si];
+        const [cid, si, i, ghost] = String(id).split(':'), c = CHARTS.get(cid), s = c && c.series[si];
         if (!s) return '';
         const v = s.vals[i], label = c.opts.lbl ? c.opts.lbl(c.keys[i]) : c.keys[i];
         const many = (n, one, more) => `${n} ${n === 1 ? one : (more || one + 's')}`;
-        let h = `<div class="pr-tip-sub">${e(label)}</div><div class="pr-tip-name"><i style="background:${s.color}"></i>${e(s.name)}</div>`
-            + `<div class="pr-tip-v">${e(c.opts.yLbl ? c.opts.yLbl(v) : v)}${c.opts.unit && !c.opts.yLbl ? ` <span>${e(c.opts.unit)}</span>` : ''}</div>`;
+        const shown = val => c.opts.yLbl ? c.opts.yLbl(Math.round(val)) : Math.round(val);
+        const unit = c.opts.unit && !c.opts.yLbl ? ` <span>${e(c.opts.unit)}</span>` : '';
+        let h = `<div class="pr-tip-sub">${e(label)}${ghost ? (Number(i) === s.partialFrom ? ' · month not over yet' : ' · not started yet') : ''}</div><div class="pr-tip-name"><i style="background:${s.color}"></i>${e(s.name)}</div>`;
+        if (ghost) {
+            const g = (s.ghost || []).find(p => p.i === Number(i));
+            h += `<div class="pr-tip-v">about ${e(shown(g ? g.v : 0))}${unit}</div><div class="pr-tip-more">Expected - from the same month in the other years and how this year is going</div>`;
+            if (Number(i) !== s.partialFrom) return h;
+            h += `<div class="pr-tip-sub" style="margin-top:.35rem">So far: ${e(shown(v || 0))}${c.opts.unit && !c.opts.yLbl ? ' ' + e(c.opts.unit) : ''}</div>`;
+        } else h += `<div class="pr-tip-v">${e(c.opts.yLbl ? c.opts.yLbl(v) : v)}${unit}</div>`;
         const recs = s.recs ? (s.recs(Number(i)) || []).slice().sort((p, q) => (q.at || q.raisedAt || q.completedAt || 0) - (p.at || p.raisedAt || p.completedAt || 0)) : [];
-        if (!recs.length) return h + (s.recs ? '<div class="pr-tip-more">Nothing recorded</div>' : '');
+        if (!recs.length) return h + (s.recs ? `<div class="pr-tip-more">Nothing recorded${ghost ? ' yet' : ''}</div>` : '');
         const max = all ? 500 : 4;
         const rows = (list, f) => list.slice(0, max).map(x => `<div class="pr-tip-row">${f(x)}</div>`).join('') + (list.length > max ? `<div class="pr-tip-more">and ${list.length - max} more${all ? '' : ' - click the point to see them all'}</div>` : '');
         if (s.kind === 'recs') return h + rows(recs, r => `<b>${e(r.no != null ? 'R-' + String(r.no).padStart(4, '0') : 'Recommendation')}</b> · ${e(fmtD(s.done ? r.completedAt : r.raisedAt))}${r.station ? ' · ' + e(r.station) : ''}<br>${e(String(r.text || '').slice(0, 80))}`);
@@ -1957,7 +1970,9 @@ const PR = (() => {
     function lineChart(series, keys, opts) {
         opts = opts || {};
         const W = 760, H = 260, pl = opts.yLbl ? 64 : 40, pr = 12, pt = 14, pb = 34;
-        const max = opts.max || Math.max(1, ...series.flatMap(s => s.vals).filter(v => v != null), opts.limit || 0);
+        const max = opts.max || Math.max(1, ...series.flatMap(s => s.vals.concat((s.ghost || []).map(g => g.v))).filter(v => v != null), opts.limit || 0);
+        // the values drawn as a solid line: not a month that isn't over yet (s.partialFrom) - that's the dashed projection (s.ghost)
+        const dv = s => s.partialFrom == null ? s.vals : s.vals.map((v, i) => i >= s.partialFrom ? null : v);
         const n = keys.length, x = i => pl + (n <= 1 ? (W - pl - pr) / 2 : i * (W - pl - pr) / (n - 1)), y = v => pt + (H - pt - pb) * (1 - v / max);
         const ticks = opts.ticks || Array.from(new Set([0, .25, .5, .75, 1].map(f => Math.round(max * f))));
         const yl = v => opts.yLbl ? opts.yLbl(v) : v;
@@ -1966,16 +1981,27 @@ const PR = (() => {
         const every = Math.ceil(n / 12);
         const gid = 'prfade' + (++chartN), dot = n > 40 ? 2.2 : n > 24 ? 2.8 : 3.6;
         CHARTS.set(gid, { series, keys, opts });
+        // the projection: from the last finished month, a dashed line through where it's heading, fading out, with hollow points
+        const ghostHtml = (s, si) => {
+            const g = s.ghost || [];
+            if (!g.length) return '';
+            const L = s.partialFrom - 1, start = L >= 0 && s.vals[L] != null ? [[x(L), y(s.vals[L])]] : [];
+            const pts = start.concat(g.map(p => [x(p.i), y(p.v)])), x0 = pts[0][0], x1 = pts[pts.length - 1][0];
+            return `<defs><linearGradient id="${gid}-g${si}" gradientUnits="userSpaceOnUse" x1="${x0}" y1="0" x2="${x1 + (x1 - x0 || 1) * .15}" y2="0"><stop offset="0" stop-color="${s.color}" stop-opacity=".95"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient></defs>`
+                + (pts.length > 1 ? `<path fill="none" stroke="url(#${gid}-g${si})" stroke-width="${s.thin ? 2 : 2.6}" stroke-dasharray="7 6" stroke-linecap="round" class="pr-ghost" d="${smoothPath(pts)}"/>` : '')
+                + g.map((p, k) => `<g class="pr-pt pr-pt-ghost" data-pt="${gid}:${si}:${p.i}:p" data-c="${s.color}" tabindex="0" aria-label="${e(s.name)} · ${e(opts.lbl ? opts.lbl(keys[p.i]) : keys[p.i])}: expected about ${e(Math.round(p.v))}" style="opacity:${k ? .45 : .8}"><circle cx="${x(p.i)}" cy="${y(p.v)}" r="${dot}" class="pr-dot" stroke="${s.color}" stroke-dasharray="2 2"/><circle cx="${x(p.i)}" cy="${y(p.v)}" r="13" class="pr-hit"/></g>`).join('');
+        };
         if (CHARTS.size > 40) CHARTS.delete(CHARTS.keys().next().value);
         return `<svg viewBox="0 0 ${W} ${H}" class="pr-svg" role="img" aria-label="${e(opts.label || 'Chart')}">
             ${ticks.map(t => `<line x1="${pl}" x2="${W - pr}" y1="${y(t)}" y2="${y(t)}" class="pr-grid"/><text x="${pl - 6}" y="${y(t) + 4}" text-anchor="end" class="pr-ax">${e(yl(t))}</text>`).join('')}
             ${keys.map((k, i) => (i % every === 0 && (i === n - 1 || n - 1 - i >= every * 0.75)) || i === n - 1 ? `<text x="${x(i)}" y="${H - 12}" text-anchor="${n > 1 && i === n - 1 ? 'end' : i === 0 && n > 1 ? 'start' : 'middle'}" class="pr-ax">${e(opts.lbl ? opts.lbl(k) : k)}</text>` : '').join('')}
             ${opts.limit != null ? `<line x1="${pl}" x2="${W - pr}" y1="${y(opts.limit)}" y2="${y(opts.limit)}" stroke="#dc2626" stroke-width="2" stroke-dasharray="6 5"/><text x="${W - pr}" y="${y(opts.limit) - 5}" text-anchor="end" class="pr-ax" fill="#dc2626">Limit ${opts.limit}</text>` : ''}
-            <defs>${series.map((s, si) => `<linearGradient id="${gid}-${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity="${series.length > 3 ? .24 : .6}"/><stop offset="1" stop-color="${s.color}" stop-opacity="0"/></linearGradient>`).join('')}</defs>
-            ${series.map((s, si) => runs(s.vals).map(r => `<path fill="url(#${gid}-${si})" stroke="none" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}L${x(r[r.length - 1])},${y(0)}L${x(r[0])},${y(0)}Z"/>`).join('')).join('')}
+            <defs>${series.map((s, si) => `<linearGradient id="${gid}-${si}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${s.color}" stop-opacity="${series.length > 3 ? .32 : .78}"/><stop offset="1" stop-color="${s.color}" stop-opacity="${series.length > 3 ? .03 : .1}"/></linearGradient>`).join('')}</defs>
+            ${series.map((s, si) => runs(dv(s)).map(r => `<path fill="url(#${gid}-${si})" stroke="none" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}L${x(r[r.length - 1])},${y(0)}L${x(r[0])},${y(0)}Z"/>`).join('')).join('')}
             <line x1="${pl}" x2="${W - pr}" y1="${y(0)}" y2="${y(0)}" class="pr-base"/>
-            ${series.map((s, si) => runs(s.vals).map(r => `<path fill="none" stroke="${s.color}" stroke-width="${s.thin ? 2 : 3}" ${s.dash ? 'stroke-dasharray="6 5"' : ''} stroke-linejoin="round" stroke-linecap="round" class="pr-line" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}"/>`).join('')
-                + s.vals.map((v, i) => { if (v == null) return ''; const over = opts.limit != null && v > opts.limit; return `<g class="pr-pt" data-pt="${gid}:${si}:${i}" data-c="${s.color}" tabindex="0" aria-label="${e(s.name)} · ${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${e(yl(v))}"><circle cx="${x(i)}" cy="${y(v)}" r="${over ? 5 : dot}" class="pr-dot${over ? ' pr-dot-over' : ''}" stroke="${over ? '#dc2626' : s.color}"/><circle cx="${x(i)}" cy="${y(v)}" r="13" class="pr-hit"/></g>`; }).join('')).join('')}
+            ${series.map((s, si) => ghostHtml(s, si)).join('')}
+            ${series.map((s, si) => runs(dv(s)).map(r => `<path fill="none" stroke="${s.color}" stroke-width="${s.thin ? 2 : 3}" ${s.dash ? 'stroke-dasharray="6 5"' : ''} stroke-linejoin="round" stroke-linecap="round" class="pr-line" d="${smoothPath(r.map(i => [x(i), y(s.vals[i])]))}"/>`).join('')
+                + dv(s).map((v, i) => { if (v == null) return ''; const over = opts.limit != null && v > opts.limit; return `<g class="pr-pt" data-pt="${gid}:${si}:${i}" data-c="${s.color}" tabindex="0" aria-label="${e(s.name)} · ${e(opts.lbl ? opts.lbl(keys[i]) : keys[i])}: ${e(yl(v))}"><circle cx="${x(i)}" cy="${y(v)}" r="${over ? 5 : dot}" class="pr-dot${over ? ' pr-dot-over' : ''}" stroke="${over ? '#dc2626' : s.color}"/><circle cx="${x(i)}" cy="${y(v)}" r="13" class="pr-hit"/></g>`; }).join('')).join('')}
         </svg>${series.length > 1 ? `<div class="pr-legend">${series.map(s => `<span><i style="background:${s.color}"></i>${e(s.name)}</span>`).join('')}</div>` : ''}`;
     }
     function barChart(rows, opts) {
@@ -2090,9 +2116,34 @@ const PR = (() => {
     // one line per year, January to December (months not reached yet are left off)
     // recsOf(year, month): the records behind each point (for its pop-up)
     function yoySeries(years, valOf, recsOf) {
-        const now = new Date();
-        return years.map((yr, i) => ({ name: String(yr), color: yearColor(i, years.length), thin: i < years.length - 1,
-            vals: MONTHS12.map(m => yr === now.getFullYear() && m > now.getMonth() ? null : valOf(yr, m)), recs: recsOf ? m => recsOf(yr, m) : null }));
+        const now = new Date(), cy = now.getFullYear(), m0 = now.getMonth();
+        const out = years.map((yr, i) => ({ name: String(yr), color: yearColor(i, years.length), thin: i < years.length - 1,
+            vals: MONTHS12.map(m => yr === cy && m > m0 ? null : valOf(yr, m)), recs: recsOf ? m => recsOf(yr, m) : null }));
+        // this month isn't over yet (and next month hasn't started): instead of dropping towards 0, the line stops at last month
+        // and a dashed line that fades out shows where it's heading - the same months in the other years, scaled by how this
+        // year's last three months compare with theirs (or, with no other years, the way the last few months were going)
+        const cur = out.find(s => s.name === String(cy));
+        if (cur) {
+            const prev = out.filter(s => s !== cur);
+            const usualIn = m => { const v = prev.map(s => s.vals[m]).filter(x => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
+            const back = [m0 - 3, m0 - 2, m0 - 1].filter(m => m >= 0);
+            const mine = back.reduce((a, m) => a + (cur.vals[m] || 0), 0), usual = back.reduce((a, m) => a + (usualIn(m) || 0), 0);
+            const ratio = usual > 0 ? mine / usual : 1;
+            const trend = steps => {
+                const pts = back.map(m => cur.vals[m]).filter(v => v != null);
+                if (!pts.length) return null;
+                return pts[pts.length - 1] + (pts.length > 1 ? (pts[pts.length - 1] - pts[0]) / (pts.length - 1) : 0) * steps;
+            };
+            cur.partialFrom = m0;
+            cur.ghost = [m0, m0 + 1].filter(m => m <= 11).map((m, k) => {
+                const u = usualIn(m);
+                let v = u != null ? u * ratio : trend(k + 1);
+                if (v == null) return null;
+                if (m === m0) v = Math.max(v, cur.vals[m0] || 0);   // (never less than this month so far)
+                return { i: m, v: Math.max(0, v) };
+            }).filter(Boolean);
+        }
+        return out;
     }
     const inYM = (x, yr, m) => { const t = new Date(x.at); return t.getFullYear() === yr && t.getMonth() === m; };
 
