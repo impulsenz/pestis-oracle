@@ -167,7 +167,13 @@ try {
   // finish the visit
   await sp.click("#visitWorkspace >> text=Complete & Close Visit"); await sleep(400);
   if (await sp.isVisible('#choiceModal')) { await sp.click('#choiceB'); await sleep(300); }
-  await sp.evaluate("document.getElementById('closingSiteNotes').value ||= 'All good'; signOff = { reason: 'Not on site' }");
+  // the submit buttons appear only on "Customer review & sign" (the customer signs first)
+  const step1 = await sp.evaluate(() => ({ foot: !document.getElementById('closeVisitFoot').classList.contains('hidden'), submit: !!document.querySelector('#completeVisitModal button.btn-primary:not([disabled])') && document.querySelector("#completeVisitModal button[onclick='finalizeAndSubmitVisit(true)']").offsetParent !== null }));
+  await sp.evaluate("document.getElementById('closingSiteNotes').value ||= 'All good'");
+  await sp.click("#closePaneJob >> text=Next: customer review & sign"); await sleep(400);
+  const step2 = await sp.evaluate(() => document.querySelector("#completeVisitModal button[onclick='finalizeAndSubmitVisit(true)']").offsetParent !== null);
+  ok(!step1.foot && !step1.submit && step2, 'closing a visit: Cancel, Download and Submit show only on Customer review & sign', { step1, step2 });
+  await sp.evaluate("signOff = { reason: 'Not on site' }");
   await sp.click("#completeVisitModal button:has-text('Submit & Download')"); await sleep(1500);
   await sp.evaluate('flushQueue && flushQueue()');
   let visit = null;

@@ -1747,7 +1747,8 @@
     <div id="completeVisitModal" class="hidden overlay fixed inset-0 z-50 flex flex-col justify-center items-center p-0 sm:p-4">
         <div class="card !p-0 max-w-3xl w-full h-full sm:h-auto sm:max-h-[94vh] flex flex-col overflow-hidden !rounded-none sm:!rounded-[1.25rem]">
             <div class="p-4 sm:p-5 border-b divider shrink-0">
-                <h3 class="font-black text-lg t-accent">Complete & Close Site Visit</h3>
+                <div class="flex items-start justify-between gap-3"><h3 class="font-black text-lg t-accent">Complete & Close Site Visit</h3>
+                    <button type="button" onclick="closeCompleteVisitModal()" class="icon-btn shrink-0" title="Close (the visit stays open)" aria-label="Close">✕</button></div>
                 <div class="flex flex-wrap gap-1.5 mt-3" role="tablist">
                     <button type="button" id="closeTabJob" role="tab" class="tab-btn active" onclick="setCloseTab('job')">1 · Visit details</button>
                     <button type="button" id="signOffBtn" role="tab" class="tab-btn" onclick="setCloseTab('sign')">2 · Customer review & sign</button>
@@ -1792,7 +1793,8 @@
                     <div id="signOffStatus" class="text-xs"></div>
                 </div>
             </div>
-            <div class="p-4 sm:p-5 border-t divider shrink-0 flex flex-wrap justify-end gap-2" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
+            <!-- shown only on "2 · Customer review & sign": the customer reviews and signs before the visit can be submitted -->
+            <div id="closeVisitFoot" class="hidden p-4 sm:p-5 border-t divider shrink-0 flex flex-wrap justify-end gap-2" style="padding-bottom: max(1rem, env(safe-area-inset-bottom));">
                 <button type="button" onclick="closeCompleteVisitModal()" class="btn btn-secondary">Cancel</button>
                 <button type="button" onclick="downloadCurrentVisitReport()" class="btn btn-secondary" title="Download a report of the visit so far without submitting it">Download</button>
                 <button type="button" onclick="finalizeAndSubmitVisit(false)" class="btn btn-blue">Submit</button>
@@ -2278,7 +2280,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.31-r105-oci';
+        const APP_VERSION = '2026.10.31-r106-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -7779,15 +7781,26 @@
         const monthName = t => new Date(t).toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' });
         const pestN = (species, count) => species && species !== NONE_SPECIES ? (parseFloat(count) > 0 ? parseFloat(count) : 1) : 0;
         // every pest record on this site's insect stations (critical limits are for insects, not rodents): [{ barcode, at, species, n, thisVisit }]
+        // (worked out once for each version of the site's stations - a big site has hundreds of thousands)
+        let pestRecsMemo = { devs: null, recs: null };
         function sitePestRecords() {
+            if (pestRecsMemo.devs === siteDevices) return pestRecsMemo.recs;
             const out = [];
             siteDevices.filter(d => isInsectType(d.deviceType) && !/rodent|\brat|mouse|mice/i.test(d.deviceType || '')).forEach(d => (d.history || []).forEach(h => (h.pests || [{ species: h.species, count: h.count }]).forEach(x => { const n = pestN(x.species, x.count); if (n) out.push({ barcode: d.barcode_id, at: h.at, species: x.species, n, thisVisit: !!h.thisVisit }); })));
+            pestRecsMemo = { devs: siteDevices, recs: out };
             return out;
+        }
+        // a list of pest records sorted out by station, once for each list
+        const recsByStation = new WeakMap();
+        function recsAt(recs, barcode) {
+            let m = recsByStation.get(recs);
+            if (!m) { m = new Map(); recs.forEach(r => { const l = m.get(r.barcode); if (l) l.push(r); else m.set(r.barcode, [r]); }); recsByStation.set(recs, m); }
+            return m.get(barcode) || [];
         }
         // one station, one pest of its limit, for the month containing t (records up to upTo)
         function limitTotal(barcode, l, rule, t, upTo, recs) {
             const [a, b] = monthBounds(t == null ? Date.now() : t);
-            const list = (recs || sitePestRecords()).filter(r => r.barcode === barcode && r.at >= a && r.at < b && (upTo == null || r.at <= upTo) && pestKey(r.species) === pestKey(rule.species));
+            const list = recsAt(recs || sitePestRecords(), barcode).filter(r => r.at >= a && r.at < b && (upTo == null || r.at <= upTo) && pestKey(r.species) === pestKey(rule.species));
             return { barcode, name: stationNameOf(barcode), limit: l, rule, total: list.reduce((n, r) => n + r.n, 0), records: list, month: a };
         }
         // every insect station on a limit, and every pest of its limit
@@ -7797,7 +7810,7 @@
             const n = pestN(species, count), l = limitById(limitId);
             if (!n || !l) return [];
             const now = Date.now();
-            const recs = sitePestRecords().filter(r => !(r.barcode === barcode && r.thisVisit)).concat([{ barcode, at: now, species, n, thisVisit: true }]);
+            const recs = recsAt(sitePestRecords(), barcode).filter(r => !r.thisVisit).concat([{ barcode, at: now, species, n, thisVisit: true }]);   // (only this station's records)
             return limitRules(l).filter(rule => pestKey(rule.species) === pestKey(species)).map(rule => limitTotal(barcode, l, rule, now, null, recs)).filter(x => x.total > x.rule.max);
         }
         // stations a visit took over their limit: that month's records up to the end of the visit, with this visit adding to it
@@ -13537,8 +13550,19 @@
         // ===================================================================
         //  COMPLETE VISIT (works offline - queued like everything else)
         // ===================================================================
+        // a message in the middle of the screen while the app works something out (shown before it starts, so it's seen)
+        async function busyNote(msg) {
+            const el = document.createElement('div');
+            el.className = 'overlay fixed inset-0 z-[70] flex items-center justify-center p-4';
+            el.setAttribute('role', 'status');
+            el.innerHTML = `<div class="card p-5 flex items-center gap-3 text-sm font-bold t-strong"><span class="inline-block w-3 h-3 rounded-full bg-brand-500 animate-pulse"></span>${esc(msg)}</div>`;
+            document.body.appendChild(el);
+            await new Promise(r => requestAnimationFrame(() => setTimeout(r, 30)));
+            return () => el.remove();
+        }
         async function openCompleteVisitModal() {
-            await flushSiteRefresh();   // everything saved on this visit is counted
+            // everything saved on this visit is counted (a big site takes a moment to catch up)
+            if (siteRefreshTimer) { const done = await busyNote('Getting the visit ready...'); try { await flushSiteRefresh(); } finally { done(); } }
             // Not every station scanned? Say so, but allow closing anyway.
             const unscanned = siteDevices.filter(d => !scannedBarcodesThisVisit.has(d.barcode_id));
             const note = document.getElementById('completeUnscannedNote');
@@ -13642,6 +13666,7 @@
             document.getElementById('closePaneSign').classList.toggle('hidden', !sign);
             document.getElementById('closeTabJob').classList.toggle('active', !sign);
             document.getElementById('signOffBtn').classList.toggle('active', sign);
+            document.getElementById('closeVisitFoot').classList.toggle('hidden', !sign);
             if (sign) {
                 document.getElementById('signOffReview').innerHTML = signOffReviewHtml();
                 if (!document.getElementById('signPad')._sized) setupSignPad();
@@ -14892,6 +14917,10 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r106', date: '2026-10-31', v: { svc: '2026.10.31-r106' },
+            svc: ['Complete & close visit: Cancel, Download, Submit and Submit & Download appear only on "2 · Customer review & sign", so the customer reviews and signs first (close the window with ✕ at the top)',
+                  '"Next: customer review & sign" opens straight away on a big site (checking the critical limits no longer reads through the whole history for every station)',
+                  'Complete & close visit right after saving a station: "Getting the visit ready..." shows while the last station is counted, instead of the screen freezing'] },
         { rev: 'r105', date: '2026-10-31', v: { svc: '2026.10.31-r105', adm: '2026.10.31-a45', cli: '2026.10.31-p60' },
             svc: ['Saving a station is instant, even on a very big site: the station is updated straight away and the rest of the site catches up a moment later (opening the same station again waits for it, so it shows what you saved)',
                   'Big sites: the station lists show the first stations with "Show more" (search finds any station), so the app stays quick with thousands of stations'],

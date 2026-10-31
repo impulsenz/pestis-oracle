@@ -3910,6 +3910,10 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r106', date: '2026-10-31', v: { svc: '2026.10.31-r106' },
+            svc: ['Complete & close visit: Cancel, Download, Submit and Submit & Download appear only on "2 · Customer review & sign", so the customer reviews and signs first (close the window with ✕ at the top)',
+                  '"Next: customer review & sign" opens straight away on a big site (checking the critical limits no longer reads through the whole history for every station)',
+                  'Complete & close visit right after saving a station: "Getting the visit ready..." shows while the last station is counted, instead of the screen freezing'] },
         { rev: 'r105', date: '2026-10-31', v: { svc: '2026.10.31-r105', adm: '2026.10.31-a45', cli: '2026.10.31-p60' },
             svc: ['Saving a station is instant, even on a very big site: the station is updated straight away and the rest of the site catches up a moment later (opening the same station again waits for it, so it shows what you saved)',
                   'Big sites: the station lists show the first stations with "Show more" (search finds any station), so the app stays quick with thousands of stations'],
