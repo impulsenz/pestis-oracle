@@ -161,8 +161,10 @@ UNIT
 systemctl daemon-reload
 systemctl enable pestis >/dev/null
 systemctl restart pestis
-sleep 2
-curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null || { journalctl -u pestis -n 30 --no-pager; die "The Pestis server did not start (log above)."; }
+# the server takes a few seconds to start (longer with a big database, or just after the machine starts): wait up to a minute
+ok=""
+for i in $(seq 1 30); do sleep 2; if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then ok=1; break; fi; done
+[ -n "$ok" ] || { journalctl -u pestis -n 30 --no-pager; die "The Pestis server did not start (log above)."; }
 echo "Pestis server is running."
 
 say "Automatic updates from GitHub (every 2 minutes)"
