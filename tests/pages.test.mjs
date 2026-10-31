@@ -83,7 +83,14 @@ try {
         const tip = await cp.evaluate(() => { const t = document.querySelector('.pr-tip.on'); return t ? t.textContent : ''; });
         if (!/caught/.test(tip) || !/check/.test(tip) || !/Station \d/.test(tip) || !/\d{4}/.test(tip)) all.push(`[${cp.app}] hovering a graph point doesn't show its details: "${tip.slice(0, 200)}" (${pt})`);
         await cp.screenshot({ path: path.join(SHOTS, `portal-tip-${w}.png`) });
-        await cp.mouse.move(1, 1);
+        // clicking the point keeps the pop-up open (moving away doesn't close it), it scrolls if it's long, and clicking elsewhere closes it
+        await cp.click('[data-test-pt="1"] .pr-hit', { force: true }); await sleep(300);
+        await cp.mouse.move(3, 400); await sleep(300);
+        const kept = await cp.evaluate(() => { const t = document.querySelector('.pr-tip'); return { on: t.classList.contains('on'), pinned: t.classList.contains('pinned'), scroll: getComputedStyle(t).overflowY, close: !!t.querySelector('.pr-tip-x'), pe: getComputedStyle(t).pointerEvents }; });
+        if (!kept.on || !kept.pinned || kept.scroll !== 'auto' || !kept.close || kept.pe !== 'auto') all.push(`[${cp.app}] a clicked graph point's pop-up doesn't stay open to scroll: ${JSON.stringify(kept)}`);
+        await cp.screenshot({ path: path.join(SHOTS, `portal-tip-pinned-${w}.png`) });
+        await cp.mouse.click(3, 400); await sleep(300);
+        if (await cp.evaluate(() => document.querySelector('.pr-tip').classList.contains('on'))) all.push(`[${cp.app}] clicking elsewhere doesn't close the graph pop-up`);
       } else all.push(`[${cp.app}] no graph points to hover`);
       await cp.screenshot({ path: path.join(SHOTS, `portal-trend-${w}.png`) });
       await cp.evaluate(() => PR.show(state.prBox, 'third')); await sleep(400);

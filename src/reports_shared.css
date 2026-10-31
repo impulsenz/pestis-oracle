@@ -35,7 +35,12 @@
 .pr-svg .pr-pt:hover .pr-dot, .pr-svg .pr-pt:focus .pr-dot { r: 6.5px; stroke-width: 3; }
 /* the pop-up over a graph's point */
 .pr-tip { position: absolute; z-index: 1000; pointer-events: none; max-width: min(320px, calc(100vw - 16px)); background: rgba(15, 23, 42, .97); color: #e2e8f0; border-radius: .75rem; padding: .6rem .75rem .65rem; font-size: 12px; line-height: 1.4;
-    box-shadow: 0 14px 34px -10px rgba(0, 0, 0, .55); border-top: 3px solid var(--tip-c, #f97316); opacity: 0; transform: translateY(4px); transition: opacity .12s ease, transform .12s ease; }
+    box-shadow: 0 14px 34px -10px rgba(0, 0, 0, .55); border-top: 3px solid var(--tip-c, #f97316); opacity: 0; transform: translateY(4px); transition: opacity .12s ease, transform .12s ease;
+    max-height: min(380px, 70vh); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(148, 163, 184, .5) transparent; }
+/* kept open (clicked): it can be scrolled and closed */
+.pr-tip.pinned { pointer-events: auto; box-shadow: 0 18px 40px -10px rgba(0, 0, 0, .6), 0 0 0 1px rgba(148, 163, 184, .25); }
+.pr-tip .pr-tip-x { position: sticky; top: 0; float: right; margin: -.2rem -.3rem .2rem .5rem; width: 1.6rem; height: 1.6rem; border-radius: 999px; border: 0; background: rgba(148, 163, 184, .22); color: #fff; font-size: 12px; font-weight: 800; cursor: pointer; z-index: 1; }
+.pr-tip .pr-tip-x:hover { background: rgba(148, 163, 184, .4); }
 .pr-tip.on { opacity: 1; transform: none; }
 .pr-tip b { color: #fff; }
 .pr-tip .pr-tip-sub { color: #94a3b8; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }

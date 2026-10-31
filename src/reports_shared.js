@@ -149,8 +149,8 @@ const PR = (() => {
     const CHARTS = new Map();
     // a point's pop-up: the month, the line and its value, then the records behind it (series.recs(i), if the line has them):
     // station checks (the pests, how many checks and stations, and the latest few with the date, time, station and technician),
-    // recommendations or visits (s.kind)
-    function tipFor(id) {
+    // recommendations or visits (s.kind). all: every record (the pop-up was clicked and stays open), not just the latest few
+    function tipFor(id, all) {
         const [cid, si, i] = String(id).split(':'), c = CHARTS.get(cid), s = c && c.series[si];
         if (!s) return '';
         const v = s.vals[i], label = c.opts.lbl ? c.opts.lbl(c.keys[i]) : c.keys[i];
@@ -159,7 +159,8 @@ const PR = (() => {
             + `<div class="pr-tip-v">${e(c.opts.yLbl ? c.opts.yLbl(v) : v)}${c.opts.unit && !c.opts.yLbl ? ` <span>${e(c.opts.unit)}</span>` : ''}</div>`;
         const recs = s.recs ? (s.recs(Number(i)) || []).slice().sort((p, q) => (q.at || q.raisedAt || q.completedAt || 0) - (p.at || p.raisedAt || p.completedAt || 0)) : [];
         if (!recs.length) return h + (s.recs ? '<div class="pr-tip-more">Nothing recorded</div>' : '');
-        const rows = (list, f) => list.slice(0, 4).map(x => `<div class="pr-tip-row">${f(x)}</div>`).join('') + (list.length > 4 ? `<div class="pr-tip-more">and ${list.length - 4} more</div>` : '');
+        const max = all ? 500 : 4;
+        const rows = (list, f) => list.slice(0, max).map(x => `<div class="pr-tip-row">${f(x)}</div>`).join('') + (list.length > max ? `<div class="pr-tip-more">and ${list.length - max} more${all ? '' : ' - click the point to see them all'}</div>` : '');
         if (s.kind === 'recs') return h + rows(recs, r => `<b>${e(r.no != null ? 'R-' + String(r.no).padStart(4, '0') : 'Recommendation')}</b> · ${e(fmtD(s.done ? r.completedAt : r.raisedAt))}${r.station ? ' · ' + e(r.station) : ''}<br>${e(String(r.text || '').slice(0, 80))}`);
         if (s.kind === 'visits') return h + rows(recs, x => `<b>${e(fmtDT(x.at))}</b> · ${e(x.type || 'Visit')}${x.tech ? ' · ' + e(x.tech) : ''}`);
         const sp = new Map(); recs.forEach(x => { if (x.species) sp.set(x.species, (sp.get(x.species) || 0) + (x.count || 0)); });
@@ -167,26 +168,40 @@ const PR = (() => {
         if (sp.size) h += `<div class="pr-tip-pests">${Array.from(sp.entries()).sort((p, q) => q[1] - p[1]).slice(0, 5).map(([n, k]) => `${e(n)} ×${k}`).join(', ')}</div>`;
         return h + rows(recs, x => `<b>${e(fmtDT(x.at))}</b> · ${e(x.station || x.barcode)}<br>${e(x.species ? x.species + (x.count > 1 ? ' ×' + x.count : '') : (x.activity && x.activity !== 'None' ? x.activity + ' activity' : 'No activity'))}${x.tech ? ' · ' + e(x.tech) : ''}`);
     }
-    let tipEl = null;
-    function showTip(pt) {
+    // the pop-up: shown while the mouse is over a point; clicking (or tapping) a point keeps it open, with every record
+    // behind it to scroll through, until you click somewhere else (or ✕, or Escape)
+    let tipEl = null, tipPinned = false;
+    function showTip(pt, pin) {
         if (!tipEl) { tipEl = document.createElement('div'); tipEl.className = 'pr-tip'; tipEl.setAttribute('role', 'tooltip'); document.body.appendChild(tipEl); }
-        tipEl.innerHTML = tipFor(pt.getAttribute('data-pt'));
+        tipPinned = !!pin;
+        tipEl.innerHTML = (pin ? '<button type="button" class="pr-tip-x" aria-label="Close">✕</button>' : '') + tipFor(pt.getAttribute('data-pt'), pin);
         tipEl.style.setProperty('--tip-c', pt.getAttribute('data-c') || '#f97316');
+        tipEl.classList.toggle('pinned', tipPinned);
         tipEl.classList.add('on');
-        const r = (pt.querySelector('.pr-dot') || pt).getBoundingClientRect(), w = tipEl.offsetWidth, h = tipEl.offsetHeight, vw = document.documentElement.clientWidth;
+        tipEl.scrollTop = 0;
+        const r = (pt.querySelector('.pr-dot') || pt).getBoundingClientRect(), w = tipEl.offsetWidth, h = tipEl.offsetHeight;
+        const vw = document.documentElement.clientWidth, vh = window.innerHeight;
         const left = Math.max(8, Math.min(vw - w - 8, r.left + r.width / 2 - w / 2));
-        let top = r.top - h - 12; const below = top < 8; if (below) top = r.bottom + 12;
-        tipEl.classList.toggle('below', below);
+        let top = r.top - h - 12;
+        if (top < 8) top = r.bottom + 12;                      // no room above: below the point
+        if (top + h > vh - 8) top = Math.max(8, vh - h - 8);   // and kept on the screen
         tipEl.style.left = (left + window.scrollX) + 'px'; tipEl.style.top = (top + window.scrollY) + 'px';
     }
-    const hideTip = () => { if (tipEl) tipEl.classList.remove('on'); };
+    const hideTip = () => { tipPinned = false; if (tipEl) tipEl.classList.remove('on', 'pinned'); };
     if (typeof document !== 'undefined') {
-        // hover with a mouse; tap on a phone (tap anywhere else to close it)
         const ptOf = ev => ev.target && ev.target.closest ? ev.target.closest('.pr-svg [data-pt]') : null;
-        document.addEventListener('mouseover', ev => { const p = ptOf(ev); if (p) showTip(p); });
-        document.addEventListener('mouseout', ev => { if (ptOf(ev)) hideTip(); });
-        document.addEventListener('click', ev => { const p = ptOf(ev); if (p) showTip(p); else hideTip(); });
-        window.addEventListener('scroll', hideTip, true);
+        const inTip = t => tipEl && t && t.nodeType === 1 && tipEl.contains(t);
+        document.addEventListener('mouseover', ev => { const p = ptOf(ev); if (p && !tipPinned) showTip(p, false); });
+        document.addEventListener('mouseout', ev => { if (ptOf(ev) && !tipPinned) hideTip(); });
+        document.addEventListener('click', ev => {
+            const p = ptOf(ev);
+            if (p) return showTip(p, true);
+            if (inTip(ev.target)) { if (ev.target.closest('.pr-tip-x')) hideTip(); return; }   // (scrolling or clicking inside keeps it open)
+            hideTip();
+        });
+        document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && tipEl && tipEl.classList.contains('on')) hideTip(); });
+        // scrolling inside it keeps it; scrolling the page moves it with the page (when it's kept open); scrolling a box it's over closes it
+        window.addEventListener('scroll', ev => { if (inTip(ev.target)) return; if (tipPinned && (ev.target === document || ev.target === document.documentElement || ev.target === document.body)) return; hideTip(); }, true);
     }
     function lineChart(series, keys, opts) {
         opts = opts || {};
