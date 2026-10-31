@@ -3,7 +3,7 @@ import re, json, sys, tempfile
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
 SP = ROOT + 'src/'
-ADMIN_VERSION = '2026.10.31-a45-oci'   # bump the a-number when Admin changes
+ADMIN_VERSION = '2026.10.31-a46-oci'   # bump the a-number when Admin changes
 idx = open(ROOT + 'index.html').read()
 src = open(SP + 'admin_src.html').read()          # the add-on version of admin.html (template + addonScript)
 
@@ -385,6 +385,7 @@ SYSTEM = r'''
         }
         async function signOut() {
             try { await withTimeout(_supabase.auth.signOut({ scope: 'local' }), 5000, 'Sign out'); } catch (e) {}
+            try { indexedDB.deleteDatabase('pestis-site-copies'); } catch (e) {}   // the copies of sites' station checks kept on this computer
             location.href = location.origin + location.pathname;
         }
         async function useDifferentAccount() { try { await withTimeout(_supabase.auth.signOut({ scope: 'local' }), 5000, 'Sign out'); } catch (e) {} location.href = location.origin + location.pathname; }
@@ -403,6 +404,9 @@ SYSTEM = r'''
             }
             currentProfile = profile;
             appStarted = true;
+            // What's new read on another computer counts here too (kept with the person's account)
+            SEEN.use(_supabase, currentUser.email);
+            SEEN.lists().then(l => { WN.merge(l.whatsnew); WN.badges('adm'); }).catch(() => {});
             try { BOARD.attach(document.getElementById('adminBoard'), 'pestis-admin-overview-board', { attention: 2 / 3, workload: 1 / 3 }); } catch (e) {}
             const name = profile.full_name || currentUser.email;
             document.getElementById('adminMeInitial').textContent = name.trim().charAt(0).toUpperCase();

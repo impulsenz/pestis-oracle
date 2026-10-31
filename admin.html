@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.31-a45-oci
+    Version 2026.10.31-a46-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -1685,6 +1685,7 @@
         }
         async function signOut() {
             try { await withTimeout(_supabase.auth.signOut({ scope: 'local' }), 5000, 'Sign out'); } catch (e) {}
+            try { indexedDB.deleteDatabase('pestis-site-copies'); } catch (e) {}   // the copies of sites' station checks kept on this computer
             location.href = location.origin + location.pathname;
         }
         async function useDifferentAccount() { try { await withTimeout(_supabase.auth.signOut({ scope: 'local' }), 5000, 'Sign out'); } catch (e) {} location.href = location.origin + location.pathname; }
@@ -1703,6 +1704,9 @@
             }
             currentProfile = profile;
             appStarted = true;
+            // What's new read on another computer counts here too (kept with the person's account)
+            SEEN.use(_supabase, currentUser.email);
+            SEEN.lists().then(l => { WN.merge(l.whatsnew); WN.badges('adm'); }).catch(() => {});
             try { BOARD.attach(document.getElementById('adminBoard'), 'pestis-admin-overview-board', { attention: 2 / 3, workload: 1 / 3 }); } catch (e) {}
             const name = profile.full_name || currentUser.email;
             document.getElementById('adminMeInitial').textContent = name.trim().charAt(0).toUpperCase();
@@ -3910,6 +3914,12 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r107', date: '2026-10-31', v: { svc: '2026.10.31-r107', adm: '2026.10.31-a46', cli: '2026.10.31-p61' },
+            svc: ['Notifications: the client updates you have seen, and the What’s new you have read, are saved to your account - on another phone or computer, or after clearing the browser, they stay seen'],
+            adm: ['What’s new you have read is saved to your account, so it stays read on any computer or after clearing the browser',
+                  'Sign out also removes the copies of sites’ station checks kept on this computer'],
+            cli: ['Notifications you have opened or dismissed (including dismissed critical limit alerts) are saved to your account - on another device, or after clearing the browser, they don’t come back',
+                  'What’s new you have read is saved to your account too'] },
         { rev: 'r106', date: '2026-10-31', v: { svc: '2026.10.31-r106' },
             svc: ['Complete & close visit: Cancel, Download, Submit and Submit & Download appear only on "2 · Customer review & sign", so the customer reviews and signs first (close the window with ✕ at the top)',
                   '"Next: customer review & sign" opens straight away on a big site (checking the critical limits no longer reads through the whole history for every station)',
@@ -4241,7 +4251,12 @@ const WN = (() => {
     const rank = rev => Number(String(rev || '').replace(/\D/g, '')) || 0;
     // updates for this app the person hasn't opened yet
     function unseen(app) { const s = rank(seen(app)); const list = forApp(app); return s ? list.filter(x => rank(x.rev) > s).length : (list.length ? 1 : 0); }
-    function markSeen(app) { const l = forApp(app)[0]; if (l) { try { localStorage.setItem(KEY(app), l.rev); } catch (err) {} } badges(app); }
+    function markSeen(app) { const l = forApp(app)[0]; if (l) { try { localStorage.setItem(KEY(app), l.rev); } catch (err) {} SEEN.add('whatsnew', app + ':' + l.rev); } badges(app); }
+    // what the person read on another device (their account's list): the newer of that and this device's counts
+    function merge(list) {
+        (list || []).forEach(k => { const [app, rev] = String(k).split(':'); if (rev && rank(rev) > rank(seen(app))) { try { localStorage.setItem(KEY(app), rev); } catch (err) {} } });
+        ['svc', 'adm', 'cli'].forEach(app => { const s = seen(app); if (s) SEEN.add('whatsnew', app + ':' + s, true); });
+    }
     function badges(app) { const n = unseen(app); document.querySelectorAll('[data-wn-badge]').forEach(b => { b.textContent = n ? 'New' : ''; b.style.display = n ? '' : 'none'; }); }
     function html(app) {
         const s = rank(seen(app));
@@ -4258,7 +4273,43 @@ const WN = (() => {
             + list.map(x => `<div class="wn-rev ${s && rank(x.rev) > s ? 'wn-new' : ''}"><div class="wn-h"><b>Update ${e(x.rev)}</b>${x.date ? `<span>${e(fmt(x.date))}</span>` : ''}${x.v && x.v[app] ? `<span>version ${e(x.v[app])}</span>` : ''}${s && rank(x.rev) > s ? '<span class="wn-tag">New</span>' : ''}</div>`
                 + `<ul>${x[app].map(t => `<li>${e(t)}</li>`).join('')}</ul></div>`).join('') + '</div>';
     }
-    return { LOG, html, unseen, markSeen, badges, latest: app => forApp(app)[0] };
+    return { LOG, html, unseen, markSeen, badges, merge, latest: app => forApp(app)[0] };
+})();
+// ---------- Seen and dismissed notifications (and What's new read), kept with the person's account ----------
+// so they follow the person to any browser, and clearing a browser doesn't bring them all back. Each app also keeps its own
+// copy on the device. SEEN.use(db, email) once signed in; SEEN.add(list, keys) saves (what can't be sent now is sent later);
+// SEEN.lists() gives the account's lists ({ list: [keys] }) and sends anything waiting.
+const SEEN = (() => {
+    let db = null, who = '', known = {};
+    const WAIT = () => 'pestis-seen-waiting:' + who;   // (each person's own)
+    const waiting = () => { try { return JSON.parse(localStorage.getItem(WAIT()) || '{}') || {}; } catch (e) { return {}; } };
+    const keepWaiting = w => { try { localStorage.setItem(WAIT(), JSON.stringify(w)); } catch (e) {} };
+    async function send(list, keys) {
+        if (!db || !keys.length) return false;
+        try { const r = await db.rpc('seen_add', { p_list: list, p_keys: keys }); return !(r && r.error); } catch (e) { return false; }
+    }
+    // quiet: only if the account doesn't have it yet (used when catching the account up with this device)
+    async function add(list, keys, quiet) {
+        keys = (Array.isArray(keys) ? keys : [keys]).map(String).filter(Boolean);
+        const have = known[list] || (known[list] = new Set());
+        if (quiet) keys = keys.filter(k => !have.has(k));
+        if (!keys.length) return;
+        keys.forEach(k => have.add(k));
+        if (await send(list, keys)) return;
+        const w = waiting(); w[list] = Array.from(new Set((w[list] || []).concat(keys))).slice(-3000); keepWaiting(w);
+    }
+    async function lists() {
+        if (!db) return {};
+        let seen = {};
+        try { const { data, error } = await db.rpc('get_my_prefs'); if (error) return {}; seen = (data && data.seen) || {}; } catch (e) { return {}; }
+        known = {}; Object.keys(seen).forEach(l => { known[l] = new Set(seen[l]); });
+        const w = waiting(); keepWaiting({});
+        for (const l of Object.keys(w)) await add(l, w[l], true);
+        return seen;
+    }
+    function use(client, person) { db = client; who = String(person || ''); known = {}; }
+    function stop() { db = null; who = ''; known = {}; }
+    return { use, stop, add, lists };
 })();
 /* PESTIS-CHANGELOG:END */
 
@@ -5063,7 +5114,7 @@ const LOGS = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a45-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a46-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');

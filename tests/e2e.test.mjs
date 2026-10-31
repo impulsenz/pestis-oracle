@@ -67,6 +67,15 @@ try {
   await sleep(2500);
   const liveState = await sp.evaluate('typeof liveState !== "undefined" ? liveState : null');
   ok(liveState === 'live', 'live updates connected', liveState);
+  // the client updates this person has seen follow them too
+  const svcSeen = await sp.evaluate(async () => {
+    const t = new Date(Date.now() - 3600000).toISOString();
+    clientUpdatesSeen = t; saveJSON(CLIENT_SEEN_KEY, t); await SEEN.add('client_updates_seen', t);
+    localStorage.removeItem(CLIENT_SEEN_KEY); clientUpdatesSeen = new Date(Date.now() - 7 * 86400000).toISOString();
+    await syncSeen();
+    return { back: clientUpdatesSeen === t };
+  });
+  ok(svcSeen.back, 'service app: the client updates already seen come back from the account', svcSeen);
   ok(await sp.evaluate("siteDevices.some(d => d.barcode === 'TOX-1' || d.barcodeId === 'TOX-1' || d.id === 'TOX-1')") || (await sp.textContent('body')).includes('Store Room'), 'site data downloaded');
   // overview boxes on a computer: the photo cards share the box width (3 across in a usual box), no empty space at the side
   const grids = await sp.evaluate(() => Array.from(document.querySelectorAll('.land-card .nf-grid')).filter(g => g.offsetParent).map(g => { const c = g.closest('.land-card'), cs = getComputedStyle(c);
@@ -275,6 +284,17 @@ try {
     showLoading('Loading the latest records', SITE_LOAD_STEPS); await loadSiteData(state.site); clearInterval(t); showOnly('siteView'); renderTab();
     return { afterHidden: after.hidden, hookOff: !after.hook && !sb.onReceived, shown, bytes: dl.bytes, rows: dl.rows, total: dl.total, logs: state.data.logs.length };
   });
+  // seen and dismissed notifications follow the person: clear this browser and they come back from the account
+  const follow = await cp.evaluate(async () => {
+    markBellKeySeen('test:seen-1'); dismissBreaches('lim:test:1'); WN.markSeen('cli');
+    await new Promise(r => setTimeout(r, 800));
+    const wn = localStorage.getItem('pestis-whatsnew-seen-cli');
+    localStorage.removeItem(BELL_SEEN_KEY()); localStorage.removeItem(DISMISS_KEY()); localStorage.removeItem('pestis-whatsnew-seen-cli');
+    const cleared = bellSeen().has('test:seen-1');
+    await syncSeen();
+    return { cleared, seen: bellSeen().has('test:seen-1'), dismissed: dismissedBreaches().has('lim:test:1'), wn: localStorage.getItem('pestis-whatsnew-seen-cli') === wn && !!wn };
+  });
+  ok(!follow.cleared && follow.seen && follow.dismissed && follow.wn, 'seen and dismissed notifications are kept with the account (a cleared browser gets them back)', follow);
   // the copy kept on this device: the first time everything comes down, after that only what's new or changed;
   // a removed check (or one a client could only see later) is put right from the count
   const copyRun = () => cp.evaluate(async () => { let last; const rows = await LOGS.load(sb, '1', { who: 'copy-test', onProgress: p => { last = p; } });

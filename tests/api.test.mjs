@@ -191,6 +191,15 @@ try {
   await tech.rpc('save_my_pref', { p_key: 'service_app', p_value: { theme: 'dark' } });
   r = await tech.rpc('get_my_prefs');
   ok(r.data && r.data.service_app && r.data.service_app.theme === 'dark', 'prefs saved', r);
+  // seen and dismissed notifications: kept with the account, only ever added to, each person's own
+  await tech.rpc('seen_add', { p_list: 'portal_bell', p_keys: ['visit:1', 'rec:2'] });
+  await tech.rpc('seen_add', { p_list: 'portal_bell', p_keys: ['rec:2', 'doc:3'] });
+  await tech.rpc('seen_add', { p_list: 'whatsnew', p_keys: 'svc:r106' });
+  const badList = await tech.rpc('seen_add', { p_list: 'Bad List!', p_keys: ['x'] });
+  r = await tech.rpc('get_my_prefs');
+  const boss2 = await as('boss@example.com'), other = await boss2.rpc('get_my_prefs');
+  ok(r.data.seen && r.data.seen.portal_bell.join() === 'visit:1,rec:2,doc:3' && r.data.seen.whatsnew.join() === 'svc:r106' && r.data.service_app.theme === 'dark' && badList.error
+    && !((other.data || {}).seen || {}).portal_bell, 'seen notifications: kept with the account, added to, everyone has their own', { seen: r.data.seen, bad: badList.error, other: other.data });
   r = await tech.rpc('save_my_ui_prefs', { p_key: 'board', p_value: { cols: 3 } });
   r = await tech.from('profiles').select('ui_prefs').eq('id', tech.uid).single();
   ok(r.data.ui_prefs.board.cols === 3, 'ui prefs saved', r.data);

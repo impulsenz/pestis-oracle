@@ -818,6 +818,21 @@ const RPC = {
   },
   get_my_prefs: me => (sys.one('user_prefs', [['user_id', 'eq', me.uid]]) || {}).prefs || {},
   save_my_pref(me, a) { savePref(me.uid, a.p_key, a.p_value, 250000); return null; },
+  // notifications this person has seen or dismissed, and the What's new they've read: kept with their account (prefs.seen),
+  // so they follow them to any browser. Only ever added to, so two devices can't undo each other.
+  seen_add(me, a) {
+    if (!me.uid) fail('Sign in first');
+    const list = String(a.p_list || '');
+    if (!/^[a-z0-9_]{1,40}$/.test(list)) fail('Bad list name');
+    const keys = (Array.isArray(a.p_keys) ? a.p_keys : [a.p_keys]).filter(k => k != null && k !== '').map(String).filter(k => k.length <= 300).slice(0, 2000);
+    if (!keys.length) return null;
+    const ex = sys.one('user_prefs', [['user_id', 'eq', me.uid]]), seen = Object.assign({}, (ex && ex.prefs && ex.prefs.seen) || {});
+    const set = new Set(Array.isArray(seen[list]) ? seen[list] : []);
+    keys.forEach(k => { set.delete(k); set.add(k); });   // newest last; the oldest drop off past 3,000
+    seen[list] = Array.from(set).slice(-3000);
+    savePref(me.uid, 'seen', seen, 2000000);
+    return null;
+  },
   // delete a site and everything on it (admins only): its records in every site table, contacts, client access,
   // history, and the files those records point at (photos, documents, floor plans, signatures)
   admin_delete_site(me, a) {
