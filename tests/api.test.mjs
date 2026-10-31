@@ -92,6 +92,21 @@ try {
   ok(r.data && r.data.length === 1 && r.data[0].barcode_id === 'B4', 'delete returning', r);
   r = await tech.from('service_logs').select('barcode_id').eq('client_id', 1).is('payload->>missing', null).order('barcode_id', { ascending: false }).range(0, 1);
   ok(r.data && r.data.map(x => x.barcode_id).join() === 'B3,B2', 'is null + order desc + range', r);
+  // big sites page through station checks by date (straight from the index): every row once, in order, both ways
+  {
+    const times = Array.from({ length: 23 }, (_, i) => new Date(Date.UTC(2020, 0, 1) + ((i * 7919) % 23) * 3600000).toISOString());
+    await tech.from('service_logs').insert(times.map((t, i) => ({ client_id: 1, barcode_id: 'ORD-' + i, payload: {}, created_at: t })));
+    const pages = async asc => { const out = []; for (let from = 0; ; from += 5) { const p = (await tech.from('service_logs').select('barcode_id, created_at').eq('client_id', 1).like('barcode_id', 'ORD-*').order('created_at', { ascending: asc }).range(from, from + 4)).data || []; out.push(...p); if (p.length < 5) return out; } };
+    const up = await pages(true), down = await pages(false), sorted = times.slice().sort();
+    ok(up.map(x => x.created_at).join() === sorted.join() && down.map(x => x.created_at).join() === sorted.slice().reverse().join() && new Set(up.map(x => x.barcode_id)).size === 23,
+      'paging by created_at: every row once, in date order (up and down)', { up: up.length, down: down.length });
+    await tech.from('service_logs').delete().eq('client_id', 1).like('barcode_id', 'ORD-*');
+  }
+  // a column that can be empty still sorts its empty ones last going up (like Postgres)
+  await tech.from('stations').insert([{ id: 'ord-a', client_id: '1', barcode: 'ORD-A', pin_x: 0.5 }, { id: 'ord-b', client_id: '1', barcode: 'ORD-B' }, { id: 'ord-c', client_id: '1', barcode: 'ORD-C', pin_x: 0.2 }]);
+  r = await tech.from('stations').select('id').in('id', ['ord-a', 'ord-b', 'ord-c']).order('pin_x', { ascending: true });
+  ok(r.data && r.data.map(x => x.id).join() === 'ord-c,ord-a,ord-b', 'order on a column that can be empty: empty ones last', r);
+  await tech.from('stations').delete().in('id', ['ord-a', 'ord-b', 'ord-c']);
   r = await tech.from('service_logs').select('nope');
   ok(r.error && r.error.code === '42703', 'unknown column errors', r.error);
   r = await tech.from('app_options').select('*');

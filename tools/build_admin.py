@@ -3,7 +3,7 @@ import re, json, sys, tempfile
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
 SP = ROOT + 'src/'
-ADMIN_VERSION = '2026.10.31-a42-oci'   # bump the a-number when Admin changes
+ADMIN_VERSION = '2026.10.31-a43-oci'   # bump the a-number when Admin changes
 idx = open(ROOT + 'index.html').read()
 src = open(SP + 'admin_src.html').read()          # the add-on version of admin.html (template + addonScript)
 

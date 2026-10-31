@@ -296,7 +296,7 @@ function colExpr(t, name) {
   }
   const cd = t.cols.get(name);
   if (!cd) throw new PgError('42703', `column ${t.name}.${name} does not exist`);
-  return { sql: q(name), type: cd.type };
+  return { sql: q(name), type: cd.type, nn: !!cd.nn };
 }
 function filterSql(t, f, params) {
   let [col, op, val] = f;
@@ -366,6 +366,8 @@ function orderSql(t, order) {
     const e = colExpr(t, col);
     const nf = nullsFirst === undefined || nullsFirst === null ? !asc : !!nullsFirst;   // like Postgres: nulls last going up, first going down
     const coll = e.type === 'text' || e.type === 'uuid' ? ' COLLATE NOCASE' : '';
+    // a column that is never empty sorts on its own, so the database can use its index (much faster on big sites)
+    if (e.nn) return `${e.sql}${coll} ${asc ? 'ASC' : 'DESC'}`;
     return `(${e.sql} IS NULL) ${nf ? 'DESC' : 'ASC'}, ${e.sql}${coll} ${asc ? 'ASC' : 'DESC'}`;
   });
 }

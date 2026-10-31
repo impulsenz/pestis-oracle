@@ -6,7 +6,7 @@
     The Admin site, separate from the Service App (index.html) and the Client Portal (client.html):
     its own page, its own sign-in (admin accounts only) and its own code. They only share the database.
     Open it at  https://<your site>/admin.html  and upload it next to index.html.
-    Version 2026.10.31-a42-oci
+    Version 2026.10.31-a43-oci
 -->
 <head>
     <meta charset="UTF-8">
@@ -816,6 +816,7 @@
         .map-menu-item:hover { background: var(--surface3); }
         .map-pin { position: absolute; width: 0; height: 0; }
         .map-pin-inner { position: absolute; left: 0; top: 0; transform-origin: 50% 100%; cursor: pointer; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
+        .heat-layer ~ .map-pin .map-pin-head { width: 16px !important; height: 16px !important; border-width: 1.5px !important; opacity: .7; }   /* heat map on: the colours show between the pins */
         .map-pin-head { width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2.5px solid #fff; box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .6); display: flex; align-items: center; justify-content: center; }
         .map-pin-head span { transform: rotate(45deg); color: #fff; font-size: 12px; font-weight: 900; line-height: 1; }
         .map-pin-label { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 4px; white-space: nowrap; font-size: 11px; font-weight: 800; padding: 1px 2px; color: var(--pin-color, #0f172a); text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff; }
@@ -1010,6 +1011,7 @@
         @media (min-width: 900px) { .as-bmgr-body { grid-template-columns: 1fr 1fr; } .as-bmgr-body > p { grid-column: 1 / -1; } }
         .as-bmgr .pv-pick, .as-st-pick { min-width: 11rem; max-width: 15rem; }
         .as-pin-label { position: absolute; left: calc(100% + 3px); top: 0; white-space: nowrap; font-style: normal; font-size: 11px; font-weight: 800; line-height: 1; text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff; pointer-events: none; }
+        .heat-layer ~ .as-pin > span { width: 10px !important; height: 10px !important; border-width: 1.5px !important; opacity: .7; }   /* heat map on: the colours show between the pins */
         .as-pin > span { display: block; width: 16px; height: 16px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2px solid #fff; box-shadow: 0 3px 8px -2px rgba(0, 0, 0, .6); }
         .as-grid > * { break-inside: avoid; margin-bottom: 1.25rem; }
         @media (min-width: 1024px) { .as-grid { column-count: 2; } }
@@ -2424,11 +2426,21 @@
 
         function closeInfoModal() { document.getElementById('infoModal').classList.add('hidden'); }
 
+        // date formats made once and reused (making one for every date is slow on a big site)
+        const dateFmts = new Map();
+
+        function fmtWith(d, opts) {
+            if (isNaN(d)) return d.toLocaleString(LOCALE, opts);
+            const k = JSON.stringify(opts);
+            let f = dateFmts.get(k); if (!f) dateFmts.set(k, f = new Intl.DateTimeFormat(LOCALE, opts));
+            return f.format(d);
+        }
+
         function fmtDateTimeLong(iso) {
             const d = new Date(iso);
             return {
-                date: d.toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
-                time: d.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' })
+                date: fmtWith(d, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
+                time: fmtWith(d, { hour: 'numeric', minute: '2-digit' })
             };
         }
 
@@ -3488,20 +3500,35 @@ const PVR = (() => {
     function heatCanvas(w, h, pts) {
         const k = Math.min(1, 900 / Math.max(w, h, 1)), W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
         const c = document.createElement('canvas'); c.width = W; c.height = H;
-        const hot = pts.filter(p => p.v > 0), max = Math.max(1, ...hot.map(p => p.v));
+        const hot = pts.filter(p => p.v > 0);
         if (!hot.length) return c;
-        const g = c.getContext('2d'), r = Math.max(W, H) * .11;
+        // the busiest stations count as "the most": with many stations, the top 5% (so one very busy station
+        // doesn't make all the others look quiet), but never less than a quarter of the busiest one
+        const vs = hot.map(p => p.v).sort((a, b) => a - b), top1 = vs[vs.length - 1];
+        const max = hot.length >= 20 ? Math.max(vs[Math.floor(vs.length * .95)], top1 / 4) : top1;
+        // each station glows around itself; the glow is smaller when there are many stations, so a crowded plan
+        // still shows where the activity is
+        const r = Math.max(4, Math.max(W, H) * Math.min(.11, Math.max(.05, .11 * Math.sqrt(12 / hot.length))));
+        const heat = new Float32Array(W * H), cover = new Float32Array(W * H);
         hot.forEach(p => {
-            const x = p.x * W, y = p.y * H, gr = g.createRadialGradient(x, y, 0, x, y, r);
-            gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-            g.globalAlpha = .3 + .7 * Math.sqrt(p.v / max);   // any activity shows; the busiest the most
-            g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+            const cx = p.x * W, cy = p.y * H, w = Math.min(1, p.v / max);
+            const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(W - 1, Math.ceil(cx + r)), y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(H - 1, Math.ceil(cy + r));
+            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+                const dd = Math.hypot(x - cx, y - cy) / r; if (dd >= 1) continue;
+                const f = (1 - dd) * (1 - dd), i = y * W + x;
+                heat[i] += w * f;
+                if (1 - dd > cover[i]) cover[i] = 1 - dd;
+            }
         });
-        const img = g.getImageData(0, 0, W, H), d = img.data;
-        for (let i = 0; i < d.length; i += 4) {
-            const t = d[i + 3] / 255; if (!t) continue;
-            const [cr, cg, cb] = heatRgb(Math.min(1, t));
-            d[i] = cr; d[i + 1] = cg; d[i + 2] = cb; d[i + 3] = Math.round(Math.min(1, t * 1.6) * 175);
+        let top = 0; for (let i = 0; i < heat.length; i++) if (heat[i] > top) top = heat[i];
+        // the colour: how busy this spot is next to the busiest spot on the plan (blue a little, red the most);
+        // any activity shows, fading out around each station
+        const lut = Array.from({ length: 256 }, (_, i) => heatRgb(i / 255));
+        const g = c.getContext('2d'), img = g.createImageData(W, H), d = img.data;
+        for (let i = 0; i < heat.length; i++) {
+            const cv = cover[i]; if (!cv) continue;
+            const t = Math.sqrt(heat[i] / top), rgb = lut[Math.min(255, Math.round(t * 255))], j = i * 4;
+            d[j] = rgb[0]; d[j + 1] = rgb[1]; d[j + 2] = rgb[2]; d[j + 3] = Math.round(Math.min(1, cv * 1.8 * (.5 + .5 * t)) * 190);
         }
         g.putImageData(img, 0, 0);
         return c;
@@ -3875,6 +3902,13 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r103', date: '2026-10-31', v: { svc: '2026.10.31-r103', adm: '2026.10.31-a43', cli: '2026.10.31-p58' },
+            svc: ['Big sites are much faster: a site with hundreds of thousands of station checks downloads in big pieces, opens in seconds, and saving a new check no longer re-saves the whole history on the phone (only the part that changed)',
+                  'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'],
+            adm: ['Big sites are much faster: a site page with hundreds of thousands of station checks opens in seconds, and every check is included (before, a very big site stopped at 200,000)',
+                  'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'],
+            cli: ['Big sites are much faster: a site with a long history opens in seconds, and Reports (Critical limits especially) and the floor plan heat map come up straight away',
+                  'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'] },
         { rev: 'r102', date: '2026-10-31', v: { svc: '2026.10.31-r102', adm: '2026.10.31-a42', cli: '2026.10.31-p57' },
             svc: ['Buildings: a site can have several buildings, and each floor plan sits under a building. On the floor plan screen, choose the building, then the floor plan in it (both drop-downs can be searched). "+ New building" is in the building drop-down',
                   'Adding or renaming a floor plan: choose its building ("Rename or move to another building" in the ⋯ menu moves a plan)',
@@ -4227,9 +4261,11 @@ const PR = (() => {
     const prepLink = (opts, name, bold) => { const id = name && opts.sdsOf ? opts.sdsOf(name) : null; const t = bold ? `<b>${e(name)}</b>` : e(name); return id ? `<button type="button" class="pr-link" data-id="${e(id)}" onclick="PR.sds(this, this.dataset.id)" title="Open the safety data sheet">${t} <span class="pr-sds">SDS ↗</span></button>` : t; };
     const monthKey = t => { const d = new Date(t); return d.getFullYear() * 12 + d.getMonth(); };
     const monthStart = k => new Date(Math.floor(k / 12), k % 12, 1).getTime();
-    const monthLbl = k => new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString(LOC, { month: 'short', year: '2-digit' });
-    const monthLong = k => new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString(LOC, { month: 'long', year: 'numeric' });
-    const pestKey = p => String(p || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/ies$/, 'y').replace(/([^s])s$/, '$1');
+    // month names, worked out once each (a big report asks for them thousands of times)
+    const memo = f => { const m = new Map(); return k => { let v = m.get(k); if (v === undefined) m.set(k, v = f(k)); return v; }; };
+    const monthLbl = memo(k => new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString(LOC, { month: 'short', year: '2-digit' }));
+    const monthLong = memo(k => new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString(LOC, { month: 'long', year: 'numeric' }));
+    const pestKey = memo(p => String(p || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/ies$/, 'y').replace(/([^s])s$/, '$1'));
     const PALETTE = ['#2563eb', '#ea580c', '#16a34a', '#9333ea', '#dc2626', '#0891b2', '#ca8a04', '#db2777', '#64748b'];
     const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
     // filters you can tick several of (nothing ticked = all of them)
@@ -4614,7 +4650,10 @@ const PR = (() => {
             const inPick = mk => mk >= a && mk <= b;
             const when = a === b ? monthLong(a) : `${monthLong(a)} - ${monthLong(b)}`;
             const limById = new Map(d.limits.map(l => [String(l.id), l]));
-            const stCount = (st, rule, mk) => d.entries.filter(x => x.barcode === st.barcode && monthKey(x.at) === mk && pestKey(x.species) === pestKey(rule.species)).reduce((n, x) => n + x.count, 0);
+            // each station's catch of each insect each month, added up once (a big site has hundreds of thousands of records)
+            const caught = new Map();
+            d.entries.forEach(x => { if (!x.species) return; const k = x.barcode + '|' + monthKey(x.at) + '|' + pestKey(x.species); caught.set(k, (caught.get(k) || 0) + x.count); });
+            const stCount = (st, rule, mk) => caught.get(st.barcode + '|' + mk + '|' + pestKey(rule.species)) || 0;
             // one insect at one station in one month: this station's catch against its limit
             const monthOf = (st, rule, mk) => {
                 const mine = stCount(st, rule, mk);
@@ -4899,7 +4938,7 @@ const PR = (() => {
 /* PESTIS-REPORTS:END */
 
         // Tells index.html what loaded, and which version of the hook-up it was written for
-        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a42-oci', api: 0 };
+        window.ADDON_INFO = { name: 'Pestis Admin', version: '2026.10.31-a43-oci', api: 0 };
 
         async function loadAdminPanel() {
             const profList = document.getElementById('adminProfilesList');
@@ -5616,12 +5655,15 @@ const PR = (() => {
             sel.value = adminSiteId;
         }
         async function adminFetchAll(table, cid, cols) {
-            let out = [];
-            for (let from = 0; from < 200000; from += 1000) {
-                const { data, error } = await _supabase.from(table).select(cols || '*').eq('client_id', String(cid)).range(from, from + 999);
+            // station checks come in big pieces, oldest first (the server reads them straight from its index)
+            const logs = table === 'service_logs', PAGE = logs ? 5000 : 1000, out = [];
+            for (let from = 0; ; from += PAGE) {
+                let q = _supabase.from(table).select(cols || '*').eq('client_id', String(cid));
+                if (logs) q = q.order('created_at', { ascending: true });
+                const { data, error } = await q.range(from, from + PAGE - 1);
                 if (error) throw error;
-                out = out.concat(data || []);
-                if (!data || data.length < 1000) break;
+                for (const r of data || []) out.push(r);
+                if (!data || data.length < PAGE) break;
             }
             return out;
         }
@@ -5916,8 +5958,9 @@ const PR = (() => {
         // each station's floor plan (its building comes with it); a station moved to another plan is placed on it again in the Service App
         function fillAdminStationPlans() {
             const items = adminPlan.allMaps.map(m => [m.id, m.name || 'Floor plan', aBuildingName(aBuildingOf(m)) || (adminPlan.buildings.length ? 'Not in a building' : '')]);
+            const byId = new Map(adminPlan.stations.map(x => [x.id, x]));
             document.querySelectorAll('#asStations [data-st-plan]').forEach(td => {
-                const st = adminPlan.stations.find(x => x.id === td.dataset.stPlan); if (!st) return;
+                const st = byId.get(td.dataset.stPlan); if (!st) return;
                 td.innerHTML = PVR.pick({ k: st.id, items, all: 'Not on a floor plan', cur: st.map_id || '', cb: 'adminStationSetPlan', search: 'Find a building or floor plan...', cls: 'as-st-pick' });
             });
         }
@@ -5936,8 +5979,9 @@ const PR = (() => {
             const old = stage.querySelector('.heat-layer'); if (old) old.remove();
             if (!adminPlan.heat.on) return;
             if (!adminPlan.entries) { box.innerHTML = '<div class="t-faint">Loading the activity...</div>'; return; }
-            const es = adminPlan.entries;
-            const pts = PVR.heatPoints(adminPlan.stations.filter(x => String(x.map_id) === String(m.id)).map(x => ({ x: x.pin_x, y: x.pin_y, name: x.name || x.barcode, recs: es.filter(e => e.barcode === x.barcode) })), adminPlan.heat);
+            const es = adminPlan.entries, byStation = new Map();   // each station's records, sorted out once
+            es.forEach(e => { const l = byStation.get(e.barcode); if (l) l.push(e); else byStation.set(e.barcode, [e]); });
+            const pts = PVR.heatPoints(adminPlan.stations.filter(x => String(x.map_id) === String(m.id)).map(x => ({ x: x.pin_x, y: x.pin_y, name: x.name || x.barcode, recs: byStation.get(x.barcode) || [] })), adminPlan.heat);
             PVR.heatMount(box, PVR.heatPanel('adminPlanHeatSet', adminPlan.heat, Array.from(new Set(es.map(e => e.species).filter(Boolean))).sort((a, b) => a.localeCompare(b)), pts));
             const img = stage.querySelector('img');
             if (!img || !img.naturalWidth) return;

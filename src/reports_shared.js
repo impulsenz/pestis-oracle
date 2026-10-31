@@ -20,9 +20,11 @@ const PR = (() => {
     const prepLink = (opts, name, bold) => { const id = name && opts.sdsOf ? opts.sdsOf(name) : null; const t = bold ? `<b>${e(name)}</b>` : e(name); return id ? `<button type="button" class="pr-link" data-id="${e(id)}" onclick="PR.sds(this, this.dataset.id)" title="Open the safety data sheet">${t} <span class="pr-sds">SDS ↗</span></button>` : t; };
     const monthKey = t => { const d = new Date(t); return d.getFullYear() * 12 + d.getMonth(); };
     const monthStart = k => new Date(Math.floor(k / 12), k % 12, 1).getTime();
-    const monthLbl = k => new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString(LOC, { month: 'short', year: '2-digit' });
-    const monthLong = k => new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString(LOC, { month: 'long', year: 'numeric' });
-    const pestKey = p => String(p || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/ies$/, 'y').replace(/([^s])s$/, '$1');
+    // month names, worked out once each (a big report asks for them thousands of times)
+    const memo = f => { const m = new Map(); return k => { let v = m.get(k); if (v === undefined) m.set(k, v = f(k)); return v; }; };
+    const monthLbl = memo(k => new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString(LOC, { month: 'short', year: '2-digit' }));
+    const monthLong = memo(k => new Date(Math.floor(k / 12), k % 12, 1).toLocaleDateString(LOC, { month: 'long', year: 'numeric' }));
+    const pestKey = memo(p => String(p || '').trim().toLowerCase().replace(/\s+/g, ' ').replace(/ies$/, 'y').replace(/([^s])s$/, '$1'));
     const PALETTE = ['#2563eb', '#ea580c', '#16a34a', '#9333ea', '#dc2626', '#0891b2', '#ca8a04', '#db2777', '#64748b'];
     const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
     // filters you can tick several of (nothing ticked = all of them)
@@ -407,7 +409,10 @@ const PR = (() => {
             const inPick = mk => mk >= a && mk <= b;
             const when = a === b ? monthLong(a) : `${monthLong(a)} - ${monthLong(b)}`;
             const limById = new Map(d.limits.map(l => [String(l.id), l]));
-            const stCount = (st, rule, mk) => d.entries.filter(x => x.barcode === st.barcode && monthKey(x.at) === mk && pestKey(x.species) === pestKey(rule.species)).reduce((n, x) => n + x.count, 0);
+            // each station's catch of each insect each month, added up once (a big site has hundreds of thousands of records)
+            const caught = new Map();
+            d.entries.forEach(x => { if (!x.species) return; const k = x.barcode + '|' + monthKey(x.at) + '|' + pestKey(x.species); caught.set(k, (caught.get(k) || 0) + x.count); });
+            const stCount = (st, rule, mk) => caught.get(st.barcode + '|' + mk + '|' + pestKey(rule.species)) || 0;
             // one insect at one station in one month: this station's catch against its limit
             const monthOf = (st, rule, mk) => {
                 const mine = stCount(st, rule, mk);

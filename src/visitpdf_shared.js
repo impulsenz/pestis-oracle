@@ -306,20 +306,35 @@ const PVR = (() => {
     function heatCanvas(w, h, pts) {
         const k = Math.min(1, 900 / Math.max(w, h, 1)), W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
         const c = document.createElement('canvas'); c.width = W; c.height = H;
-        const hot = pts.filter(p => p.v > 0), max = Math.max(1, ...hot.map(p => p.v));
+        const hot = pts.filter(p => p.v > 0);
         if (!hot.length) return c;
-        const g = c.getContext('2d'), r = Math.max(W, H) * .11;
+        // the busiest stations count as "the most": with many stations, the top 5% (so one very busy station
+        // doesn't make all the others look quiet), but never less than a quarter of the busiest one
+        const vs = hot.map(p => p.v).sort((a, b) => a - b), top1 = vs[vs.length - 1];
+        const max = hot.length >= 20 ? Math.max(vs[Math.floor(vs.length * .95)], top1 / 4) : top1;
+        // each station glows around itself; the glow is smaller when there are many stations, so a crowded plan
+        // still shows where the activity is
+        const r = Math.max(4, Math.max(W, H) * Math.min(.11, Math.max(.05, .11 * Math.sqrt(12 / hot.length))));
+        const heat = new Float32Array(W * H), cover = new Float32Array(W * H);
         hot.forEach(p => {
-            const x = p.x * W, y = p.y * H, gr = g.createRadialGradient(x, y, 0, x, y, r);
-            gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-            g.globalAlpha = .3 + .7 * Math.sqrt(p.v / max);   // any activity shows; the busiest the most
-            g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+            const cx = p.x * W, cy = p.y * H, w = Math.min(1, p.v / max);
+            const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(W - 1, Math.ceil(cx + r)), y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(H - 1, Math.ceil(cy + r));
+            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+                const dd = Math.hypot(x - cx, y - cy) / r; if (dd >= 1) continue;
+                const f = (1 - dd) * (1 - dd), i = y * W + x;
+                heat[i] += w * f;
+                if (1 - dd > cover[i]) cover[i] = 1 - dd;
+            }
         });
-        const img = g.getImageData(0, 0, W, H), d = img.data;
-        for (let i = 0; i < d.length; i += 4) {
-            const t = d[i + 3] / 255; if (!t) continue;
-            const [cr, cg, cb] = heatRgb(Math.min(1, t));
-            d[i] = cr; d[i + 1] = cg; d[i + 2] = cb; d[i + 3] = Math.round(Math.min(1, t * 1.6) * 175);
+        let top = 0; for (let i = 0; i < heat.length; i++) if (heat[i] > top) top = heat[i];
+        // the colour: how busy this spot is next to the busiest spot on the plan (blue a little, red the most);
+        // any activity shows, fading out around each station
+        const lut = Array.from({ length: 256 }, (_, i) => heatRgb(i / 255));
+        const g = c.getContext('2d'), img = g.createImageData(W, H), d = img.data;
+        for (let i = 0; i < heat.length; i++) {
+            const cv = cover[i]; if (!cv) continue;
+            const t = Math.sqrt(heat[i] / top), rgb = lut[Math.min(255, Math.round(t * 255))], j = i * 4;
+            d[j] = rgb[0]; d[j + 1] = rgb[1]; d[j + 2] = rgb[2]; d[j + 3] = Math.round(Math.min(1, cv * 1.8 * (.5 + .5 * t)) * 190);
         }
         g.putImageData(img, 0, 0);
         return c;

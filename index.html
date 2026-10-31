@@ -811,6 +811,7 @@
         .map-menu-item:hover { background: var(--surface3); }
         .map-pin { position: absolute; width: 0; height: 0; }
         .map-pin-inner { position: absolute; left: 0; top: 0; transform-origin: 50% 100%; cursor: pointer; display: flex; flex-direction: column; align-items: center; pointer-events: auto; }
+        .heat-layer ~ .map-pin .map-pin-head { width: 16px !important; height: 16px !important; border-width: 1.5px !important; opacity: .7; }   /* heat map on: the colours show between the pins */
         .map-pin-head { width: 26px; height: 26px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); border: 2.5px solid #fff; box-shadow: 0 4px 10px -2px rgba(0, 0, 0, .6); display: flex; align-items: center; justify-content: center; }
         .map-pin-head span { transform: rotate(45deg); color: #fff; font-size: 12px; font-weight: 900; line-height: 1; }
         .map-pin-label { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 4px; white-space: nowrap; font-size: 11px; font-weight: 800; padding: 1px 2px; color: var(--pin-color, #0f172a); text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 3px #fff, 0 0 4px #fff; }
@@ -2277,7 +2278,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.31-r102-oci';
+        const APP_VERSION = '2026.10.31-r103-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -5826,7 +5827,8 @@
                 set('cache', 'active');
                 if (selectedClient) backToSites();
                 let n = 0;
-                try { for (const e of (await IDB.all('cache')) || []) if (String(e.key).startsWith('site_')) { await IDB.del('cache', e.key); n++; } } catch (e) { logAppError('End of day: clearing site data', e); }
+                siteCacheMemo = { id: null, cache: null }; siteChunkRefs.clear();
+                try { for (const e of (await IDB.all('cache')) || []) if (String(e.key).startsWith('site_')) { await IDB.del('cache', e.key); if (!String(e.key).includes('#')) n++; } } catch (e) { logAppError('End of day: clearing site data', e); }
                 signedCache = {}; saveJSON(SIGNED_CACHE_KEY, signedCache); mapImgUrl.clear();
                 set('cache', 'done', `${n} site${n === 1 ? '' : 's'} cleared`);
                 saveDay(null);
@@ -6429,18 +6431,40 @@
         // ===================================================================
         const SITE_AUTO_SYNC_MS = 5 * 60 * 1000;              // an open site re-checks for changes every 5 minutes
         const SITE_FULL_RESYNC_MS = 7 * 24 * 60 * 60 * 1000;  // full re-download at most once a week, as a safety net
-        const PAGE_SIZE = 1000;
+        const PAGE_SIZE = 5000;
         let siteSyncInfo = { lastSyncAt: 0, syncing: false, error: null };
         let siteSyncSeq = 0;
 
+        // The last site used stays in memory as well: reading a big site's saved copy from the device takes seconds,
+        // and the app asks for it many times. (Every change goes through saveSiteCache, which keeps both the same.)
+        let siteCacheMemo = { id: null, cache: null };
+        // A site's records are saved in pieces of SITE_CHUNK ('site_<id>#0', '#1', ...), so a new record rewrites one
+        // piece, not the whole history. siteChunkRefs remembers what each saved piece holds.
+        const SITE_CHUNK = 5000;
+        const siteChunkRefs = new Map();   // site id -> [rows of each saved piece]
         async function getSiteCache(clientId) {
-            const e = await cacheGetEntry('site_' + clientId);
+            const id = String(clientId);
+            if (siteCacheMemo.id === id && siteCacheMemo.cache) return siteCacheMemo.cache;
+            const e = await cacheGetEntry('site_' + id);
             if (!e) return null;
+            let c;
             if (Array.isArray(e.data)) { // older saved format
                 const t = new Date(e.at).getTime() || 0;
-                return renameOldStationTypes({ rows: e.data, lastSyncAt: t, lastFullAt: t });
-            }
-            return renameOldStationTypes(e.data);
+                c = { rows: e.data, lastSyncAt: t, lastFullAt: t };
+            } else if (e.data && e.data.rowChunks != null) {
+                const pieces = [];
+                for (let i = 0; i < e.data.rowChunks; i++) {
+                    const p = await cacheGetEntry('site_' + id + '#' + i);
+                    if (!p || !Array.isArray(p.data)) return null;   // a piece is missing: the site downloads again
+                    pieces.push(p.data);
+                }
+                c = Object.assign({}, e.data, { rows: [].concat(...pieces) });
+                delete c.rowChunks;
+                siteChunkRefs.set(id, pieces);
+            } else c = e.data;
+            renameOldStationTypes(c);
+            if (c) siteCacheMemo = { id, cache: c };
+            return c;
         }
         // station types that were renamed: a copy saved on this device before then shows the new names too
         const OLD_STATION_TYPES = { 'internal rodent station': 'Internal Non-Toxic Rodent Station', 'external rodent station': 'External Non-Toxic Rodent Station',
@@ -6457,7 +6481,32 @@
             if (c.tables && Array.isArray(c.tables.pest_sightings)) c.tables.pest_sightings.forEach(r => { if (r.pest) r.pest = newPestName(r.pest); });
             return c;
         }
-        async function saveSiteCache(clientId, cache) { await cacheSet('site_' + clientId, cache); }
+        // opts.all: records were changed in place (not just added or removed), so every piece is written again
+        const siteSaving = new Map();   // site id -> the save in progress (one at a time per site)
+        function saveSiteCache(clientId, cache, opts) {
+            const id = String(clientId);
+            if (cache) siteCacheMemo = { id, cache };
+            const run = (siteSaving.get(id) || Promise.resolve()).then(() => writeSiteCache(id, cache, opts || {}));
+            siteSaving.set(id, run.catch(() => {}));
+            return run;
+        }
+        async function writeSiteCache(id, cache, opts) {
+            if (!cache) return cacheSet('site_' + id, cache);
+            const rows = cache.rows || [], n = Math.ceil(rows.length / SITE_CHUNK);
+            let had = siteChunkRefs.get(id);
+            if (!had) { const old = await cacheGetEntry('site_' + id); had = new Array((old && old.data && old.data.rowChunks) || 0).fill(null); }
+            const pieces = [];
+            for (let i = 0; i < n; i++) {
+                const p = rows.slice(i * SITE_CHUNK, (i + 1) * SITE_CHUNK), was = had[i];
+                // a piece holding the very same records as last time is left as it is
+                if (opts.all || !was || was.length !== p.length || p.some((r, j) => r !== was[j])) await cacheSet('site_' + id + '#' + i, p);
+                pieces.push(p);
+            }
+            const meta = Object.assign({}, cache, { rowChunks: n }); delete meta.rows;
+            await cacheSet('site_' + id, meta);
+            for (let i = n; i < had.length; i++) { try { await IDB.del('cache', 'site_' + id + '#' + i); } catch (e) {} }
+            siteChunkRefs.set(id, pieces);
+        }
 
         function serverRows(rows) { return (rows || []).filter(r => !r._local); }
         function latestCreatedAt(rows) {
@@ -6633,7 +6682,7 @@
             try { const ss = (await _supabase.auth.getSession()).data.session; if (ss) token = ss.access_token; } catch (e) {}
 
             const out = [];
-            const PAGE = 200;
+            const PAGE = 5000;   // big pieces: a big site downloads in a few dozen requests
             for (let offset = 0; offset < Math.max(total, 1); offset += PAGE) {
                 const params = new URLSearchParams({
                     select: 'barcode_id,payload,created_at',
@@ -6654,7 +6703,7 @@
                     throw new Error(msg);
                 }
                 const page = JSON.parse(text || '[]');
-                out.push(...page);
+                for (const r of page) out.push(r);
                 prog.items(out.length, Math.max(total, out.length));
                 prog.step('records', total ? out.length / total : 1,
                     `Downloading station records... ${out.length.toLocaleString()} of ${Math.max(total, out.length).toLocaleString()}`);
@@ -6779,7 +6828,7 @@
                     q.order('created_at', { ascending: true }).range(from, from + PAGE_SIZE - 1),
                     20000, 'Downloading site data');
                 if (error) throw error;
-                out.push(...(data || []));
+                for (const r of data || []) out.push(r);
                 if (onPage) onPage(out.length);
                 if (!data || data.length < PAGE_SIZE) break;
             }
@@ -6887,7 +6936,7 @@
                 const have = ref ? cache.rows.find(r => r.payload && r.payload.clientRef === ref) : null;
                 if (have) {
                     // already there: just pick up the recommendation number the database gave it
-                    if (item.data.payload.recNo != null && have.payload.recNo == null) { have.payload.recNo = item.data.payload.recNo; await saveSiteCache(item.clientId, cache); }
+                    if (item.data.payload.recNo != null && have.payload.recNo == null) { have.payload.recNo = item.data.payload.recNo; await saveSiteCache(item.clientId, cache, { all: true }); }
                     return;
                 }
                 cache.rows.push({ barcode_id: item.data.barcode_id, payload: item.data.payload, created_at: item.createdAt, _local: true });
@@ -6936,11 +6985,16 @@
         const REC_UPDATE_ID = 'REC_UPDATE'; // service_logs rows that update a recommendation (status, notes, photos)
 
         // When a record was made on site (falls back to when it reached the server)
+        const recTimes = new WeakMap();   // worked out once for each record (a big site asks millions of times)
         function recTime(row) {
-            const p = row.payload || {};
-            let t = Date.parse(p.completedAt || p.servicedAt || row.created_at);
+            const p = row.payload || {}, src = p.completedAt || p.servicedAt || row.created_at;
+            const m = recTimes.get(row);
+            if (m && m.src === src) return m.t;
+            let t = Date.parse(src);
             if (isNaN(t)) t = Date.parse(row.created_at); // an unreadable on-site time falls back to the upload time
-            return isNaN(t) ? 0 : t;
+            if (isNaN(t)) t = 0;
+            recTimes.set(row, { src, t });
+            return t;
         }
 
         // Turns saved rows (+ anything still in the upload queue) into the site dashboard state
@@ -8126,11 +8180,19 @@
         let recFilter = 'open';
         function setRecFilter(v) { recFilter = v; renderLandingRecommendationsAndVisits(); }
 
+        // date formats made once and reused (making one for every date is slow on a big site)
+        const dateFmts = new Map();
+        function fmtWith(d, opts) {
+            if (isNaN(d)) return d.toLocaleString(LOCALE, opts);
+            const k = JSON.stringify(opts);
+            let f = dateFmts.get(k); if (!f) dateFmts.set(k, f = new Intl.DateTimeFormat(LOCALE, opts));
+            return f.format(d);
+        }
         function fmtDateTimeLong(iso) {
             const d = new Date(iso);
             return {
-                date: d.toLocaleDateString(LOCALE, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
-                time: d.toLocaleTimeString(LOCALE, { hour: 'numeric', minute: '2-digit' })
+                date: fmtWith(d, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }),
+                time: fmtWith(d, { hour: 'numeric', minute: '2-digit' })
             };
         }
 
@@ -8187,7 +8249,7 @@
         function nfDate(at) {
             const d = new Date(at);
             if (isNaN(d)) return '';
-            return d.toLocaleDateString(LOCALE, d.getFullYear() === new Date().getFullYear() ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
+            return fmtWith(d, d.getFullYear() === new Date().getFullYear() ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' });
         }
         function nfMetaHtml(o) {
             return `<div class="nf-meta">
@@ -9349,7 +9411,7 @@
                 });
                 (cache.recs || []).forEach(r => { if (r.station_barcode === from) r.station_barcode = to; });
                 ((cache.tables && cache.tables.stations) || []).forEach(r => { if (r.barcode === from) r.barcode = to; });
-                await saveSiteCache(cid, cache);
+                await saveSiteCache(cid, cache, { all: true });
             }
             if (scannedBarcodesThisVisit.has(from)) { scannedBarcodesThisVisit.delete(from); scannedBarcodesThisVisit.add(to); }
             if (currentBarcode === from) {
@@ -9647,7 +9709,8 @@
             const old = stage.querySelector('.heat-layer'); if (old) old.remove();
             box.classList.toggle('hidden', !mapHeat.on || !m);
             if (!mapHeat.on || !m) return;
-            const pts = PVR.heatPoints(pinsOn(m.id).filter(([, p]) => p.x != null).map(([b, p]) => { const d = siteDevices.find(x => x.barcode_id === b); return { x: p.x, y: p.y, name: d ? d.locationName : b, recs: stationHeatRecs(d) }; }), mapHeat);
+            const devOf = new Map(siteDevices.map(x => [x.barcode_id, x]));
+            const pts = PVR.heatPoints(pinsOn(m.id).filter(([, p]) => p.x != null).map(([b, p]) => { const d = devOf.get(b); return { x: p.x, y: p.y, name: d ? d.locationName : b, recs: stationHeatRecs(d) }; }), mapHeat);
             const pests = Array.from(new Set(siteDevices.flatMap(d => stationHeatRecs(d).map(r => r.species)).filter(x => x && x !== NONE_SPECIES && x !== 'None'))).sort((a, b) => a.localeCompare(b));
             PVR.heatMount(box, PVR.heatPanel('mapHeatSet', mapHeat, pests, pts));
             if (!mapView.w) return;
@@ -14794,6 +14857,13 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r103', date: '2026-10-31', v: { svc: '2026.10.31-r103', adm: '2026.10.31-a43', cli: '2026.10.31-p58' },
+            svc: ['Big sites are much faster: a site with hundreds of thousands of station checks downloads in big pieces, opens in seconds, and saving a new check no longer re-saves the whole history on the phone (only the part that changed)',
+                  'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'],
+            adm: ['Big sites are much faster: a site page with hundreds of thousands of station checks opens in seconds, and every check is included (before, a very big site stopped at 200,000)',
+                  'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'],
+            cli: ['Big sites are much faster: a site with a long history opens in seconds, and Reports (Critical limits especially) and the floor plan heat map come up straight away',
+                  'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'] },
         { rev: 'r102', date: '2026-10-31', v: { svc: '2026.10.31-r102', adm: '2026.10.31-a42', cli: '2026.10.31-p57' },
             svc: ['Buildings: a site can have several buildings, and each floor plan sits under a building. On the floor plan screen, choose the building, then the floor plan in it (both drop-downs can be searched). "+ New building" is in the building drop-down',
                   'Adding or renaming a floor plan: choose its building ("Rename or move to another building" in the ⋯ menu moves a plan)',
@@ -15433,20 +15503,35 @@ const PVR = (() => {
     function heatCanvas(w, h, pts) {
         const k = Math.min(1, 900 / Math.max(w, h, 1)), W = Math.max(1, Math.round(w * k)), H = Math.max(1, Math.round(h * k));
         const c = document.createElement('canvas'); c.width = W; c.height = H;
-        const hot = pts.filter(p => p.v > 0), max = Math.max(1, ...hot.map(p => p.v));
+        const hot = pts.filter(p => p.v > 0);
         if (!hot.length) return c;
-        const g = c.getContext('2d'), r = Math.max(W, H) * .11;
+        // the busiest stations count as "the most": with many stations, the top 5% (so one very busy station
+        // doesn't make all the others look quiet), but never less than a quarter of the busiest one
+        const vs = hot.map(p => p.v).sort((a, b) => a - b), top1 = vs[vs.length - 1];
+        const max = hot.length >= 20 ? Math.max(vs[Math.floor(vs.length * .95)], top1 / 4) : top1;
+        // each station glows around itself; the glow is smaller when there are many stations, so a crowded plan
+        // still shows where the activity is
+        const r = Math.max(4, Math.max(W, H) * Math.min(.11, Math.max(.05, .11 * Math.sqrt(12 / hot.length))));
+        const heat = new Float32Array(W * H), cover = new Float32Array(W * H);
         hot.forEach(p => {
-            const x = p.x * W, y = p.y * H, gr = g.createRadialGradient(x, y, 0, x, y, r);
-            gr.addColorStop(0, 'rgba(0,0,0,1)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
-            g.globalAlpha = .3 + .7 * Math.sqrt(p.v / max);   // any activity shows; the busiest the most
-            g.fillStyle = gr; g.fillRect(x - r, y - r, r * 2, r * 2);
+            const cx = p.x * W, cy = p.y * H, w = Math.min(1, p.v / max);
+            const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(W - 1, Math.ceil(cx + r)), y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(H - 1, Math.ceil(cy + r));
+            for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+                const dd = Math.hypot(x - cx, y - cy) / r; if (dd >= 1) continue;
+                const f = (1 - dd) * (1 - dd), i = y * W + x;
+                heat[i] += w * f;
+                if (1 - dd > cover[i]) cover[i] = 1 - dd;
+            }
         });
-        const img = g.getImageData(0, 0, W, H), d = img.data;
-        for (let i = 0; i < d.length; i += 4) {
-            const t = d[i + 3] / 255; if (!t) continue;
-            const [cr, cg, cb] = heatRgb(Math.min(1, t));
-            d[i] = cr; d[i + 1] = cg; d[i + 2] = cb; d[i + 3] = Math.round(Math.min(1, t * 1.6) * 175);
+        let top = 0; for (let i = 0; i < heat.length; i++) if (heat[i] > top) top = heat[i];
+        // the colour: how busy this spot is next to the busiest spot on the plan (blue a little, red the most);
+        // any activity shows, fading out around each station
+        const lut = Array.from({ length: 256 }, (_, i) => heatRgb(i / 255));
+        const g = c.getContext('2d'), img = g.createImageData(W, H), d = img.data;
+        for (let i = 0; i < heat.length; i++) {
+            const cv = cover[i]; if (!cv) continue;
+            const t = Math.sqrt(heat[i] / top), rgb = lut[Math.min(255, Math.round(t * 255))], j = i * 4;
+            d[j] = rgb[0]; d[j + 1] = rgb[1]; d[j + 2] = rgb[2]; d[j + 3] = Math.round(Math.min(1, cv * 1.8 * (.5 + .5 * t)) * 190);
         }
         g.putImageData(img, 0, 0);
         return c;

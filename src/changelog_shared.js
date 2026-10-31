@@ -3,6 +3,13 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r103', date: '2026-10-31', v: { svc: '2026.10.31-r103', adm: '2026.10.31-a43', cli: '2026.10.31-p58' },
+            svc: ['Big sites are much faster: a site with hundreds of thousands of station checks downloads in big pieces, opens in seconds, and saving a new check no longer re-saves the whole history on the phone (only the part that changed)',
+                  'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'],
+            adm: ['Big sites are much faster: a site page with hundreds of thousands of station checks opens in seconds, and every check is included (before, a very big site stopped at 200,000)',
+                  'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'],
+            cli: ['Big sites are much faster: a site with a long history opens in seconds, and Reports (Critical limits especially) and the floor plan heat map come up straight away',
+                  'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'] },
         { rev: 'r102', date: '2026-10-31', v: { svc: '2026.10.31-r102', adm: '2026.10.31-a42', cli: '2026.10.31-p57' },
             svc: ['Buildings: a site can have several buildings, and each floor plan sits under a building. On the floor plan screen, choose the building, then the floor plan in it (both drop-downs can be searched). "+ New building" is in the building drop-down',
                   'Adding or renaming a floor plan: choose its building ("Rename or move to another building" in the ⋯ menu moves a plan)',

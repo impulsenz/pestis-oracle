@@ -531,6 +531,33 @@ try {
   const svHeat = await hs.evaluate(() => ({ layer: !!document.querySelector('#mapStage canvas.heat-layer'), sum: (document.querySelector('#mapHeatBox .heat-sum') || {}).textContent, pests: Array.from(document.querySelectorAll('#mapHeatBox .heat-list input')).map(i => i.value) }));
   ok(svHeat.layer && /^4 stations with activity/.test(svHeat.sum) && svHeat.pests.includes('Rat') && svHeat.pests.includes('House Fly'), 'service app heat map: the Heat map tick box colours the plan, with pests to tick', svHeat);
   await hs.screenshot({ path: SHOTS + '/heat-service-390.png' });
+  // a crowded plan (600 stations close together, a few busy ones): the busy spots are red, the rest isn't
+  const crowd = await hs.evaluate(() => {
+    const pts = [];
+    for (let i = 0; i < 600; i++) pts.push({ x: .3 + (i % 30) * .013, y: .3 + Math.floor(i / 30) * .02, v: 1 });
+    for (let i = 0; i < 5; i++) pts[i * 97].v = 40;
+    const c = PVR.heatCanvas(900, 600, pts), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let red = 0, any = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3]) { any++; if (d[i] > 200 && d[i + 1] < 80) red++; }
+    return { any, red, share: red / Math.max(1, any) };
+  });
+  ok(crowd.any > 0 && crowd.red > 0 && crowd.share < .15, 'heat map on a crowded plan: only the busy spots are red', crowd);
+  // a big site's copy on the phone is saved in pieces: a new record rewrites only the last piece, and it reads back whole
+  const pieces = await hs.evaluate(async () => {
+    const rows = Array.from({ length: 12001 }, (_, i) => ({ barcode_id: 'P' + i, payload: { n: i }, created_at: new Date(1600000000000 + i * 1000).toISOString() }));
+    await saveSiteCache('chunk-test', { rows, lastSyncAt: 1, lastFullAt: 1 });
+    const at = async i => ((await cacheGetEntry('site_chunk-test#' + i)) || {}).at;
+    const before = [await at(0), await at(1), await at(2)];
+    await new Promise(r => setTimeout(r, 30));
+    rows.push({ barcode_id: 'P-new', payload: {}, created_at: new Date().toISOString() });
+    await saveSiteCache('chunk-test', { rows, lastSyncAt: 2, lastFullAt: 1 });
+    const after = [await at(0), await at(1), await at(2)];
+    siteCacheMemo = { id: null, cache: null }; siteChunkRefs.clear();
+    const back = await getSiteCache('chunk-test'), meta = (await cacheGetEntry('site_chunk-test')).data;
+    return { chunks: meta.rowChunks, rowsInMeta: 'rows' in meta, same: before[0] === after[0] && before[1] === after[1], changed: before[2] !== after[2],
+      n: back.rows.length, first: back.rows[0].barcode_id, last: back.rows[back.rows.length - 1].barcode_id, sync: back.lastSyncAt };
+  });
+  ok(pieces.chunks === 3 && !pieces.rowsInMeta && pieces.same && pieces.changed && pieces.n === 12002 && pieces.first === 'P0' && pieces.last === 'P-new' && pieces.sync === 2,
+    'saved site copy: kept in pieces, a new record rewrites only the last one, and it reads back whole', pieces);
   ok(hs.errors.length === 0 && ad.errors.length === 0, 'heat map in Admin and the Service App: no errors', { hs: hs.errors, ad: ad.errors });
 } catch (e) { fails++; console.log('ERROR', e); }
 finally {
