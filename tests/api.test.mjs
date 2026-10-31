@@ -102,6 +102,16 @@ try {
       'paging by created_at: every row once, in date order (up and down)', { up: up.length, down: down.length });
     await tech.from('service_logs').delete().eq('client_id', 1).like('barcode_id', 'ORD-*');
   }
+  // change numbers: every station check added or changed gets a higher one (the apps fetch only what's above their copy's highest)
+  {
+    const add = (await tech.from('service_logs').insert([{ client_id: 1, barcode_id: 'REV-1', payload: { a: 1 } }, { client_id: 1, barcode_id: 'REV-2', payload: { a: 2 } }]).select('id, rev')).data || [];
+    const top = Math.max(...add.map(x => x.rev));
+    await tech.from('service_logs').update({ payload: { a: 3 } }).eq('id', add[0].id);
+    const after = (await tech.from('service_logs').select('id, rev, barcode_id').eq('client_id', 1).gt('rev', top).order('rev')).data || [];
+    ok(add.length === 2 && add.every(x => x.rev > 0) && add[1].rev > add[0].rev && after.length === 1 && after[0].barcode_id === 'REV-1' && after[0].rev > top,
+      'change numbers: new checks get rising numbers, a changed check gets a new one', { add, after });
+    await tech.from('service_logs').delete().like('barcode_id', 'REV-*');
+  }
   // a column that can be empty still sorts its empty ones last going up (like Postgres)
   await tech.from('stations').insert([{ id: 'ord-a', client_id: '1', barcode: 'ORD-A', pin_x: 0.5 }, { id: 'ord-b', client_id: '1', barcode: 'ORD-B' }, { id: 'ord-c', client_id: '1', barcode: 'ORD-C', pin_x: 0.2 }]);
   r = await tech.from('stations').select('id').in('id', ['ord-a', 'ord-b', 'ord-c']).order('pin_x', { ascending: true });

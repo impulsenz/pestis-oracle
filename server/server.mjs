@@ -96,6 +96,23 @@ function loadTables() {
 }
 loadTables();
 db.exec(`CREATE INDEX IF NOT EXISTS service_logs_client_ref_idx ON service_logs (client_id, json_extract(payload, '$.clientRef'))`);
+// Every station check gets a change number (rev) when it's added or changed, however it's written (the apps, the server's own
+// tidy-ups, the pretend-site scripts). The Admin site and the Client Portal keep a copy of a site's checks and then ask only for
+// rev above the highest they have.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS log_rev_seq (v INTEGER NOT NULL);
+  UPDATE service_logs SET rev = id WHERE rev IS NULL OR rev = 0;
+  INSERT INTO log_rev_seq (v) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM log_rev_seq);
+  UPDATE log_rev_seq SET v = MAX(v, (SELECT COALESCE(MAX(rev), 0) FROM service_logs));
+  CREATE TRIGGER IF NOT EXISTS service_logs_rev_add AFTER INSERT ON service_logs BEGIN
+    UPDATE log_rev_seq SET v = v + 1;
+    UPDATE service_logs SET rev = (SELECT v FROM log_rev_seq) WHERE rowid = NEW.rowid;
+  END;
+  CREATE TRIGGER IF NOT EXISTS service_logs_rev_change AFTER UPDATE OF client_id, barcode_id, payload, created_at, technician_id ON service_logs BEGIN
+    UPDATE log_rev_seq SET v = v + 1;
+    UPDATE service_logs SET rev = (SELECT v FROM log_rev_seq) WHERE rowid = NEW.rowid;
+  END;
+`);
 
 function addColumn(t, col, sample) {
   if (!/^[A-Za-z_][A-Za-z0-9_]{0,62}$/.test(col)) throw new PgError('42703', `column "${col}" of relation "${t.name}" does not exist`);

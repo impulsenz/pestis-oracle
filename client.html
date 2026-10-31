@@ -613,7 +613,7 @@
                 <div id="loadingStats" class="hidden grid grid-cols-3 gap-2 sm:gap-3 text-center">
                     <div class="inset p-2.5"><div id="dlBytes" class="text-sm font-black font-mono t-strong">0 KB</div><div class="eyebrow t-faint mt-0.5">Downloaded</div></div>
                     <div class="inset p-2.5"><div id="dlSpeed" class="text-sm font-black font-mono t-strong">-</div><div class="eyebrow t-faint mt-0.5">Speed</div></div>
-                    <div class="inset p-2.5"><div id="dlRows" class="text-sm font-black font-mono t-strong">-</div><div class="eyebrow t-faint mt-0.5">Records</div></div>
+                    <div class="inset p-2.5"><div id="dlRows" class="text-sm font-black font-mono t-strong">-</div><div id="dlRowsLabel" class="eyebrow t-faint mt-0.5">Records</div></div>
                 </div>
                 <ol id="loadingSteps" class="space-y-1.5 text-xs"></ol>
             </div>
@@ -717,7 +717,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (on the server); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.31-p59-oci';
+const PORTAL_VERSION = '2026.10.31-p60-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -879,6 +879,7 @@ async function signInWithGoogle() {
 async function signOut() {
     stopLive();
     try { await sb.auth.signOut(); } catch (e) {}
+    await LOGS.clear();   // the copies of sites' station checks kept on this device
     state.me = null; state.sites = []; state.site = null; state.data = null;
     history.replaceState(null, '', portalUrl());
     showLogin('You have signed out.');
@@ -1173,7 +1174,7 @@ function showOnly(id) {
 // Loading panel: a progress bar and the steps (like the field app); without steps the bar just keeps moving
 let loadState = null;
 // ---------- download meter: how much has arrived, how fast, and how many station checks of how many ----------
-const dl = { on: false, bytes: 0, samples: [], start: 0, rows: 0, total: 0, timer: null, run: 0 };
+const dl = { on: false, bytes: 0, samples: [], start: 0, rows: 0, total: 0, fresh: null, timer: null, run: 0 };
 function fmtBytes(n) {
     if (!n || n < 1) return '0 KB';
     if (n < 1024) return Math.round(n) + ' B';
@@ -1181,7 +1182,7 @@ function fmtBytes(n) {
     return (n / 1024 / 1024).toFixed(n < 100 * 1024 * 1024 ? 1 : 0) + ' MB';
 }
 function dlStart() {
-    Object.assign(dl, { on: true, bytes: 0, samples: [[Date.now(), 0]], start: Date.now(), rows: 0, total: 0, run: dl.run + 1 });
+    Object.assign(dl, { on: true, bytes: 0, samples: [[Date.now(), 0]], start: Date.now(), rows: 0, total: 0, fresh: null, run: dl.run + 1 });
     sb.onReceived = n => { dl.bytes += n; dl.samples.push([Date.now(), dl.bytes]); };
     clearInterval(dl.timer); dl.timer = setInterval(renderDl, 400);
     renderDl();
@@ -1201,6 +1202,8 @@ function renderDl() {
     $('dlBytes').textContent = fmtBytes(dl.bytes);
     $('dlSpeed').textContent = sp > 0 ? fmtBytes(sp) + '/s' : '-';
     $('dlRows').textContent = dl.total ? `${dl.rows.toLocaleString()} / ${dl.total.toLocaleString()}` : dl.rows ? dl.rows.toLocaleString() : '-';
+    // with a copy on this device, only what's new comes down
+    $('dlRowsLabel').textContent = dl.fresh != null && dl.rows > dl.fresh ? `Records · ${dl.fresh.toLocaleString()} new` : 'Records';
     // the station checks are most of the download: the bar follows them
     if (loadState && dl.total && !(loadState.done.logs >= LOGS_W)) { loadState.done.logs = Math.min(LOGS_W - .1, dl.rows / dl.total * LOGS_W); renderLoading(); }
 }
@@ -1378,7 +1381,7 @@ function onLive(cid, table, p) {
 async function applyLive(cid) {
     if (!state.site || String(state.site.id) !== cid) return;
     for (const t of Array.from(live.refetch)) {
-        try { state.data[LIVE_MAP[t]] = await fetchAll(t, cid, t === 'service_logs' ? 'barcode_id, payload, created_at' : undefined, t === 'service_logs' ? 'created_at' : undefined); } catch (e) {}
+        try { state.data[LIVE_MAP[t]] = t === 'service_logs' ? await LOGS.load(sb, cid, { who: state.me && state.me.email }) : await fetchAll(t, cid); } catch (e) {}
     }
     live.refetch.clear();
     if (!state.site || String(state.site.id) !== cid) return;
@@ -1396,10 +1399,9 @@ async function loadSiteData(site) {
     dlStart();
     const run = dl.run, mine = f => (...a) => { if (dl.run === run) f(...a); };   // an older load still finishing doesn't move the numbers
     try {
-        // how many station checks there are (for "x of y"), while they download
-        sb.from('service_logs').select('barcode_id', { count: 'exact', head: true }).eq('client_id', cid).then(mine(r => { if (typeof r.count === 'number') { dl.total = r.count; renderDl(); } }), () => {});
         const [logs, stations, maps, visits, recs, updates, docs, folders, limits, views, contacts, buildings] = await Promise.all([
-            fetchAll('service_logs', cid, 'barcode_id, payload, created_at', 'created_at', mine(n => { dl.rows = n; })).then(v => { if (loadState) loadState.done.logs = LOGS_W; renderLoading(); return v; }),
+            // the station checks: a copy is kept on this device, so after the first time only new or changed ones download
+            LOGS.load(sb, cid, { who: state.me && state.me.email, onProgress: mine(p => { dl.rows = p.rows; if (p.total != null) dl.total = p.total; dl.fresh = p.fresh; }) }).then(v => { if (loadState) loadState.done.logs = LOGS_W; renderLoading(); return v; }),
             step('stations', fetchAll('stations', cid).catch(() => [])),
             step('stations', fetchAll('site_maps', cid).catch(() => [])),
             step('visits', fetchAll('visits', cid).catch(() => [])),
@@ -4692,6 +4694,108 @@ const PR = (() => {
     }
     return { build, render, set, download, print, station, sds, rec, mapGo, combo, comboOpen, comboClose, show, REPORTS };
 })();
+// ===================================================================
+//  LOGS: a site's station checks, kept on this device between visits to the page.
+//  LOGS.load(db, cid, { who, onProgress }) gives every check (oldest first). The first time it downloads them all;
+//  after that it asks only for checks added or changed since (the server numbers every change: rev), then checks the
+//  count with the server and puts right anything else (removed checks, ones a client could only see once a visit closed).
+//  onProgress({ rows, total, fresh }): rows on hand so far, how many the server has, how many came down this time.
+// ===================================================================
+const LOGS = (() => {
+    const COLS = 'id, rev, barcode_id, payload, created_at', PAGE = 5000, PIECE = 5000, V = 1;
+    let dbp = null;
+    const idb = () => dbp || (dbp = new Promise((ok, no) => {
+        try { const r = indexedDB.open('pestis-site-copies', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); }
+        catch (e) { no(e); }
+    }));
+    const tx = async (mode, fn) => {
+        const d = await idb();
+        return new Promise((ok, no) => {
+            const t = d.transaction('kv', mode), r = fn(t.objectStore('kv'));
+            let out; if (r) r.onsuccess = () => { out = r.result; };
+            t.oncomplete = () => ok(out); t.onerror = t.onabort = () => no(t.error);
+        });
+    };
+    const get = k => tx('readonly', s => s.get(k)), put = (k, v) => tx('readwrite', s => s.put(v, k)), del = k => tx('readwrite', s => s.delete(k));
+    // the copy is saved in pieces; a piece holding the very same checks as last time isn't written again
+    const written = new Map();   // key -> [rows of each saved piece]
+    async function read(key) {
+        const m = await get(key);
+        if (!m || m.v !== V) return null;
+        const pieces = [];
+        for (let i = 0; i < m.pieces; i++) { const p = await get(key + '#' + i); if (!Array.isArray(p)) return null; pieces.push(p); }
+        written.set(key, pieces);
+        return { rows: [].concat(...pieces), maxRev: m.maxRev || 0 };
+    }
+    async function write(key, rows, maxRev) {
+        const had = written.get(key) || [], n = Math.ceil(rows.length / PIECE), pieces = [];
+        for (let i = 0; i < n; i++) {
+            const p = rows.slice(i * PIECE, (i + 1) * PIECE), w = had[i];
+            if (!w || w.length !== p.length || p.some((r, j) => r !== w[j])) await put(key + '#' + i, p);
+            pieces.push(p);
+        }
+        await put(key, { v: V, pieces: n, maxRev, at: Date.now() });
+        for (let i = n; i < had.length; i++) await del(key + '#' + i);
+        written.set(key, pieces);
+    }
+    const order = (a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id - b.id);
+    async function load(db, cid, o) {
+        o = o || {};
+        cid = String(cid);
+        const key = (o.who || '') + '|' + cid, tell = o.onProgress || (() => {});
+        const q = cols => db.from('service_logs').select(cols).eq('client_id', cid);
+        const count = async () => { const r = await db.from('service_logs').select('id', { count: 'exact', head: true }).eq('client_id', cid); if (r.error) throw r.error; return r.count; };
+        let c = null;
+        try { c = await read(key); } catch (e) { c = null; }   // no copy, or this browser can't keep one
+        let rows = c ? c.rows : [], maxRev = c ? c.maxRev : 0, top = maxRev, fresh = 0, changed = !c, total = null;
+        tell({ rows: rows.length, total, fresh });
+        count().then(n => { if (total == null) { total = n; tell({ rows: rows.length, total, fresh }); } }, () => {});
+        // checks added or changed since the copy was made
+        const at = new Map(rows.map((r, i) => [r.id, i]));
+        for (let from = 0; ; from += PAGE) {
+            const { data, error } = await q(COLS).gt('rev', maxRev).order('rev', { ascending: true }).range(from, from + PAGE - 1);
+            if (error) throw error;
+            for (const r of data || []) {
+                const i = at.get(r.id);
+                if (i != null) rows[i] = r; else { at.set(r.id, rows.length); rows.push(r); }
+                if (r.rev > top) top = r.rev;
+            }
+            fresh += (data || []).length; if ((data || []).length) changed = true;
+            tell({ rows: rows.length, total, fresh });
+            if (!data || data.length < PAGE) break;
+        }
+        // the count tells whether anything else changed: then the list of check numbers says which
+        total = await count();
+        if (total !== rows.length) {
+            const ids = new Set();
+            for (let from = 0; ; from += 20000) {
+                const { data, error } = await q('id').order('rev', { ascending: true }).range(from, from + 19999);
+                if (error) throw error;
+                for (const r of data || []) ids.add(r.id);
+                if (!data || data.length < 20000) break;
+            }
+            rows = rows.filter(r => ids.has(r.id));
+            const have = new Set(rows.map(r => r.id)), missing = Array.from(ids).filter(id => !have.has(id));
+            for (let i = 0; i < missing.length; i += 500) {
+                const { data, error } = await q(COLS).in('id', missing.slice(i, i + 500));
+                if (error) throw error;
+                for (const r of data || []) { rows.push(r); if (r.rev > top) top = r.rev; }
+                fresh += (data || []).length;
+                tell({ rows: rows.length, total, fresh });
+            }
+            changed = true;
+        }
+        if (changed) {
+            rows.sort(order);
+            try { await write(key, rows, top); } catch (e) { console.warn('Could not keep a copy of the station checks on this device', e); }
+        }
+        tell({ rows: rows.length, total, fresh, done: true });
+        return rows;
+    }
+    // forget every copy kept on this device (signing out)
+    async function clear() { try { await tx('readwrite', s => s.clear()); written.clear(); } catch (e) {} }
+    return { load, clear, COLS };
+})();
 /* PESTIS-REPORTS:END */
 </script>
 <script id="pestisChangelogJs">
@@ -4700,6 +4804,13 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r105', date: '2026-10-31', v: { svc: '2026.10.31-r105', adm: '2026.10.31-a45', cli: '2026.10.31-p60' },
+            svc: ['Saving a station is instant, even on a very big site: the station is updated straight away and the rest of the site catches up a moment later (opening the same station again waits for it, so it shows what you saved)',
+                  'Big sites: the station lists show the first stations with "Show more" (search finds any station), so the app stays quick with thousands of stations'],
+            adm: ['Sites and Reports: a copy of each site’s station checks is kept on this computer, so after the first time only new or changed checks download',
+                  'The download box shows the amount downloaded and the speed every time (they could show 0 just after an update)'],
+            cli: ['Opening a site is quicker: a copy of its records is kept on this device, so after the first time only what’s new downloads (the loading screen shows how many are new)',
+                  'The loading screen shows the amount downloaded and the speed every time (they could show 0 just after an update)'] },
         { rev: 'r104', date: '2026-10-31', v: { svc: '2026.10.31-r104', adm: '2026.10.31-a44', cli: '2026.10.31-p59' },
             svc: ['Behind the scenes: the connection to the server can now count what arrives (Admin and the Client Portal use it to show the download speed). Nothing changes in the Service App'],
             adm: ['Sites › a site page (the floor plan heat map) and Reports: while the station checks for a site download you see how much has arrived, the speed, and how many records of how many, like the Service App'],

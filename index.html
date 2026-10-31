@@ -2278,7 +2278,7 @@
         const SITE_IMG_PREFIX = 'site-covers';           // site card photos live in the same bucket under this folder
         const SIGNED_URL_SECONDS = 7 * 24 * 60 * 60;     // photo links stay valid for 7 days (saved on the device and reused)
         const PERM_HINT = ' Only approved staff can change a site - check you are approved in Admin › Users.';
-        const APP_VERSION = '2026.10.31-r104-oci';
+        const APP_VERSION = '2026.10.31-r105-oci';
         const LIMITS_ON = true;   // critical limits are on (one switch for them all)
         // after Check for updates, tidy the address bar
         try { if (/[?&]fresh=/.test(location.search)) history.replaceState(null, '', location.pathname + location.hash); } catch (e) {}
@@ -2782,6 +2782,7 @@
             try { await withTimeout(_supabase.auth.signOut(), 5000, 'Sign out'); } catch (e) {}
             clearStoredSession();
             clearIdentity();
+            try { indexedDB.deleteDatabase('pestis-site-copies'); } catch (e) {}   // the copies Admin and the Client Portal keep of sites' station checks
             location.href = window.location.origin + window.location.pathname;
         }
 
@@ -6946,14 +6947,23 @@
 
         // After uploads finish, refresh the open site once (e.g. to show new recommendation numbers)
         let siteRefreshTimer = null;
+        const savedSinceRefresh = new Set();   // stations saved since the site was last worked out
+        let siteRowCount = 0;                  // how many records the open site has (a big one waits longer for a quiet moment)
         function scheduleSiteRefresh(clientId) {
             if (!selectedClient || String(selectedClient.id) !== String(clientId)) return;
             clearTimeout(siteRefreshTimer);
             siteRefreshTimer = setTimeout(() => {
+                siteRefreshTimer = null;
                 if (!selectedClient || String(selectedClient.id) !== String(clientId)) return;
                 if (!document.getElementById('stationFormContainer').classList.contains('hidden')) { scheduleSiteRefresh(clientId); return; } // not while a form is open
                 refreshSiteStateFromCache().catch(e => logAppError('Refreshing site', e));
-            }, 1200);
+            }, siteRowCount > 50000 ? 8000 : 1200);
+        }
+        // a refresh still waiting is done now (before a station is opened, so it shows what was just saved)
+        function flushSiteRefresh() {
+            if (!siteRefreshTimer) return null;
+            clearTimeout(siteRefreshTimer); siteRefreshTimer = null;
+            return selectedClient ? refreshSiteStateFromCache().catch(e => logAppError('Refreshing site', e)) : null;
         }
 
         // Refresh just this site's details (contact, notes, services, photo) - one small request
@@ -6985,15 +6995,18 @@
         const REC_UPDATE_ID = 'REC_UPDATE'; // service_logs rows that update a recommendation (status, notes, photos)
 
         // When a record was made on site (falls back to when it reached the server)
-        const recTimes = new WeakMap();   // worked out once for each record (a big site asks millions of times)
+        // worked out once for each record (a big site asks millions of times); kept by the record's payload, which the
+        // copies of a record made each time the site is worked out share with the saved record
+        const recTimes = new WeakMap();
         function recTime(row) {
+            if (row._at !== undefined) return row._at;
             const p = row.payload || {}, src = p.completedAt || p.servicedAt || row.created_at;
-            const m = recTimes.get(row);
-            if (m && m.src === src) return m.t;
+            const m = row.payload ? recTimes.get(row.payload) : null;
+            if (m && m.src === src && m.made === row.created_at) return m.t;
             let t = Date.parse(src);
             if (isNaN(t)) t = Date.parse(row.created_at); // an unreadable on-site time falls back to the upload time
             if (isNaN(t)) t = 0;
-            recTimes.set(row, { src, t });
+            if (row.payload) recTimes.set(row.payload, { src, made: row.created_at, t });
             return t;
         }
 
@@ -7139,7 +7152,9 @@
                     rows.push({ barcode_id: i.data.barcode_id, payload: i.data.payload, created_at: i.createdAt, _blobKeys: blobKeys, _pending: i.status !== 'sent' });
                 });
             // Order by when each record was made on site, so an item that uploaded late still lands in the right visit
-            rows.sort((a, b) => recTime(a) - recTime(b));
+            const timed = rows.map(r => [recTime(r), r]).sort((a, b) => a[0] - b[0]);   // each time worked out once, not in every comparison
+            timed.forEach((x, i) => { rows[i] = x[1]; x[1]._at = x[0]; });
+            siteRowCount = rows.length;   // (this working copy carries its time: recTime reads it straight off)
             rows.forEach(r => { r._key = (r.payload && r.payload.clientRef) || (r.barcode_id + '@' + r.created_at); });
 
             // Photos: the copy on this device if it hasn't uploaded yet; otherwise fetched only when someone opens it
@@ -7927,6 +7942,7 @@
             stationTypeFilter = 'all'; activityFilter = 'all';
             const ss = document.getElementById('siteStationSearch');
             if (ss) ss.value = '';
+            siteStationShown = 100; scanListShown.unscanned = scanListShown.scanned = 150;
             document.getElementById('visitWorkspace').classList.add('hidden');
             document.getElementById('siteLandingDashboard').classList.add('hidden');
             siteDevices = [];
@@ -8494,13 +8510,17 @@
             const list = siteDevices
                 .filter(d => stationTypeFilter === 'all' || d.deviceType === stationTypeFilter)
                 .filter(d => !q || d.locationName.toLowerCase().includes(q) || d.barcode_id.toLowerCase().includes(q))
-                .sort((a, b) => a.locationName.localeCompare(b.locationName, LOCALE, { numeric: true }));
+                .sort((a, b) => nameOrder.compare(a.locationName, b.locationName));
             document.getElementById('stationPhotoToggle').innerHTML = photoToggleHtml(showStationPhotos, 'setStationPhotos', 'station photos');
             el.classList.toggle('nf-grid', showStationPhotos && list.length > 0);
             if (!list.length) { el.innerHTML = `<span class="t-faint italic">${siteDevices.length ? 'No stations match.' : 'No stations recorded yet.'}</span>`; return; }
-            el.innerHTML = stationCardsHtml(list, showStationPhotos);
-            if (showStationPhotos) fillStationThumbs(el, list.map(d => d.barcode_id));
+            // a big site shows the first ones, with "Show more" (drawing thousands of cards slows the whole app; search finds any)
+            const shown = list.slice(0, siteStationShown);
+            el.innerHTML = stationCardsHtml(shown, showStationPhotos) + (list.length > shown.length
+                ? `<button type="button" class="btn btn-secondary w-full !text-xs" style="grid-column:1/-1;" onclick="siteStationShown += 200; renderSiteStationList()">Show more (${(list.length - shown.length).toLocaleString()} more - or search above)</button>` : '');
+            if (showStationPhotos) fillStationThumbs(el, shown.map(d => d.barcode_id));
         }
+        let siteStationShown = 100;
         // station cards (photos on) or rows (photos off), for the Stations box and the Stations pop-up
         function stationCardsHtml(list, photos) {
             if (photos) return list.map(d => {
@@ -8863,6 +8883,7 @@
         // Rebuild the open site from the saved copy plus anything waiting in the upload queue
         async function refreshSiteStateFromCache() {
             if (!selectedClient) return;
+            savedSinceRefresh.clear();
             const cache = await getSiteCache(selectedClient.id);
             await buildSiteState(selectedClient.id, cache ? cache.rows : [], new Set(scannedBarcodesThisVisit), null, { quick: true });
             rerenderOpenSite();
@@ -12294,7 +12315,7 @@
             const matchesText = d => d.locationName.toLowerCase().includes(query) || d.barcode_id.toLowerCase().includes(query) || d.deviceType.toLowerCase().includes(query);
             renderScanTypeTabs(matchesText);
             const matches = d => matchesText(d) && scanTypeOn(d.deviceType);
-            const byName = (a, b) => a.locationName.localeCompare(b.locationName, LOCALE, { numeric: true });
+            const byName = (a, b) => nameOrder.compare(a.locationName, b.locationName);
 
             const unscanned = siteDevices.filter(d => !scannedBarcodesThisVisit.has(d.barcode_id) && matches(d)).sort(byName);
             const scanned = siteDevices.filter(d => scannedBarcodesThisVisit.has(d.barcode_id) && matches(d)).sort(byName);
@@ -12306,16 +12327,20 @@
             const cards = scanView !== 'list';
             [unscannedList, scannedList].forEach(l => { l.classList.toggle('ws-grid', cards); l.classList.toggle('space-y-2.5', !cards); });
             renderScanViewBtn();
+            // a big site shows the first ones of each list, with "Show more" (thousands of rows slow the whole app; search finds any)
+            const more = (n, k) => n > 0 ? `<button type="button" class="btn btn-secondary w-full !text-xs" style="grid-column:1/-1;" onclick="scanListShown.${k} += 200; filterStationsList()">Show more (${n.toLocaleString()} more - or search above)</button>` : '';
+            const unscannedShown = unscanned.slice(0, scanListShown.unscanned), scannedShown = scanned.slice(0, scanListShown.scanned);
             unscannedList.innerHTML = unscanned.length === 0
                 ? '<span class="t-faint italic">No matching unscanned devices found.</span>'
-                : unscanned.map(d => deviceRowHtml(d, false)).join('');
+                : unscannedShown.map(d => deviceRowHtml(d, false)).join('') + more(unscanned.length - unscannedShown.length, 'unscanned');
 
             scannedList.innerHTML = scanned.length === 0
                 ? '<span class="t-faint italic">No matching scanned devices found.</span>'
-                : scanned.map(d => deviceRowHtml(d, true)).join('');
-            const shown = unscanned.concat(scanned).map(d => d.barcode_id);
-            if (cards && shown.length) { fillStationThumbs(unscannedList, unscanned.map(d => d.barcode_id)); fillStationThumbs(scannedList, scanned.map(d => d.barcode_id)); }
+                : scannedShown.map(d => deviceRowHtml(d, true)).join('') + more(scanned.length - scannedShown.length, 'scanned');
+            if (cards && (unscannedShown.length || scannedShown.length)) { fillStationThumbs(unscannedList, unscannedShown.map(d => d.barcode_id)); fillStationThumbs(scannedList, scannedShown.map(d => d.barcode_id)); }
         }
+        const scanListShown = { unscanned: 150, scanned: 150 };
+        const nameOrder = new Intl.Collator(LOCALE, { numeric: true });   // made once (sorting thousands of names)
 
         // ---------- Scanner beep ----------
         let audioCtx = null;
@@ -12479,6 +12504,11 @@
 
         function handleScannedBarcode(barcode) {
             barcode = barcodeAliases.get(barcode) || barcode;
+            // a station saved a moment ago (or a new one just registered): the site is worked out first, so it shows what was saved
+            if (siteRefreshTimer && (savedSinceRefresh.has(barcode) || !siteDevices.some(d => d.barcode_id === barcode))) {
+                const waiting = flushSiteRefresh();
+                if (waiting) return waiting.then(() => handleScannedBarcode(barcode));
+            }
             if (META_IDS.has(barcode)) { alert('That code is reserved by the app and cannot be used as a station barcode.'); return; }
             const existing = siteDevices.find(d => d.barcode_id === barcode);
             if (existing) {
@@ -13333,8 +13363,12 @@
                 clearPendingPhotos(false); // previews stay visible until the upload finishes
                 keptPhotos = [];
                 scannedBarcodesThisVisit.add(currentBarcode);
+                savedSinceRefresh.add(currentBarcode);
                 hideStationForm();
-                await refreshSiteStateFromCache();
+                // This station is put right at once; the whole site is worked out again a moment later, while the technician
+                // walks to the next station (on a big site that takes seconds, and it used to hold up Save)
+                if (dev) Object.assign(dev, { visitPayload: payloadData, visitRef: payloadData.clientRef || null, lastPayload: payloadData, locationName: locNameInput, deviceType: devType });
+                scheduleSiteRefresh(selectedClient.id);
                 return true;
             } catch (err) {
                 alert('Error saving record on this device: ' + (err.message || err));
@@ -13504,6 +13538,7 @@
         //  COMPLETE VISIT (works offline - queued like everything else)
         // ===================================================================
         async function openCompleteVisitModal() {
+            await flushSiteRefresh();   // everything saved on this visit is counted
             // Not every station scanned? Say so, but allow closing anyway.
             const unscanned = siteDevices.filter(d => !scannedBarcodesThisVisit.has(d.barcode_id));
             const note = document.getElementById('completeUnscannedNote');
@@ -14857,6 +14892,13 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r105', date: '2026-10-31', v: { svc: '2026.10.31-r105', adm: '2026.10.31-a45', cli: '2026.10.31-p60' },
+            svc: ['Saving a station is instant, even on a very big site: the station is updated straight away and the rest of the site catches up a moment later (opening the same station again waits for it, so it shows what you saved)',
+                  'Big sites: the station lists show the first stations with "Show more" (search finds any station), so the app stays quick with thousands of stations'],
+            adm: ['Sites and Reports: a copy of each site’s station checks is kept on this computer, so after the first time only new or changed checks download',
+                  'The download box shows the amount downloaded and the speed every time (they could show 0 just after an update)'],
+            cli: ['Opening a site is quicker: a copy of its records is kept on this device, so after the first time only what’s new downloads (the loading screen shows how many are new)',
+                  'The loading screen shows the amount downloaded and the speed every time (they could show 0 just after an update)'] },
         { rev: 'r104', date: '2026-10-31', v: { svc: '2026.10.31-r104', adm: '2026.10.31-a44', cli: '2026.10.31-p59' },
             svc: ['Behind the scenes: the connection to the server can now count what arrives (Admin and the Client Portal use it to show the download speed). Nothing changes in the Service App'],
             adm: ['Sites › a site page (the floor plan heat map) and Reports: while the station checks for a site download you see how much has arrived, the speed, and how many records of how many, like the Service App'],

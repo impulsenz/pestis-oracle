@@ -694,4 +694,106 @@ const PR = (() => {
     }
     return { build, render, set, download, print, station, sds, rec, mapGo, combo, comboOpen, comboClose, show, REPORTS };
 })();
+// ===================================================================
+//  LOGS: a site's station checks, kept on this device between visits to the page.
+//  LOGS.load(db, cid, { who, onProgress }) gives every check (oldest first). The first time it downloads them all;
+//  after that it asks only for checks added or changed since (the server numbers every change: rev), then checks the
+//  count with the server and puts right anything else (removed checks, ones a client could only see once a visit closed).
+//  onProgress({ rows, total, fresh }): rows on hand so far, how many the server has, how many came down this time.
+// ===================================================================
+const LOGS = (() => {
+    const COLS = 'id, rev, barcode_id, payload, created_at', PAGE = 5000, PIECE = 5000, V = 1;
+    let dbp = null;
+    const idb = () => dbp || (dbp = new Promise((ok, no) => {
+        try { const r = indexedDB.open('pestis-site-copies', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); }
+        catch (e) { no(e); }
+    }));
+    const tx = async (mode, fn) => {
+        const d = await idb();
+        return new Promise((ok, no) => {
+            const t = d.transaction('kv', mode), r = fn(t.objectStore('kv'));
+            let out; if (r) r.onsuccess = () => { out = r.result; };
+            t.oncomplete = () => ok(out); t.onerror = t.onabort = () => no(t.error);
+        });
+    };
+    const get = k => tx('readonly', s => s.get(k)), put = (k, v) => tx('readwrite', s => s.put(v, k)), del = k => tx('readwrite', s => s.delete(k));
+    // the copy is saved in pieces; a piece holding the very same checks as last time isn't written again
+    const written = new Map();   // key -> [rows of each saved piece]
+    async function read(key) {
+        const m = await get(key);
+        if (!m || m.v !== V) return null;
+        const pieces = [];
+        for (let i = 0; i < m.pieces; i++) { const p = await get(key + '#' + i); if (!Array.isArray(p)) return null; pieces.push(p); }
+        written.set(key, pieces);
+        return { rows: [].concat(...pieces), maxRev: m.maxRev || 0 };
+    }
+    async function write(key, rows, maxRev) {
+        const had = written.get(key) || [], n = Math.ceil(rows.length / PIECE), pieces = [];
+        for (let i = 0; i < n; i++) {
+            const p = rows.slice(i * PIECE, (i + 1) * PIECE), w = had[i];
+            if (!w || w.length !== p.length || p.some((r, j) => r !== w[j])) await put(key + '#' + i, p);
+            pieces.push(p);
+        }
+        await put(key, { v: V, pieces: n, maxRev, at: Date.now() });
+        for (let i = n; i < had.length; i++) await del(key + '#' + i);
+        written.set(key, pieces);
+    }
+    const order = (a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : a.id - b.id);
+    async function load(db, cid, o) {
+        o = o || {};
+        cid = String(cid);
+        const key = (o.who || '') + '|' + cid, tell = o.onProgress || (() => {});
+        const q = cols => db.from('service_logs').select(cols).eq('client_id', cid);
+        const count = async () => { const r = await db.from('service_logs').select('id', { count: 'exact', head: true }).eq('client_id', cid); if (r.error) throw r.error; return r.count; };
+        let c = null;
+        try { c = await read(key); } catch (e) { c = null; }   // no copy, or this browser can't keep one
+        let rows = c ? c.rows : [], maxRev = c ? c.maxRev : 0, top = maxRev, fresh = 0, changed = !c, total = null;
+        tell({ rows: rows.length, total, fresh });
+        count().then(n => { if (total == null) { total = n; tell({ rows: rows.length, total, fresh }); } }, () => {});
+        // checks added or changed since the copy was made
+        const at = new Map(rows.map((r, i) => [r.id, i]));
+        for (let from = 0; ; from += PAGE) {
+            const { data, error } = await q(COLS).gt('rev', maxRev).order('rev', { ascending: true }).range(from, from + PAGE - 1);
+            if (error) throw error;
+            for (const r of data || []) {
+                const i = at.get(r.id);
+                if (i != null) rows[i] = r; else { at.set(r.id, rows.length); rows.push(r); }
+                if (r.rev > top) top = r.rev;
+            }
+            fresh += (data || []).length; if ((data || []).length) changed = true;
+            tell({ rows: rows.length, total, fresh });
+            if (!data || data.length < PAGE) break;
+        }
+        // the count tells whether anything else changed: then the list of check numbers says which
+        total = await count();
+        if (total !== rows.length) {
+            const ids = new Set();
+            for (let from = 0; ; from += 20000) {
+                const { data, error } = await q('id').order('rev', { ascending: true }).range(from, from + 19999);
+                if (error) throw error;
+                for (const r of data || []) ids.add(r.id);
+                if (!data || data.length < 20000) break;
+            }
+            rows = rows.filter(r => ids.has(r.id));
+            const have = new Set(rows.map(r => r.id)), missing = Array.from(ids).filter(id => !have.has(id));
+            for (let i = 0; i < missing.length; i += 500) {
+                const { data, error } = await q(COLS).in('id', missing.slice(i, i + 500));
+                if (error) throw error;
+                for (const r of data || []) { rows.push(r); if (r.rev > top) top = r.rev; }
+                fresh += (data || []).length;
+                tell({ rows: rows.length, total, fresh });
+            }
+            changed = true;
+        }
+        if (changed) {
+            rows.sort(order);
+            try { await write(key, rows, top); } catch (e) { console.warn('Could not keep a copy of the station checks on this device', e); }
+        }
+        tell({ rows: rows.length, total, fresh, done: true });
+        return rows;
+    }
+    // forget every copy kept on this device (signing out)
+    async function clear() { try { await tx('readwrite', s => s.clear()); written.clear(); } catch (e) {} }
+    return { load, clear, COLS };
+})();
 /* PESTIS-REPORTS:END */

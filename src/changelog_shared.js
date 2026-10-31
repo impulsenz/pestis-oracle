@@ -3,6 +3,13 @@
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r105', date: '2026-10-31', v: { svc: '2026.10.31-r105', adm: '2026.10.31-a45', cli: '2026.10.31-p60' },
+            svc: ['Saving a station is instant, even on a very big site: the station is updated straight away and the rest of the site catches up a moment later (opening the same station again waits for it, so it shows what you saved)',
+                  'Big sites: the station lists show the first stations with "Show more" (search finds any station), so the app stays quick with thousands of stations'],
+            adm: ['Sites and Reports: a copy of each site’s station checks is kept on this computer, so after the first time only new or changed checks download',
+                  'The download box shows the amount downloaded and the speed every time (they could show 0 just after an update)'],
+            cli: ['Opening a site is quicker: a copy of its records is kept on this device, so after the first time only what’s new downloads (the loading screen shows how many are new)',
+                  'The loading screen shows the amount downloaded and the speed every time (they could show 0 just after an update)'] },
         { rev: 'r104', date: '2026-10-31', v: { svc: '2026.10.31-r104', adm: '2026.10.31-a44', cli: '2026.10.31-p59' },
             svc: ['Behind the scenes: the connection to the server can now count what arrives (Admin and the Client Portal use it to show the download speed). Nothing changes in the Service App'],
             adm: ['Sites › a site page (the floor plan heat map) and Reports: while the station checks for a site download you see how much has arrived, the speed, and how many records of how many, like the Service App'],

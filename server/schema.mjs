@@ -65,8 +65,9 @@ export const TABLES = {
     cols: {
       id: c('int', { def: 'identity', nn: true }), client_id: c('int', { nn: true }), barcode_id: c('text', { nn: true }),
       payload: c('json', { def: {}, nn: true }), created_at: c('ts', NOW), technician_id: c('uuid', { def: 'uid' }),
+      rev: c('int', { def: 0, nn: true }),   // a change number, set by the server when the row is added or changed (see server.mjs)
     },
-    index: [['client_id', 'created_at'], ['client_id', 'barcode_id']],
+    index: [['client_id', 'created_at'], ['client_id', 'barcode_id'], ['client_id', 'rev']],
   },
   recommendations: {
     pk: ['id'], identity: 'rec_no',

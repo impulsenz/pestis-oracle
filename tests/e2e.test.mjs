@@ -117,8 +117,15 @@ try {
   ok(await sp.evaluate("gluePrep() === 'Glue Board'"), 'Glue Board is the glue board preparation', await sp.evaluate('gluePrep()'));
   await sp.evaluate('applyGlueBoard()');
   if (await sp.isEnabled('#batchNumber').catch(() => false)) await sp.fill('#batchNumber', 'B-1');
-  const saved = await sp.evaluate('saveStationServiceRecord()'); await sleep(500);
+  const saved = await sp.evaluate('saveStationServiceRecord()');
+  // Save doesn't wait for the whole site to be worked out again: that follows a moment later; scanning the same
+  // station before then works it out first, so the station shows what was just saved
+  const quick = await sp.evaluate(() => ({ waiting: !!siteRefreshTimer, marked: savedSinceRefresh.has('NEW-88') }));
+  await sp.evaluate("handleScannedBarcode('NEW-88')");
+  const rescan = await sp.evaluate(() => { const d = siteDevices.find(x => x.barcode_id === 'NEW-88'); return { waiting: !!siteRefreshTimer, visitRef: !!(d && d.visitRef), hist: d ? d.history.length : 0, open: !document.getElementById('stationFormContainer').classList.contains('hidden') }; });
+  await sp.evaluate('hideStationForm()'); await sleep(500);
   ok(saved !== false, 'station record saved in the app');
+  ok(quick.waiting && quick.marked && !rescan.waiting && rescan.visitRef && rescan.hist >= 1 && rescan.open, 'save is quick; scanning the station again shows what was saved', { quick, rescan });
   await sp.evaluate('flushQueue && flushQueue()');
   let got = null;
   for (let i = 0; i < 40; i++) {
@@ -262,6 +269,20 @@ try {
     showLoading('Loading the latest records', SITE_LOAD_STEPS); await loadSiteData(state.site); clearInterval(t); showOnly('siteView'); renderTab();
     return { afterHidden: after.hidden, hookOff: !after.hook && !sb.onReceived, shown, bytes: dl.bytes, rows: dl.rows, total: dl.total, logs: state.data.logs.length };
   });
+  // the copy kept on this device: the first time everything comes down, after that only what's new or changed;
+  // a removed check (or one a client could only see later) is put right from the count
+  const copyRun = () => cp.evaluate(async () => { let last; const rows = await LOGS.load(sb, '1', { who: 'copy-test', onProgress: p => { last = p; } });
+    return { n: rows.length, fresh: last.fresh, total: last.total, b: rows.map(r => r.barcode_id).join() }; });
+  const c1 = await copyRun(), c2 = await copyRun();
+  const added = (await api(tech)('service_logs', { op: 'insert', values: [{ client_id: 1, barcode_id: 'COPY-1', payload: { notes: 'one' } }, { client_id: 1, barcode_id: 'COPY-2', payload: { notes: 'two' } }], returning: true })).data || [];
+  const c3 = await copyRun();
+  await api(tech)('service_logs', { op: 'update', values: { payload: { notes: 'changed' } }, filters: [['barcode_id', 'eq', 'COPY-2']] });
+  await api(tech)('service_logs', { op: 'delete', filters: [['barcode_id', 'eq', 'COPY-1']] });
+  const c4 = await copyRun();
+  const c4note = await cp.evaluate(async () => { const rows = await LOGS.load(sb, '1', { who: 'copy-test' }); const r = rows.find(x => x.barcode_id === 'COPY-2'); return r && r.payload.notes; });
+  await api(tech)('service_logs', { op: 'delete', filters: [['barcode_id', 'eq', 'COPY-2']] });
+  ok(c1.n > 0 && c1.fresh === c1.n && c2.fresh === 0 && c2.n === c1.n && c3.fresh === 2 && c3.n === c1.n + 2 && c4.n === c1.n + 1 && !/COPY-1/.test(c4.b) && c4note === 'changed' && c4.total === c4.n,
+    'kept copy: only new and changed checks download; removed ones go', { c1: [c1.n, c1.fresh], c2: [c2.n, c2.fresh], c3: [c3.n, c3.fresh], c4: [c4.n, c4.fresh, c4.total], c4note, added: added.length });
   ok(cdl.afterHidden && cdl.hookOff && cdl.shown && cdl.bytes > 1000 && cdl.rows === cdl.logs && cdl.total === cdl.logs && cdl.logs > 0, 'client portal loading: a download box with the amount, speed and records', cdl);
   const cliPdf = await cp.evaluate(`(async () => { const v = state.model.visits[0]; if (!v) return null; window.__pdf.links = []; await downloadVisitPdf(v.id); return { saved: window.__pdf.saved.slice(), texts: window.__pdf.texts.slice(), links: window.__pdf.links.slice() }; })()`);
   ok(cliPdf && cliPdf.links.some(u => /\/client\.html#\/site\/1\/overview\/station\/NEW-88$/.test(u)) && cliPdf.links.some(u => /#\/site\/1\/visits\/visit\//.test(u)),
