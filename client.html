@@ -610,6 +610,11 @@
                     <span id="loadingPct" class="text-sm font-mono t-accent font-extrabold shrink-0"></span>
                 </div>
                 <div id="loadingBarWrap" class="load-bar"><span id="loadingBar"></span></div>
+                <div id="loadingStats" class="hidden grid grid-cols-3 gap-2 sm:gap-3 text-center">
+                    <div class="inset p-2.5"><div id="dlBytes" class="text-sm font-black font-mono t-strong">0 KB</div><div class="eyebrow t-faint mt-0.5">Downloaded</div></div>
+                    <div class="inset p-2.5"><div id="dlSpeed" class="text-sm font-black font-mono t-strong">-</div><div class="eyebrow t-faint mt-0.5">Speed</div></div>
+                    <div class="inset p-2.5"><div id="dlRows" class="text-sm font-black font-mono t-strong">-</div><div class="eyebrow t-faint mt-0.5">Records</div></div>
+                </div>
                 <ol id="loadingSteps" class="space-y-1.5 text-xs"></ol>
             </div>
         </div>
@@ -712,7 +717,7 @@
 //  Same Supabase project as the Pestis field app. What a client can see and change is enforced by the database
 //  (on the server); this page only shows it.
 // =====================================================================
-const PORTAL_VERSION = '2026.10.31-p58-oci';
+const PORTAL_VERSION = '2026.10.31-p59-oci';
 const SUPABASE_URL = location.origin;              // the Pestis server: same address as the apps
 const SUPABASE_ANON_KEY = 'pestis-server';          // not used by the Pestis server (kept so the app code stays the same)
 const PHOTO_BUCKET = 'station-photos';
@@ -1167,7 +1172,40 @@ function showOnly(id) {
 }
 // Loading panel: a progress bar and the steps (like the field app); without steps the bar just keeps moving
 let loadState = null;
-const SITE_LOAD_STEPS = [['logs', 'Service records', 1], ['stations', 'Stations and floor plans', 2], ['visits', 'Visits', 1], ['recs', 'Recommendations', 3], ['docs', 'Documents', 2], ['limits', 'Critical limits and pest sightings', 4]];
+// ---------- download meter: how much has arrived, how fast, and how many station checks of how many ----------
+const dl = { on: false, bytes: 0, samples: [], start: 0, rows: 0, total: 0, timer: null, run: 0 };
+function fmtBytes(n) {
+    if (!n || n < 1) return '0 KB';
+    if (n < 1024) return Math.round(n) + ' B';
+    if (n < 1024 * 1024) return (n / 1024).toFixed(n < 10 * 1024 ? 1 : 0) + ' KB';
+    return (n / 1024 / 1024).toFixed(n < 100 * 1024 * 1024 ? 1 : 0) + ' MB';
+}
+function dlStart() {
+    Object.assign(dl, { on: true, bytes: 0, samples: [[Date.now(), 0]], start: Date.now(), rows: 0, total: 0, run: dl.run + 1 });
+    sb.onReceived = n => { dl.bytes += n; dl.samples.push([Date.now(), dl.bytes]); };
+    clearInterval(dl.timer); dl.timer = setInterval(renderDl, 400);
+    renderDl();
+}
+function dlStop(run) { if (run !== dl.run) return; sb.onReceived = null; dl.on = false; clearInterval(dl.timer); renderDl(); }   // (a newer load keeps going)
+function dlSpeed() {   // over the last 3 seconds (the average so far when that's too short to tell)
+    const now = Date.now();
+    while (dl.samples.length > 2 && now - dl.samples[0][0] > 3000) dl.samples.shift();
+    const [t0, b0] = dl.samples[0], dt = (now - t0) / 1000, recent = dt >= .5 ? (dl.bytes - b0) / dt : 0;
+    return recent > 0 ? recent : dl.bytes / Math.max((now - dl.start) / 1000, .25);
+}
+function renderDl() {
+    const el = $('loadingStats'); if (!el) return;
+    el.classList.toggle('hidden', !dl.on);
+    if (!dl.on) return;
+    const sp = dlSpeed();
+    $('dlBytes').textContent = fmtBytes(dl.bytes);
+    $('dlSpeed').textContent = sp > 0 ? fmtBytes(sp) + '/s' : '-';
+    $('dlRows').textContent = dl.total ? `${dl.rows.toLocaleString()} / ${dl.total.toLocaleString()}` : dl.rows ? dl.rows.toLocaleString() : '-';
+    // the station checks are most of the download: the bar follows them
+    if (loadState && dl.total && !(loadState.done.logs >= LOGS_W)) { loadState.done.logs = Math.min(LOGS_W - .1, dl.rows / dl.total * LOGS_W); renderLoading(); }
+}
+const LOGS_W = 40;   // the station checks are most of the download, so most of the bar
+const SITE_LOAD_STEPS = [['logs', 'Service records', LOGS_W], ['stations', 'Stations and floor plans', 2], ['visits', 'Visits', 1], ['recs', 'Recommendations', 3], ['docs', 'Documents', 2], ['limits', 'Critical limits and pest sightings', 4]];
 function showLoading(text, steps) {
     $('loadingText').textContent = text || 'Loading...';
     loadState = steps ? { steps, done: {} } : null;
@@ -1281,7 +1319,7 @@ async function refreshSite() {
     showOnly('siteView'); renderSiteHeader(); renderTab();
 }
 
-async function fetchAll(table, cid, cols, orderCol) {
+async function fetchAll(table, cid, cols, orderCol, onPage) {
     const PAGE = table === 'service_logs' ? 5000 : 1000;   // station checks come in big pieces
     let from = 0;
     const out = [];
@@ -1291,6 +1329,7 @@ async function fetchAll(table, cid, cols, orderCol) {
         const { data, error } = await q.range(from, from + PAGE - 1);
         if (error) throw error;
         for (const r of data || []) out.push(r);
+        if (onPage) onPage(out.length);
         if (!data || data.length < PAGE) return out;
         from += PAGE;
     }
@@ -1354,31 +1393,37 @@ async function applyLive(cid) {
 async function loadSiteData(site) {
     const cid = String(site.id);
     const step = (k, pr) => pr.then(v => { loadStep(k); return v; });
-    const [logs, stations, maps, visits, recs, updates, docs, folders, limits, views, contacts, buildings] = await Promise.all([
-        step('logs', fetchAll('service_logs', cid, 'barcode_id, payload, created_at', 'created_at')),
-        step('stations', fetchAll('stations', cid).catch(() => [])),
-        step('stations', fetchAll('site_maps', cid).catch(() => [])),
-        step('visits', fetchAll('visits', cid).catch(() => [])),
-        step('recs', fetchAll('recommendations', cid)),
-        step('recs', fetchAll('recommendation_updates', cid)),
-        step('docs', fetchAll('site_documents', cid).catch(() => [])),
-        step('docs', fetchAll('site_document_folders', cid).catch(() => [])),
-        step('limits', fetchAll('site_limits', cid).catch(() => [])),
-        step('recs', fetchAll('recommendation_views', cid).catch(() => [])),
-        fetchAll('site_contacts', cid).then(r => { state.contactsMissing = false; return r; }).catch(() => { state.contactsMissing = true; return []; }),
-        fetchAll('site_buildings', cid).catch(() => [])
-    ]);
-    const [types, sightings, species] = await Promise.all([
-        step('limits', sb.from('station_types').select('*').then(r => { if (r.error) throw r.error; state.typeColors = new Map((r.data || []).filter(x => x.color).map(x => [String(x.label).toLowerCase(), x.color])); return (r.data || []).map(x => x.label); })
-            .catch(() => sb.from('app_options').select('label, kind').eq('kind', 'station_type').then(r => (r.data || []).map(x => x.label)).catch(() => []))),
-        step('limits', fetchAll('pest_sightings', cid).then(r => { state.sightingsMissing = false; return r; }).catch(() => { state.sightingsMissing = true; return []; })),
-        step('limits', state.pestGuide ? Promise.resolve(state.pestGuide) : sb.from('species').select('*').then(r => r.data || []).catch(() => [])),
-        state.preps ? Promise.resolve(state.preps) : sb.from('preparations').select('*').then(r => r.data || []).catch(() => [])
-    ]).then(r => { state.preps = r[3] || []; return r; });
-    state.stationTypes = types || [];
-    state.pestGuide = species || [];
-    state.speciesList = state.pestGuide.map(x => x.label).filter(Boolean);
-    state.data = { logs, stations, maps, visits, recs, updates, docs, folders, limits, views, sightings, contacts, buildings };
+    dlStart();
+    const run = dl.run, mine = f => (...a) => { if (dl.run === run) f(...a); };   // an older load still finishing doesn't move the numbers
+    try {
+        // how many station checks there are (for "x of y"), while they download
+        sb.from('service_logs').select('barcode_id', { count: 'exact', head: true }).eq('client_id', cid).then(mine(r => { if (typeof r.count === 'number') { dl.total = r.count; renderDl(); } }), () => {});
+        const [logs, stations, maps, visits, recs, updates, docs, folders, limits, views, contacts, buildings] = await Promise.all([
+            fetchAll('service_logs', cid, 'barcode_id, payload, created_at', 'created_at', mine(n => { dl.rows = n; })).then(v => { if (loadState) loadState.done.logs = LOGS_W; renderLoading(); return v; }),
+            step('stations', fetchAll('stations', cid).catch(() => [])),
+            step('stations', fetchAll('site_maps', cid).catch(() => [])),
+            step('visits', fetchAll('visits', cid).catch(() => [])),
+            step('recs', fetchAll('recommendations', cid)),
+            step('recs', fetchAll('recommendation_updates', cid)),
+            step('docs', fetchAll('site_documents', cid).catch(() => [])),
+            step('docs', fetchAll('site_document_folders', cid).catch(() => [])),
+            step('limits', fetchAll('site_limits', cid).catch(() => [])),
+            step('recs', fetchAll('recommendation_views', cid).catch(() => [])),
+            fetchAll('site_contacts', cid).then(r => { state.contactsMissing = false; return r; }).catch(() => { state.contactsMissing = true; return []; }),
+            fetchAll('site_buildings', cid).catch(() => [])
+        ]);
+        const [types, sightings, species] = await Promise.all([
+            step('limits', sb.from('station_types').select('*').then(r => { if (r.error) throw r.error; state.typeColors = new Map((r.data || []).filter(x => x.color).map(x => [String(x.label).toLowerCase(), x.color])); return (r.data || []).map(x => x.label); })
+                .catch(() => sb.from('app_options').select('label, kind').eq('kind', 'station_type').then(r => (r.data || []).map(x => x.label)).catch(() => []))),
+            step('limits', fetchAll('pest_sightings', cid).then(r => { state.sightingsMissing = false; return r; }).catch(() => { state.sightingsMissing = true; return []; })),
+            step('limits', state.pestGuide ? Promise.resolve(state.pestGuide) : sb.from('species').select('*').then(r => r.data || []).catch(() => [])),
+            state.preps ? Promise.resolve(state.preps) : sb.from('preparations').select('*').then(r => r.data || []).catch(() => [])
+        ]).then(r => { state.preps = r[3] || []; return r; });
+        state.stationTypes = types || [];
+        state.pestGuide = species || [];
+        state.speciesList = state.pestGuide.map(x => x.label).filter(Boolean);
+        state.data = { logs, stations, maps, visits, recs, updates, docs, folders, limits, views, sightings, contacts, buildings };
+    } finally { dlStop(run); }
     startLive(site);
     state.model = buildModel(site, state.data);
     state.links = new Map();
@@ -4655,6 +4700,10 @@ const PR = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r104', date: '2026-10-31', v: { svc: '2026.10.31-r104', adm: '2026.10.31-a44', cli: '2026.10.31-p59' },
+            svc: ['Behind the scenes: the connection to the server can now count what arrives (Admin and the Client Portal use it to show the download speed). Nothing changes in the Service App'],
+            adm: ['Sites › a site page (the floor plan heat map) and Reports: while the station checks for a site download you see how much has arrived, the speed, and how many records of how many, like the Service App'],
+            cli: ['Opening a site: the loading screen shows how much has downloaded, the speed, and how many records of how many, and the bar follows the records'] },
         { rev: 'r103', date: '2026-10-31', v: { svc: '2026.10.31-r103', adm: '2026.10.31-a43', cli: '2026.10.31-p58' },
             svc: ['Big sites are much faster: a site with hundreds of thousands of station checks downloads in big pieces, opens in seconds, and saving a new check no longer re-saves the whole history on the phone (only the part that changed)',
                   'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'],

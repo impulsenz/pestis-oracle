@@ -3,7 +3,7 @@ import re, json, sys, tempfile
 import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
 SP = ROOT + 'src/'
-ADMIN_VERSION = '2026.10.31-a43-oci'   # bump the a-number when Admin changes
+ADMIN_VERSION = '2026.10.31-a44-oci'   # bump the a-number when Admin changes
 idx = open(ROOT + 'index.html').read()
 src = open(SP + 'admin_src.html').read()          # the add-on version of admin.html (template + addonScript)
 
@@ -30,7 +30,7 @@ def block_end(i):
             elif ch in '}])': depth -= 1
         if (started and depth <= 0) or (not started and L[j].rstrip().endswith(';')): return j
         j += 1
-WANT = '''DEFAULT_OPTIONS,stationColorBase,stationColor,DOC_BUCKET,DOC_CATEGORIES,LOCALE,NONE_PREP,NONE_SPECIES,OPTION_INPUT,OPTION_KIND_LABEL,PEST_CATEGORIES,PEST_CAT_ICON,PHOTO_BUCKET,
+WANT = '''DEFAULT_OPTIONS,fmtBytes,stationColorBase,stationColor,DOC_BUCKET,DOC_CATEGORIES,LOCALE,NONE_PREP,NONE_SPECIES,OPTION_INPUT,OPTION_KIND_LABEL,PEST_CATEGORIES,PEST_CAT_ICON,PHOTO_BUCKET,
 PORTAL_SQL_NOTE,PREP_UNITS,TEAM_SETTINGS,autoFillPest,byLabel,compressImage,cssEsc,docExpiryChip,docFolderOf,docsNeedingAttention,dueInfo,esc,extFor,findPest,
 fmtDateTimeLong,fmtDay,fmtRecNo,freqLabel,getServices,getSignedUrls,isWebPic,monthWork,monthWorkSummaryHtml,openMonthWork,parseDay,pestCategories,pestCategoryGuess,
 pestCategoryOf,pestLibraryFor,portalMissing,portalUrl,prepSdsChip,openPrepSds,showPestInfo,siteById,speciesItems,teamName,technicianLabel,toDayStr,todayStr,typeDot,uid,

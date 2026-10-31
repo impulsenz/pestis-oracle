@@ -186,6 +186,17 @@ try {
   await ad.goto(BASE + '/admin.html'); await sleep(4000);
   const adminText = await ad.textContent('body');
   ok(!(await ad.isVisible('#loginScreen')) && /Acme Foods/.test(adminText), 'Admin opens signed in with the site', adminText.slice(0, 200));
+  // Admin's download box (the heat map and Reports use it while the station checks arrive)
+  const adl = await ad.evaluate(async () => {
+    const el = document.createElement('div'); document.body.appendChild(el);
+    const m = adminDlMeter(el, 'Downloading station records');
+    const rows = await adminFetchAll('service_logs', '1', 'barcode_id', m);
+    await new Promise(r => setTimeout(r, 450));
+    const text = el.innerText; m.stop(); el.remove();
+    return { text, rows: rows.length, mRows: m.rows, total: m.total, bytes: m.bytes, hookOff: !_supabase.onReceived };
+  });
+  ok(adl.rows > 0 && adl.mRows === adl.rows && adl.total === adl.rows && adl.bytes > 0 && adl.hookOff && /DOWNLOADED/i.test(adl.text) && /SPEED/i.test(adl.text) && adl.text.includes(`${adl.rows} / ${adl.rows}`),
+    'admin: a download box with the amount, speed and records', adl);
   const profs = await api(boss)('profiles', {});
   ok(profs.data.length === 2, 'two staff profiles', profs.data.map(p => p.email));
   await ad.screenshot({ path: SHOTS + '/admin.png' });
@@ -244,6 +255,14 @@ try {
   await cp.goto(BASE + '/client.html#/site/1/overview'); await sleep(3000);
   const otext = await cp.textContent('body');
   ok(/Seal the gap/.test(otext), 'client sees the recommendation', otext.slice(0, 400));
+  // the loading screen's download box: bytes, speed and records of the total; hidden again once the site is open
+  const cdl = await cp.evaluate(async () => {
+    const after = { hidden: document.getElementById('loadingStats').classList.contains('hidden'), hook: sb.onReceived };
+    let shown = false; const t = setInterval(() => { if (!document.getElementById('loadingStats').classList.contains('hidden')) shown = true; }, 5);
+    showLoading('Loading the latest records', SITE_LOAD_STEPS); await loadSiteData(state.site); clearInterval(t); showOnly('siteView'); renderTab();
+    return { afterHidden: after.hidden, hookOff: !after.hook && !sb.onReceived, shown, bytes: dl.bytes, rows: dl.rows, total: dl.total, logs: state.data.logs.length };
+  });
+  ok(cdl.afterHidden && cdl.hookOff && cdl.shown && cdl.bytes > 1000 && cdl.rows === cdl.logs && cdl.total === cdl.logs && cdl.logs > 0, 'client portal loading: a download box with the amount, speed and records', cdl);
   const cliPdf = await cp.evaluate(`(async () => { const v = state.model.visits[0]; if (!v) return null; window.__pdf.links = []; await downloadVisitPdf(v.id); return { saved: window.__pdf.saved.slice(), texts: window.__pdf.texts.slice(), links: window.__pdf.links.slice() }; })()`);
   ok(cliPdf && cliPdf.links.some(u => /\/client\.html#\/site\/1\/overview\/station\/NEW-88$/.test(u)) && cliPdf.links.some(u => /#\/site\/1\/visits\/visit\//.test(u)),
     'visit report: stations and the visit link back to the Client Portal', cliPdf && cliPdf.links);

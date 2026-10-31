@@ -43,6 +43,18 @@
     }
   }
 
+  // reads a reply piece by piece, telling onBytes how much arrived (the apps show the download speed)
+  async function readCounting(res, onBytes) {
+    const tell = n => { try { onBytes(n); } catch (e) {} };
+    let text = '';
+    if (res.body && res.body.getReader && typeof TextDecoder !== 'undefined') {
+      const reader = res.body.getReader(), dec = new TextDecoder();
+      for (;;) { const { done, value } = await reader.read(); if (done) break; tell(value.length); text += dec.decode(value, { stream: true }); }
+      text += dec.decode();
+    } else { text = await res.text(); tell(text.length); }
+    try { return JSON.parse(text); } catch (e) { return {}; }
+  }
+
   /* ---------------- database ---------------- */
   class Query {
     constructor(client, table) {
@@ -105,7 +117,7 @@
       let res, body;
       try {
         res = await this.c.request('/api/db', { method: 'POST', json: this.q, signal: this._signal || undefined });
-        body = await res.json().catch(() => ({}));
+        body = this.c.onReceived ? await readCounting(res, this.c.onReceived) : await res.json().catch(() => ({}));
       } catch (e) {
         return { data: null, error: fetchError(e), count: null, status: 0, statusText: '' };
       }

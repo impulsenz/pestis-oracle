@@ -1243,6 +1243,10 @@ const THUMBS = (() => {
 //   svc = Service App (index.html), adm = Admin (admin.html), cli = Client Portal (client.html - written for clients)
 const WN = (() => {
     const LOG = [
+        { rev: 'r104', date: '2026-10-31', v: { svc: '2026.10.31-r104', adm: '2026.10.31-a44', cli: '2026.10.31-p59' },
+            svc: ['Behind the scenes: the connection to the server can now count what arrives (Admin and the Client Portal use it to show the download speed). Nothing changes in the Service App'],
+            adm: ['Sites › a site page (the floor plan heat map) and Reports: while the station checks for a site download you see how much has arrived, the speed, and how many records of how many, like the Service App'],
+            cli: ['Opening a site: the loading screen shows how much has downloaded, the speed, and how many records of how many, and the bar follows the records'] },
         { rev: 'r103', date: '2026-10-31', v: { svc: '2026.10.31-r103', adm: '2026.10.31-a43', cli: '2026.10.31-p58' },
             svc: ['Big sites are much faster: a site with hundreds of thousands of station checks downloads in big pieces, opens in seconds, and saving a new check no longer re-saves the whole history on the phone (only the part that changed)',
                   'Heat map: with many stations close together, each station glows over a smaller area and the colours compare each spot with the busiest stations (not just the single busiest), and the pins get smaller and see-through while the heat map is on, so a crowded plan still shows where the activity is'],
@@ -3009,18 +3013,47 @@ const PR = (() => {
             if (!adminSiteId && sites.length === 1) adminSiteId = String(sites[0].id);
             sel.value = adminSiteId;
         }
-        async function adminFetchAll(table, cid, cols) {
+        // meter (optional, from adminDlMeter): shows how many station checks have arrived, of how many
+        async function adminFetchAll(table, cid, cols, meter) {
             // station checks come in big pieces, oldest first (the server reads them straight from its index)
             const logs = table === 'service_logs', PAGE = logs ? 5000 : 1000, out = [];
+            if (meter) _supabase.from(table).select('client_id', { count: 'exact', head: true }).eq('client_id', String(cid)).then(r => { if (typeof r.count === 'number') meter.total = r.count; }, () => {});
             for (let from = 0; ; from += PAGE) {
                 let q = _supabase.from(table).select(cols || '*').eq('client_id', String(cid));
                 if (logs) q = q.order('created_at', { ascending: true });
                 const { data, error } = await q.range(from, from + PAGE - 1);
                 if (error) throw error;
                 for (const r of data || []) out.push(r);
+                if (meter) meter.rows = out.length;
                 if (!data || data.length < PAGE) break;
             }
             return out;
+        }
+        // A download box (like the Service App's): how much has arrived, how fast, and how many station checks of how many.
+        // It draws itself into el until stop() (or until el leaves the page).
+        const adminDlMeters = new Set();
+        function adminDlMeter(el, title) {
+            const m = { bytes: 0, samples: [[Date.now(), 0]], start: Date.now(), rows: 0, total: 0 };
+            adminDlMeters.add(m);
+            _supabase.onReceived = n => adminDlMeters.forEach(x => { x.bytes += n; x.samples.push([Date.now(), x.bytes]); });
+            const speed = () => {   // over the last 3 seconds (the average so far when that's too short to tell)
+                const now = Date.now();
+                while (m.samples.length > 2 && now - m.samples[0][0] > 3000) m.samples.shift();
+                const [t0, b0] = m.samples[0], dt = (now - t0) / 1000, recent = dt >= .5 ? (m.bytes - b0) / dt : 0;
+                return recent > 0 ? recent : m.bytes / Math.max((now - m.start) / 1000, .25);
+            };
+            const draw = () => {
+                if (!el.isConnected) return m.stop();
+                const pct = m.total ? Math.min(99, Math.floor(m.rows / m.total * 100)) : 0, sp = speed();
+                const box = (v, k) => `<div class="inset p-2.5"><div class="text-sm font-black font-mono t-strong">${v}</div><div class="eyebrow t-faint mt-0.5">${k}</div></div>`;
+                el.innerHTML = `<div class="as-dl space-y-2.5" role="status"><div class="flex items-center justify-between gap-2"><span class="text-xs font-bold t-strong">${esc(title)}${m.total ? ` · ${m.rows.toLocaleString()} of ${m.total.toLocaleString()}` : ''}</span><span class="text-xs font-mono font-extrabold t-accent">${m.total ? pct + '%' : ''}</span></div>
+                    <div class="sbar" style="height:8px;"><i style="width:${Math.max(3, pct)}%;"></i></div>
+                    <div class="grid grid-cols-3 gap-2 text-center">${box(fmtBytes(m.bytes), 'Downloaded')}${box(sp > 0 ? fmtBytes(sp) + '/s' : '-', 'Speed')}${box(m.total ? `${m.rows.toLocaleString()} / ${m.total.toLocaleString()}` : m.rows ? m.rows.toLocaleString() : '-', 'Records')}</div></div>`;
+            };
+            m.timer = setInterval(draw, 400);
+            m.stop = () => { clearInterval(m.timer); adminDlMeters.delete(m); if (!adminDlMeters.size) _supabase.onReceived = null; };
+            draw();
+            return m;
         }
 
         // ---------- What's new: every update to Admin (the list is shared with the Service App and the Client Portal) ----------
@@ -3236,7 +3269,9 @@ const PR = (() => {
             renderAdminPlan();
             fillAdminStationPlans();
             let logs = [];
-            try { logs = await adminFetchAll('service_logs', cid, 'barcode_id, created_at, payload'); } catch (e) {}
+            const hb = document.getElementById('asHeatBox'), meter = hb ? adminDlMeter(hb, 'Downloading station records for the heat map') : null;
+            try { logs = await adminFetchAll('service_logs', cid, 'barcode_id, created_at, payload', meter); } catch (e) {}
+            finally { if (meter) meter.stop(); }
             if (!here() || adminPlan.cid !== cid) return;
             adminPlan.entries = PR.build({ logs, stations }).entries;
             drawAdminPlanHeat();
@@ -3333,7 +3368,7 @@ const PR = (() => {
             if (!stage || !box || !m) return;
             const old = stage.querySelector('.heat-layer'); if (old) old.remove();
             if (!adminPlan.heat.on) return;
-            if (!adminPlan.entries) { box.innerHTML = '<div class="t-faint">Loading the activity...</div>'; return; }
+            if (!adminPlan.entries) { if (!box.querySelector('.as-dl')) box.innerHTML = '<div class="t-faint">Loading the activity...</div>'; return; }
             const es = adminPlan.entries, byStation = new Map();   // each station's records, sorted out once
             es.forEach(e => { const l = byStation.get(e.barcode); if (l) l.push(e); else byStation.set(e.barcode, [e]); });
             const pts = PVR.heatPoints(adminPlan.stations.filter(x => String(x.map_id) === String(m.id)).map(x => ({ x: x.pin_x, y: x.pin_y, name: x.name || x.barcode, recs: byStation.get(x.barcode) || [] })), adminPlan.heat);
@@ -3574,9 +3609,11 @@ const PR = (() => {
             const seq = ++adminRepSeq;
             if (!cid) { box.innerHTML = '<div class="row-item p-4 t-faint italic text-center">Choose a site to see its reports.</div>'; msg.textContent = ''; return; }
             msg.textContent = 'Loading the site\'s records...';
+            box.innerHTML = '<div class="card p-4 sm:p-5"></div>'; box._prSite = null;
+            const meter = adminDlMeter(box.firstElementChild, 'Downloading station records');
             try {
                 const opt = t => adminFetchAll(t, cid).catch(() => []);
-                const [logs, stations, maps, visits, recs, limits] = await Promise.all([adminFetchAll('service_logs', cid), adminFetchAll('stations', cid), opt('site_maps'), opt('visits'), opt('recommendations'), opt('site_limits')]);
+                const [logs, stations, maps, visits, recs, limits] = await Promise.all([adminFetchAll('service_logs', cid, undefined, meter), adminFetchAll('stations', cid), opt('site_maps'), opt('visits'), opt('recommendations'), opt('site_limits')]).finally(() => meter.stop());
                 if (seq !== adminRepSeq) return;
                 const site = siteById(cid);
                 const data = PR.build({ siteName: site ? site.Name : 'Site', logs, stations, maps, visits, recs, limits, species: speciesItems().map(o => o.label), stationTypes: appOptions.filter(o => o.kind === 'station_type').map(o => o.label) });
